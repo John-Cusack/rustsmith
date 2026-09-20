@@ -1,0 +1,23 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "crc"
+version = "8.0.0"
+description = "Pure-Rust CRC library (rustsmith Stage-1 mirror of Nicoretti/crc)"
+authors = [{ name = "Nicola Coretti", email = "nico.coretti@gmail.com" }]
+requires-python = ">=3.11,<4.0"
+readme = "README.md"
+license = "BSD-2-Clause"
+
+# Test config preserved verbatim from the original (frozen oracle owns this).
+[tool.coverage.run]
+source = [
+    "crc",
+]
+
+[tool.maturin]
+module-name = "crc._crc"
+bindings = "pyo3"
+features = ["pyo3/extension-module"]

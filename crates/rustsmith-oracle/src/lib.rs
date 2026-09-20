@@ -45,7 +45,15 @@ impl Oracle {
         for rel in files {
             let abs = repo_root.join(&rel);
             let bytes = std::fs::read(&abs)?;
-            let digest = sha256_hex(&bytes);
+            // SPEC §7.1 freezes "pyproject.toml test sections": packaging metadata
+            // (build-system, project) is owned by the Stage-1 port (hatchling->maturin),
+            // while test config ([tool.pytest*], coverage, tox) defines the suite.
+            // ADR-002. Other files hash whole.
+            let digest = if rel == "pyproject.toml" {
+                sha256_hex(pyproject_test_sections(&bytes).as_bytes())
+            } else {
+                sha256_hex(&bytes)
+            };
             hashed.push(FileHash {
                 path: Utf8PathBuf::from(rel),
                 sha256: digest,
@@ -71,7 +79,11 @@ impl Oracle {
                     path: f.path.to_string(),
                 })
             })?;
-            let digest = sha256_hex(&bytes);
+            let digest = if f.path.as_str() == "pyproject.toml" {
+                sha256_hex(pyproject_test_sections(&bytes).as_bytes())
+            } else {
+                sha256_hex(&bytes)
+            };
             if digest != f.sha256 {
                 return Err(OracleError::Halt(HaltReason::OracleTamper {
                     path: f.path.to_string(),
@@ -87,7 +99,12 @@ impl Oracle {
         for f in &manifest.files {
             let abs = tree.join(f.path.as_str());
             if let Ok(bytes) = std::fs::read(&abs) {
-                out.push(FileHash { path: f.path.clone(), sha256: sha256_hex(&bytes) });
+                let digest = if f.path.as_str() == "pyproject.toml" {
+                    sha256_hex(pyproject_test_sections(&bytes).as_bytes())
+                } else {
+                    sha256_hex(&bytes)
+                };
+                out.push(FileHash { path: f.path.clone(), sha256: digest });
             }
         }
         out
@@ -121,6 +138,60 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(bytes);
     hex::encode(h.finalize())
+}
+/// Test-relevant sections of pyproject.toml, normalized. Only these define the
+/// suite (SPEC §7.1 "pyproject.toml test sections"); packaging metadata
+/// ([build-system], [project] name/version, hatchling targets) is owned by the
+/// Stage-1 port. Adding a NEW test section changes this text => tamper.
+pub fn pyproject_test_sections(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let parsed: Result<toml::Value, _> = text.parse();
+    let v = match parsed {
+        Ok(v) => v,
+        Err(_) => return format!("unparseable:{}", sha256_hex(bytes)),
+    };
+    // Walk tool.pytest*, tool.coverage*, tool.tox*, tool.hypothesis*.
+    let mut picked = Vec::new();
+    if let Some(tool) = v.get("tool") {
+        for key in ["pytest", "coverage", "tox", "hypothesis"] {
+            // "pytest" matches [tool.pytest.ini_options]; prefix-match table names.
+            if let Some(t) = tool.as_table() {
+                for (k, val) in t {
+                    if k == key || k.starts_with(&format!("{key}")) {
+                        picked.push((k.clone(), val.clone()));
+                    }
+                }
+            }
+        }
+    }
+    picked.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut out = String::new();
+    for (k, val) in picked {
+        out.push_str(&k);
+        out.push('=');
+        out.push_str(&serde_json::to_string(&toml_json(val)).unwrap_or_default());
+        out.push('\n');
+    }
+    out
+}
+fn toml_json(v: toml::Value) -> serde_json::Value {
+    match v {
+        toml::Value::String(s) => serde_json::Value::String(s),
+        toml::Value::Integer(i) => serde_json::json!(i),
+        toml::Value::Float(f) => serde_json::json!(f),
+        toml::Value::Boolean(b) => serde_json::Value::Bool(b),
+        toml::Value::Datetime(d) => serde_json::Value::String(d.to_string()),
+        toml::Value::Array(a) => serde_json::Value::Array(a.into_iter().map(toml_json).collect()),
+        toml::Value::Table(t) => {
+            let mut m = serde_json::Map::new();
+            let mut keys: Vec<_> = t.into_iter().collect();
+            keys.sort_by(|a, b| a.0.cmp(&b.0));
+            for (k, val) in keys {
+                m.insert(k, toml_json(val));
+            }
+            serde_json::Value::Object(m)
+        }
+    }
 }
 
 /// Files that define correctness. bench/ explicitly excluded (not oracle).

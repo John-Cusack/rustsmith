@@ -22,11 +22,13 @@ max_rounds = 6
 enable_pgo = true
 
 [models]
-architect = { provider = "placeholder", model = "architect-model" }
-verifier = { provider = "placeholder", model = "verifier-model" }
-performance = { provider = "placeholder", model = "performance-model" }
-scope = { provider = "placeholder", model = "scope-model" }
-worker = { provider = "placeholder", model = "worker-model" }
+# Swappable identities only; never hardcoded elsewhere. Distinct providers per
+# review seat so adversarial review (two reviewers, different providers) is structural.
+architect = { provider = "provider-a", model = "architect-model" }
+verifier = { provider = "provider-b", model = "verifier-model" }
+performance = { provider = "provider-c", model = "performance-model" }
+scope = { provider = "provider-d", model = "scope-model" }
+worker = { provider = "provider-e", model = "worker-model" }
 
 [privacy]
 training_tier_models = ["worker"]

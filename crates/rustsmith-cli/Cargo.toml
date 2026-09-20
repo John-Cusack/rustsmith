@@ -20,3 +20,6 @@ rustsmith-profile = { path = "../rustsmith-profile" }
 serde_json = { workspace = true }
 camino = { workspace = true }
 walkdir = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

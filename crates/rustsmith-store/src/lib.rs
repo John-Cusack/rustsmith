@@ -214,6 +214,66 @@ CREATE TABLE IF NOT EXISTS optimizations (
             Ok(None)
         }
     }
+    /// Unit status machine: queued->running->gated->passed/parked/abandoned.
+    pub fn set_unit_status(&self, id: &str, status: &str) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute("UPDATE units SET status=?1 WHERE id=?2", params![status, id])?;
+        Ok(())
+    }
+    pub fn set_unit_depends(&self, id: &str, depends_json: &str) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute("UPDATE units SET depends_on=?1 WHERE id=?2", params![depends_json, id])?;
+        Ok(())
+    }
+    pub fn set_unit_worktree(&self, id: &str, worktree: &str) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute("UPDATE units SET worktree=?1 WHERE id=?2", params![worktree, id])?;
+        Ok(())
+    }
+    pub fn set_unit_commit(&self, id: &str, sha: &str) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute("UPDATE units SET commit_sha=?1 WHERE id=?2", params![sha, id])?;
+        Ok(())
+    }
+    /// Increment attempts, returning the new count (escalation at N=3).
+    pub fn bump_attempts(&self, id: &str) -> Result<i64, StoreError> {
+        let conn = self.conn.lock();
+        conn.execute("UPDATE units SET attempts=attempts+1 WHERE id=?1", params![id])?;
+        Ok(conn.query_row("SELECT attempts FROM units WHERE id=?1", params![id], |r| r.get(0))?)
+    }
+    pub fn unit_status(&self, id: &str) -> Result<Option<String>, StoreError> {
+        let conn = self.conn.lock();
+        let v: Option<String> = conn
+            .query_row("SELECT status FROM units WHERE id=?1", params![id], |r| r.get(0))
+            .unwrap_or(None);
+        Ok(v)
+    }
+    pub fn list_units(&self, run_id: &str) -> Result<Vec<(String, String, String)>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT id, status, COALESCE(depends_on,'[]') FROM units WHERE run_id=?1")?;
+        let rows = stmt.query_map(params![run_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+    pub fn gate_count(&self, unit_id: &str, gate: &str, passed: bool) -> Result<i64, StoreError> {
+        let conn = self.conn.lock();
+        Ok(conn.query_row(
+            "SELECT COUNT(*) FROM gate_results WHERE unit_id=?1 AND gate=?2 AND passed=?3",
+            params![unit_id, gate, passed as i32],
+            |r| r.get(0),
+        )?)
+    }
+    pub fn count_decisions(&self, run_id: &str) -> Result<i64, StoreError> {
+        let conn = self.conn.lock();
+        Ok(conn.query_row(
+            "SELECT COUNT(*) FROM decisions WHERE run_id=?1",
+            params![run_id],
+            |r| r.get(0),
+        )?)
+    }
 }
 
 #[cfg(test)]

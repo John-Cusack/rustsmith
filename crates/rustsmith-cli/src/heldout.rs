@@ -1,5 +1,7 @@
 //! Host-only held-out TEST suite generator (M3 template-based).
-//! Property + differential vs original + fuzz scaffolds from the public API.
+//! Property + differential vs original + fuzz scaffolds from the public API,
+//! plus pinned absolute values on disjoint inputs (the load-bearing element:
+//! consistent garbage passes agreement tests; only absolute pins catch it).
 //! Never copied into run/grading containers; never shown to workers/council.
 
 pub fn generate_heldout_tests() -> Vec<(String, String)> {
@@ -81,6 +83,32 @@ def test_identity_sensitive_repeats():
     b = bytes([49, 50, 51, 52, 53, 54, 55, 56, 57])
     assert a == b and (a is not b)
     assert calc.checksum(a) == calc.checksum(b)
+"#
+            .to_string(),
+        ),
+        (
+            "test_heldout_pinned.py".into(),
+            r#""""Held-out: pinned absolute values on disjoint inputs (host-only)."""
+from crc import Calculator, Crc8, Crc16, Crc32
+
+
+def test_pinned_abc():
+    assert Calculator(Crc8.CCITT).checksum(b"abc") == 0x5F
+    assert Calculator(Crc8.BLUETOOTH).checksum(b"abc") == 0xAA
+    assert Calculator(Crc16.XMODEM).checksum(b"abc") == 0x9DD6
+    assert Calculator(Crc16.MODBUS).checksum(b"abc") == 0x5749
+    assert Calculator(Crc32.CRC32).checksum(b"abc") == 0x352441C2
+
+
+def test_pinned_range():
+    assert Calculator(Crc8.CCITT).checksum(bytes(range(256))) == 0x14
+    assert Calculator(Crc16.XMODEM).checksum(bytes(range(256))) == 0x7E55
+    assert Calculator(Crc32.CRC32).checksum(bytes(range(256))) == 0x29058C73
+
+
+def test_pinned_fox():
+    assert Calculator(Crc8.CCITT).checksum(b"The quick brown fox jumps over the lazy dog") == 0xC1
+    assert Calculator(Crc32.CRC32).checksum(b"The quick brown fox jumps over the lazy dog") == 0x414FA339
 "#
             .to_string(),
         ),

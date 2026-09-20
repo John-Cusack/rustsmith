@@ -1,4 +1,5 @@
 mod heldout;
+mod mirror;
 mod porting;
 mod recon;
 use rustsmith_core::Event;
@@ -35,6 +36,7 @@ fn run() -> Result<(), String> {
         "m1probe" => cmd_m1probe(&args[2..]),
         "m2probe" => cmd_m2probe(&args[2..]),
         "recon" => cmd_recon(&args[2..]),
+        "mirror" => cmd_mirror(&args[2..]),
         "status" | "report" | "halt" | "resume" | "learn" => Err(format!("{} not implemented until its milestone", args[1])),
         _ => Err(usage().into()),
     }
@@ -448,5 +450,26 @@ fn cmd_recon(args: &[String]) -> Result<(), String> {
     }
     let rules = output.porting_md.lines().filter(|l| l.starts_with("## R")).count();
     println!("recon: PORTING.md rules={rules} dag_units={} workload=ok", output.dag.units.len());
+    Ok(())
+}
+fn cmd_mirror(args: &[String]) -> Result<(), String> {
+    let a = mirror::MirrorArgs {
+        repo: PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?),
+        fork: PathBuf::from(flag(args, "--fork").ok_or("missing --fork")?),
+        recon_out: PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out")?),
+        heldout: PathBuf::from(flag(args, "--heldout").ok_or("missing --heldout")?),
+        store_path: PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into())),
+        run_id: flag(args, "--run-id").unwrap_or_else(|| "m4".into()),
+        template: PathBuf::from(flag(args, "--template").unwrap_or_else(|| "mirror/crc".into())),
+    };
+    let store = Store::open(&a.store_path).map_err(|e| e.to_string())?;
+    let report = mirror::run_mirror(&a, &store)?;
+    println!(
+        "mirror: {}/{} passed divergence={:.4} unsafe={}",
+        report.passed,
+        report.passed + report.failed,
+        report.divergence,
+        report.unsafe_count
+    );
     Ok(())
 }

@@ -3,9 +3,10 @@
 //! which go to a host-only dir and are never mounted into containers.
 
 use rustsmith_adapters::{dag_from_call_graph, Adapter, PythonAdapter, UnitDag};
+use rustsmith_oracle::Oracle;
 use rustsmith_profile::{capture_hotspot_baseline, WorkloadContract};
-use std::path::{Path, PathBuf};
-
+use std::path::Path;
+#[allow(dead_code)]
 pub struct ReconOutput {
     pub porting_md: String,
     pub workload_md: String,
@@ -256,10 +257,10 @@ fn workload_contract(repo: &Path) -> Result<WorkloadContract, String> {
 }
 
 fn frozen_manifest_with_benchmarks(repo: &Path) -> Result<serde_json::Value, String> {
-    // Reuse oracle freeze for tests/configs, then append bench hashes (workload freeze).
-    let m = rustsmith_oracle_freeze(repo)?;
-    let mut files = m.0;
-    let mut bench_hashes = Vec::new();
+    // Canonical freeze (section-aware pyproject, ADR-002) + benchmark workload freeze.
+    let m = Oracle::freeze(repo).map_err(|e| e.to_string())?;
+    let mut files: Vec<(String, String)> =
+        m.files.iter().map(|f| (f.path.to_string(), f.sha256.clone())).collect();
     for entry in walkdir::WalkDir::new(repo.join("test/bench"))
         .into_iter()
         .filter_map(|e| e.ok())
@@ -268,89 +269,18 @@ fn frozen_manifest_with_benchmarks(repo: &Path) -> Result<serde_json::Value, Str
         if p.is_file() {
             let rel = p.strip_prefix(repo).unwrap().to_string_lossy().replace('\\', "/");
             let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
-            bench_hashes.push((rel, sha256_hex(&bytes)));
-        }
-    }
-    for (rel, h) in bench_hashes {
-        if !files.iter().any(|(p, _)| p == &rel) {
-            files.push((rel, h));
+            let h = rustsmith_oracle::sha256_hex(&bytes);
+            if !files.iter().any(|(q, _)| q == &rel) {
+                files.push((rel, h));
+            }
         }
     }
     files.sort();
     Ok(serde_json::json!({
         "version": 1,
-        "invocation": m.1,
+        "invocation": m.invocation,
         "files": files.iter().map(|(p, h)| serde_json::json!({"path": p, "sha256": h})).collect::<Vec<_>>(),
-        "baseline": m.2,
+        "baseline": serde_json::to_value(&m.baseline).unwrap(),
         "benchmark_files": files.iter().filter(|(p, _)| p.contains("bench")).map(|(p, _)| p).collect::<Vec<_>>(),
     }))
-}
-
-// Thin shims over oracle internals without adding a dependency edge:
-// read oracle freeze via CLI-level invocation of the same logic (hash + collect-only).
-fn rustsmith_oracle_freeze(repo: &Path) -> Result<(Vec<(String, String)>, Vec<String>, serde_json::Value), String> {
-    let files = rustsmith_oracle_files(repo)?;
-    let invocation = if repo.join("test/unit").is_dir() && repo.join("test/integration").is_dir() {
-        vec!["pytest test/unit".to_string(), "pytest test/integration".to_string()]
-    } else {
-        vec!["pytest".to_string()]
-    };
-    let baseline = baseline_counts(repo, &invocation)?;
-    Ok((files, invocation, baseline))
-}
-
-fn rustsmith_oracle_files(repo: &Path) -> Result<Vec<(String, String)>, String> {
-    let mut out = Vec::new();
-    for entry in walkdir::WalkDir::new(repo)
-        .into_iter()
-        .filter_entry(|e| {
-            let p = e.path();
-            for seg in [".git", "__pycache__", ".pytest_cache", ".venv", "venv", "dist", ".eggs", "target"] {
-                if p.components().any(|c| c.as_os_str() == seg) {
-                    return false;
-                }
-            }
-            if p.components().any(|c| c.as_os_str() == "bench") {
-                if p.extension().map(|x| x == "py").unwrap_or(false) {
-                    return false;
-                }
-            }
-            true
-        })
-    {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let p = entry.path();
-        if !p.is_file() {
-            continue;
-        }
-        let rel = p.strip_prefix(repo).unwrap().to_string_lossy().replace('\\', "/");
-        let is_test = rel.contains("test_")
-            || rel.ends_with("_test.py")
-            || rel.ends_with("conftest.py")
-            || rel.contains("/test/")
-            || rel.starts_with("test/");
-        let is_config = matches!(rel.as_str(), "pytest.ini" | "tox.ini" | "setup.cfg" | "pyproject.toml");
-        let is_ci = rel.starts_with(".github/workflows/");
-        if (is_test || is_config || is_ci) && !rel.contains("bench") {
-            let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
-            out.push((rel, sha256_hex(&bytes)));
-        }
-    }
-    out.sort();
-    out.dedup_by(|a, b| a.0 == b.0);
-    Ok(out)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut tmp = std::env::temp_dir();
-    tmp.push(format!("rs-hash-{}", std::process::id()));
-    std::fs::write(&tmp, bytes).unwrap();
-    let o = std::process::Command::new("python3")
-        .arg("-c")
-        .arg("import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())")
-        .arg(&tmp)
-        .output()
-        .unwrap();
-    let _ = std::fs::remove_file(&tmp);
-    String::from_utf8_lossy(&o.stdout).trim().to_string()
 }
