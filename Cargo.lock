@@ -319,6 +319,7 @@ dependencies = [
  "camino",
  "rustsmith-agent",
  "rustsmith-core",
+ "rustsmith-council",
  "rustsmith-gates",
  "rustsmith-oracle",
  "rustsmith-sandbox",
@@ -333,6 +334,17 @@ dependencies = [
  "camino",
  "serde",
  "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "rustsmith-council"
+version = "0.1.0"
+dependencies = [
+ "rustsmith-core",
+ "rustsmith-store",
+ "serde_json",
+ "tempfile",
  "thiserror",
 ]
 

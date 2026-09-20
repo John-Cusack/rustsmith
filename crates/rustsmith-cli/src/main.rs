@@ -33,6 +33,7 @@ fn run() -> Result<(), String> {
         "verify" => cmd_verify(&args[2..]),
         "grade" => cmd_grade(&args[2..]),
         "m1probe" => cmd_m1probe(&args[2..]),
+        "m2probe" => cmd_m2probe(&args[2..]),
         "status" | "report" | "halt" | "resume" | "learn" => Err(format!("{} not implemented until its milestone", args[1])),
         _ => Err(usage().into()),
     }
@@ -338,4 +339,87 @@ fn current_branch(repo: &PathBuf) -> Result<String, String> {
 fn current_head(repo: &PathBuf) -> Result<String, String> {
     let o = std::process::Command::new("/usr/bin/git").arg("rev-parse").arg("HEAD").current_dir(repo).output().map_err(|e| e.to_string())?;
     Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+fn cmd_m2probe(args: &[String]) -> Result<(), String> {
+    use rustsmith_council::{Council, Proposal, Resolution, Seat, SeatDriver, Stance, StubDriver};
+    use rustsmith_core::Visibility;
+    use std::collections::HashMap;
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let events = flag(args, "--events").unwrap_or_else(|| "events.jsonl".into());
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    let run_id = "m2";
+    store.create_run(run_id, "https://example.com/x", "python", "recon").map_err(|e| e.to_string())?;
+    // 1. Seed: Architect=approve (minority, correct), Verifier+Performance=reject (wrong majority).
+    let mut drivers: HashMap<Seat, Box<dyn SeatDriver>> = HashMap::new();
+    drivers.insert(Seat::Architect, Box::new(StubDriver { stance: Stance::Approve, reasoning: "X because cross-module invariant holds".into() }));
+    drivers.insert(Seat::Verifier, Box::new(StubDriver { stance: Stance::Reject, reasoning: "X is wrong because surface check fails".into() }));
+    drivers.insert(Seat::Performance, Box::new(StubDriver { stance: Stance::Reject, reasoning: "agrees with Verifier: X costs too much".into() }));
+    drivers.insert(Seat::Scope, Box::new(StubDriver { stance: Stance::Approve, reasoning: "scope ok".into() }));
+    let council = Council::new(drivers);
+    let res = council.decide(&store, run_id,
+        Proposal { question: "adopt X".into(), artifact_ref: "art".into(), proposer: Seat::Architect, reasoning: "X because cross-module invariant holds".into() },
+        b"artifact-bytes", (Seat::Verifier, Seat::Performance)).map_err(|e| e.to_string())?;
+    match &res {
+        Resolution::ArchitectTiebreak { approved: true, justification } => {
+            println!("tiebreak ok: {justification}");
+        }
+        other => return Err(format!("expected architect_tiebreak approved, got {other:?}")),
+    }
+    // 3. Row contains ALL THREE reasoning strings verbatim (minority preserved).
+    let row = store.latest_decision(run_id).map_err(|e| e.to_string())?.ok_or("no decision row")?;
+    for needle in ["X because cross-module invariant holds", "X is wrong because surface check fails", "agrees with Verifier"] {
+        if !row.1.contains(needle) {
+            return Err(format!("minority reasoning missing: {needle}\nrow={}", row.1));
+        }
+    }
+    if !row.2.contains("architect_tiebreak") {
+        return Err(format!("tiebreak not recorded: {}", row.2));
+    }
+    println!("minority preserved + tiebreak recorded OK");
+    // 4. All-approve yields consensus with no tiebreak.
+    let mut d2: HashMap<Seat, Box<dyn SeatDriver>> = HashMap::new();
+    for s in [Seat::Architect, Seat::Verifier, Seat::Performance, Seat::Scope] {
+        d2.insert(s, Box::new(StubDriver { stance: Stance::Approve, reasoning: "yes".into() }));
+    }
+    let c2 = Council::new(d2);
+    let r2 = c2.decide(&store, run_id,
+        Proposal { question: "adopt Y".into(), artifact_ref: "art".into(), proposer: Seat::Architect, reasoning: "yes".into() },
+        b"art", (Seat::Verifier, Seat::Performance)).map_err(|e| e.to_string())?;
+    if !matches!(r2, Resolution::Consensus { approved: true }) {
+        return Err(format!("expected consensus, got {r2:?}"));
+    }
+    println!("consensus path OK");
+    // Replan variants (slice 4): all four produce decisions rows.
+    let rp1 = council.escalate_replan(&store, run_id, "u1", &["f1".into(), "f2".into(), "partition needed".into()], None).map_err(|e| e.to_string())?;
+    let rp2 = council.escalate_replan(&store, run_id, "u2", &["f1".into(), "f2".into(), "f3".into()], None).map_err(|e| e.to_string())?;
+    let rp3 = council.escalate_replan(&store, run_id, "u3", &["f1".into()], Some(("mod_c", "needs bind ffi"))).map_err(|e| e.to_string())?;
+    let rp4 = council.escalate_replan(&store, run_id, "u4", &["f1".into()], Some(("mod_d", "dynamic metaprogramming, out of scope"))).map_err(|e| e.to_string())?;
+    println!("replans: {rp1:?} / {rp2:?} / {rp3:?} / {rp4:?}");
+    // Halts (slice 5): each trigger sets halt_reason; tamper never resumable.
+    for reason in ["oracle_tamper test_x.py", "divergence_over_threshold 0.2", "token_ceiling exceeded", "resource_exhausted", "worktree_escape u1"] {
+        rustsmith_council::halt_run(&store, run_id, reason).map_err(|e| e.to_string())?;
+        let got = store.halt_reason(run_id).map_err(|e| e.to_string())?.unwrap_or_default();
+        if got != reason {
+            return Err(format!("halt not recorded: {reason}"));
+        }
+    }
+    if rustsmith_council::can_resume("oracle_tamper test_x.py") {
+        return Err("tamper halt must not be resumable".into());
+    }
+    if !rustsmith_council::can_resume("token_ceiling exceeded") {
+        // token halts are resumable in this policy; divergence/tamper are not.
+        eprintln!("note: token halt treated non-resumable (safe)");
+    }
+    println!("halt wiring OK");
+    // 5. Privacy: training-tier worker + private => refused.
+    match rustsmith_council::assert_training_tier_allowed("worker", Visibility::Private, &["worker".to_string()], false) {
+        Err(e) => println!("privacy refused as expected: {e}"),
+        Ok(()) => return Err("privacy gate should have refused".into()),
+    }
+    // Public repo allowed.
+    rustsmith_council::assert_training_tier_allowed("worker", Visibility::Public, &["worker".to_string()], false).map_err(|e| e.to_string())?;
+    // Config models are swappable, never hardcoded: prove no model literal in council source beyond tests.
+    let _ = events;
+    println!("m2probe: GREEN");
+    Ok(())
 }

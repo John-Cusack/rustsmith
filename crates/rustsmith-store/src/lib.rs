@@ -183,6 +183,37 @@ CREATE TABLE IF NOT EXISTS optimizations (
             .unwrap_or(None);
         Ok(v)
     }
+    /// Append-only decision log. `seat_positions_json` stores ALL positions +
+    /// reasoning verbatim (minority recoverable). No UPDATE/DELETE path exists.
+    pub fn insert_decision(
+        &self,
+        run_id: &str,
+        question: &str,
+        seat_positions: &serde_json::Value,
+        resolution: &str,
+        resolved_by: &str,
+    ) -> Result<(), StoreError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO decisions (run_id, question, seat_positions_json, resolution, resolved_by, decided_at) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![run_id, question, seat_positions.to_string(), resolution, resolved_by, now],
+        )?;
+        Ok(())
+    }
+    pub fn latest_decision(&self, run_id: &str) -> Result<Option<(String, String, String)>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT question, seat_positions_json, resolution FROM decisions WHERE run_id=?1 ORDER BY id DESC LIMIT 1")?;
+        let mut rows = stmt.query(params![run_id])?;
+        if let Some(r) = rows.next()? {
+            Ok(Some((r.get(0)?, r.get(1)?, r.get(2)?)))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]

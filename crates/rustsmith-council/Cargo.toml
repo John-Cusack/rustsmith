@@ -1,0 +1,13 @@
+[package]
+name = "rustsmith-council"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustsmith-core = { path = "../rustsmith-core" }
+rustsmith-store = { path = "../rustsmith-store" }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
