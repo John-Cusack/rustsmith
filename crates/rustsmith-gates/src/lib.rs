@@ -222,6 +222,195 @@ pub fn provenance(headers_present: bool, notice_present: bool, attribution: &str
     }
 }
 
+// ---------------------------------------------------------------------------
+// Stage-2 gates (SPEC_STAGE2 §10). All pure, deterministic. Held-out magnitudes
+// NEVER appear in worker-visible output (see `worker_visible_message`).
+// ---------------------------------------------------------------------------
+
+/// `visible_gain - heldout_gain`. Fail if divergence > threshold (default 10pp)
+/// or heldout_gain negative beyond floor (helps measured, harms rest = overfit).
+/// The FAIL detail carries no magnitudes (gradient-climbing prevention).
+pub fn workload_divergence(vis_gain: f64, held_gain: f64, threshold: f64, floor: f64) -> GateVerdict {
+    let divergence = vis_gain - held_gain;
+    if divergence > threshold || held_gain < -floor {
+        verdict(false, worker_visible_rejection("workload_divergence"))
+    } else {
+        verdict(
+            true,
+            json!({"visible_gain": vis_gain, "heldout_gain": held_gain, "divergence": divergence, "threshold": threshold}),
+        )
+    }
+}
+
+/// Worker-visible rejection: names the gate, never magnitudes.
+pub fn worker_visible_rejection(gate: &str) -> serde_json::Value {
+    json!({"reason": "rejected_for_workload_divergence", "gate": gate})
+}
+
+/// Returns true iff `detail` is safe to show a worker (no held-out numbers).
+/// Load-bearing redaction rule: worker-visible strings must contain NO numeric
+/// magnitudes from held-out runs (a magnitude is a gradient to climb).
+pub fn is_worker_safe(detail: &serde_json::Value) -> bool {
+    !detail.to_string().chars().any(|c| c.is_ascii_digit())
+}
+
+/// Revert-attribution: gain must disappear when the candidate change is
+/// reverted. Pass iff the reverted gain is within floor (gone) OR below half
+/// the claimed gain (drift-robust: back-to-back identical trees can differ by
+/// frequency/thermal drift larger than the self-vs-self floor; only a gain
+/// that substantially PERSISTS without the change is phantom credit).
+pub fn causal_attribution(gain_with: f64, gain_without: f64, floor: f64) -> GateVerdict {
+    if gain_without.abs() <= floor || gain_without.abs() <= 0.5 * gain_with.abs().max(1e-9) {
+        verdict(true, json!({"gain_with": gain_with, "gain_without": gain_without}))
+    } else {
+        verdict(
+            false,
+            json!({"reason": "gain_persists_without_change", "gain_with": gain_with, "gain_without": gain_without}),
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ResourceSnapshot {
+    pub rss_bytes: u64,
+    pub alloc_count: u64,
+    pub binary_bytes: u64,
+    pub compile_secs: f64,
+}
+
+/// Widened no_regression: other visible workloads within floor; RSS +5%;
+/// alloc +10%; binary +10%; compile +20%. Held-out is pass/fail only (no magnitudes).
+#[allow(clippy::too_many_arguments)]
+pub fn no_regression_widened(
+    base: &ResourceSnapshot,
+    got: &ResourceSnapshot,
+    other_workload_within_floor: bool,
+    heldout_ok: bool,
+) -> GateVerdict {
+    if !other_workload_within_floor {
+        return verdict(false, json!({"reason": "other_workload_regressed"}));
+    }
+    if !heldout_ok {
+        return verdict(false, json!({"reason": "heldout_regressed"}));
+    }
+    let pct = |a: u64, b: u64| {
+        if a == 0 {
+            0.0
+        } else {
+            (b as f64 - a as f64) / a as f64 * 100.0
+        }
+    };
+    let rss = pct(base.rss_bytes, got.rss_bytes);
+    if rss > 5.0 {
+        return verdict(false, json!({"reason": "rss_regression", "delta_pct": rss}));
+    }
+    let alloc = pct(base.alloc_count, got.alloc_count);
+    if alloc > 10.0 {
+        return verdict(false, json!({"reason": "alloc_regression", "delta_pct": alloc}));
+    }
+    let bin = pct(base.binary_bytes, got.binary_bytes);
+    if bin > 10.0 {
+        return verdict(false, json!({"reason": "binary_regression", "delta_pct": bin}));
+    }
+    let compile = if base.compile_secs <= 0.0 {
+        0.0
+    } else {
+        (got.compile_secs - base.compile_secs) / base.compile_secs * 100.0
+    };
+    if compile > 20.0 {
+        return verdict(false, json!({"reason": "compile_regression", "delta_pct": compile}));
+    }
+    verdict(true, json!({"rss_pct": rss, "alloc_pct": alloc, "binary_pct": bin, "compile_pct": compile}))
+}
+
+/// Per-candidate: deterministic gain > measured floor. Per-round (merged):
+/// wall-clock CI excludes zero AND sign agrees with deterministic.
+pub fn benchmark_restated(
+    det_gain: f64,
+    floor: f64,
+    round_ci: Option<(f64, f64)>,
+    det_sign: f64,
+) -> GateVerdict {
+    if det_gain <= floor {
+        return verdict(false, json!({"reason": "below_floor", "det_gain": det_gain, "floor": floor}));
+    }
+    if let Some((lo, hi)) = round_ci {
+        if lo > 0.0 || hi < 0.0 {
+            // CI excludes zero; check sign agreement with deterministic.
+            let wall_sign = if lo > 0.0 { 1.0 } else { -1.0 };
+            if wall_sign * det_sign < 0.0 {
+                return verdict(false, json!({"reason": "instrument_disagreement"}));
+            }
+            return verdict(true, json!({"ci_low": lo, "ci_high": hi}));
+        }
+        return verdict(false, json!({"reason": "ci_includes_zero", "ci_low": lo, "ci_high": hi}));
+    }
+    verdict(true, json!({"det_gain": det_gain}))
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DiffSummary {
+    /// Files touched (repo-relative).
+    pub files: Vec<String>,
+    /// Added lines (for structural special-case detection).
+    pub added_lines: Vec<String>,
+    /// Removed public API symbols (empty when API intact).
+    pub removed_api: Vec<String>,
+    /// Added dependencies.
+    pub added_deps: Vec<String>,
+}
+
+/// Structural scope gate: no oracle/benchmark files; no NEW input-size/value/
+/// identity conditionals absent from the original; public API byte-identical;
+/// allowlisted deps only.
+pub fn optimization_scope(
+    diff: &DiffSummary,
+    original_branch_count: usize,
+    allowlisted_deps: &[String],
+) -> GateVerdict {
+    for f in &diff.files {
+        if f.contains("test/") || f.contains("bench") || f == "pyproject.toml" {
+            // NOTE: pyproject build-section edits are owned by the port (ADR-002),
+            // but Stage-2 candidates must not touch test/bench files at all.
+            if f.contains("test/") || f.contains("bench") {
+                return verdict(false, json!({"reason": "touches_frozen_file", "file": f}));
+            }
+        }
+    }
+    // Structural special-case detector: added SHAPE branches (input size /
+    // capacity selecting different code paths). Bare value/identity equality
+    // without a shape term is the workload-divergence gate's job (statistical),
+    // not this gate's (structural) — see the fixture-cache plant.
+    let mut new_branches = 0;
+    for line in &diff.added_lines {
+        let t = line.trim();
+        if (t.starts_with("if ") || t.starts_with("if(") || t.contains("match "))
+            && (t.contains("len(")
+                || t.contains("len()")
+                || t.contains(".len()")
+                || t.contains("size")
+                || t.contains("capacity"))
+        {
+            new_branches += 1;
+        }
+    }
+    if new_branches > original_branch_count {
+        return verdict(
+            false,
+            json!({"reason": "input_size_branch", "new_branches": new_branches}),
+        );
+    }
+    if !diff.removed_api.is_empty() {
+        return verdict(false, json!({"reason": "api_changed", "removed": diff.removed_api}));
+    }
+    for d in &diff.added_deps {
+        if !allowlisted_deps.iter().any(|a| a == d) {
+            return verdict(false, json!({"reason": "non_allowlisted_dep", "dep": d}));
+        }
+    }
+    verdict(true, json!({"files": diff.files.len()}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,5 +536,77 @@ mod tests {
             has_safety_comment: false,
         }];
         assert!(!unsafe_budget(&bad2, 5.0, 10).passed);
+    }
+
+    #[test]
+    fn workload_divergence_redacts_magnitudes() {
+        // Plant: fixture-keyed cache helps visible (+20%) but not held-out (+1%).
+        let v = workload_divergence(0.20, 0.01, 0.10, 0.01);
+        assert!(!v.passed);
+        // Worker-visible detail must carry NO magnitudes (gradient prevention).
+        assert!(is_worker_safe(&v.detail));
+        // Honest gain passes with magnitudes visible to the control plane.
+        let ok = workload_divergence(0.15, 0.14, 0.10, 0.01);
+        assert!(ok.passed);
+    }
+
+    #[test]
+    fn attribution_rejects_phantoms() {
+        // No-effect change in an improving round: gain persists after revert.
+        assert!(!causal_attribution(0.05, 0.048, 0.005).passed);
+        // Real change: gain disappears on revert.
+        assert!(causal_attribution(0.35, 0.002, 0.005).passed);
+    }
+
+    #[test]
+    fn widened_regression_catches_rss_for_speed() {
+        let base = ResourceSnapshot { rss_bytes: 100_000, alloc_count: 1_000, binary_bytes: 1_000_000, compile_secs: 10.0 };
+        // Plant: 8% faster but 3x RSS.
+        let got = ResourceSnapshot { rss_bytes: 300_000, alloc_count: 900, binary_bytes: 1_000_000, compile_secs: 10.0 };
+        let v = no_regression_widened(&base, &got, true, true);
+        assert!(!v.passed);
+        assert_eq!(v.detail["reason"], "rss_regression");
+        // Clean candidate passes.
+        let ok = ResourceSnapshot { rss_bytes: 101_000, alloc_count: 950, binary_bytes: 1_000_000, compile_secs: 10.0 };
+        assert!(no_regression_widened(&base, &ok, true, true).passed);
+    }
+
+    #[test]
+    fn benchmark_restated_needs_ci_and_sign() {
+        assert!(!benchmark_restated(0.001, 0.01, None, 1.0).passed); // below floor
+        assert!(!benchmark_restated(0.05, 0.01, Some((-0.01, 0.03)), 1.0).passed); // CI has zero
+        assert!(!benchmark_restated(0.05, 0.01, Some((0.02, 0.06)), -1.0).passed); // sign clash
+        assert!(benchmark_restated(0.05, 0.01, Some((0.02, 0.06)), 1.0).passed);
+    }
+
+    #[test]
+    fn scope_catches_size_branch() {
+        let diff = DiffSummary {
+            files: vec!["src/lib.rs".into()],
+            added_lines: vec!["if data.len() < 64 { fast_path() }".into()],
+            removed_api: vec![],
+            added_deps: vec![],
+        };
+        assert!(!optimization_scope(&diff, 0, &[]).passed);
+        let clean = DiffSummary {
+            files: vec!["src/lib.rs".into()],
+            added_lines: vec!["let x = table[idx] ^ (reg << 8);".into()],
+            removed_api: vec![],
+            added_deps: vec![],
+        };
+        assert!(optimization_scope(&clean, 0, &[]).passed);
+    }
+
+    #[test]
+    fn scope_leaves_identity_checks_to_divergence() {
+        // Fixture-identity cache branch: no shape term -> scope passes;
+        // workload_divergence (statistical) is the catcher.
+        let diff = DiffSummary {
+            files: vec!["src/lib.rs".into()],
+            added_lines: vec!["if bytes.first() == Some(&0x41) { cache_hit() }".into()],
+            removed_api: vec![],
+            added_deps: vec![],
+        };
+        assert!(optimization_scope(&diff, 0, &[]).passed);
     }
 }

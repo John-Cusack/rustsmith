@@ -20,6 +20,41 @@ iterations_per_hotspot = 6
 round_gain_threshold_pct = 3.0
 max_rounds = 6
 enable_pgo = true
+round0_enabled = true
+round0_mode = "apply"        # apply | suggest
+round0_max_changes = 10
+min_candidate_ceiling_pct = 1.0
+stage2_token_ceiling = 100_000_000
+min_gain_per_mtoken = 0.01
+require_technique_proposal = true
+
+[optimize.heldout]
+workload_divergence_threshold = 0.10
+workload_divergence_halt = 0.25
+max_divergence_failures_per_run = 2
+
+[optimize.regression]
+rss_tolerance_pct = 5.0
+alloc_tolerance_pct = 10.0
+binary_size_tolerance_pct = 10.0
+compile_time_tolerance_pct = 20.0
+
+[optimize.final]
+pgo = "gated"   # gated | off, never unconditional
+bolt = "gated"
+allocator_swap = "candidate"
+
+[measure]
+primary_instrument = "cpu_time"
+wallclock_confirmation = true
+wallclock_repetitions = 30
+wallclock_ci = 0.95
+quiesce_host_for_wallclock = true
+noise_floor_measured = true
+
+[workload]
+primary_metric = "wall_time_p50"
+require_workload_contract = true
 
 [models]
 # Swappable identities only; never hardcoded elsewhere. Distinct providers per

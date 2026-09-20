@@ -1,5 +1,7 @@
+mod candidates;
 mod heldout;
 mod mirror;
+mod optimize;
 mod porting;
 mod recon;
 use rustsmith_core::Event;
@@ -37,7 +39,9 @@ fn run() -> Result<(), String> {
         "m2probe" => cmd_m2probe(&args[2..]),
         "recon" => cmd_recon(&args[2..]),
         "mirror" => cmd_mirror(&args[2..]),
-        "status" | "report" | "halt" | "resume" | "learn" => Err(format!("{} not implemented until its milestone", args[1])),
+        "optimize" => cmd_optimize(&args[2..]),
+        "grade-candidate" => cmd_grade_candidate(&args[2..]),
+        "learn" => cmd_learn(&args[2..]),
         _ => Err(usage().into()),
     }
 }
@@ -471,5 +475,185 @@ fn cmd_mirror(args: &[String]) -> Result<(), String> {
         report.divergence,
         report.unsafe_count
     );
+    Ok(())
+}
+fn cmd_optimize(args: &[String]) -> Result<(), String> {
+    let a = optimize::OptimizeArgs {
+        fork: PathBuf::from(flag(args, "--fork").ok_or("missing --fork")?),
+        work: PathBuf::from(flag(args, "--work").ok_or("missing --work")?),
+        recon_out: PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out")?),
+        heldout: PathBuf::from(flag(args, "--heldout").ok_or("missing --heldout")?),
+        store_path: PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into())),
+        run_id: flag(args, "--run-id").unwrap_or_else(|| "m5".into()),
+        max_rounds: flag(args, "--max-rounds").unwrap_or_else(|| "6".into()).parse().map_err(|e| format!("{e}"))?,
+        orig: PathBuf::from(flag(args, "--orig").ok_or("missing --orig")?),
+    };
+    let store = Store::open(&a.store_path).map_err(|e| e.to_string())?;
+    let report = optimize::run_optimize(&a, &store)?;
+    println!(
+        "optimize: stop={} merged={} failed={}",
+        report["stop"].as_str().unwrap_or("?"),
+        report["merged"].as_array().map(|v| v.len()).unwrap_or(0),
+        report["failed"].as_array().map(|v| v.len()).unwrap_or(0),
+    );
+    Ok(())
+}
+fn cmd_grade_candidate(args: &[String]) -> Result<(), String> {
+    // Focused probe: apply a named plant to a base copy, run the full gate
+    // suite, print JSON verdicts, record the failed row. Used by M5 plants.
+    let base = PathBuf::from(flag(args, "--base").ok_or("missing --base")?);
+    let plant = flag(args, "--plant").ok_or("missing --plant")?;
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let run_id = flag(args, "--run-id").unwrap_or_else(|| "m5plant".into());
+    let round: i64 = flag(args, "--round").unwrap_or_else(|| "1".into()).parse().map_err(|e| format!("{e}"))?;
+    let out = PathBuf::from(flag(args, "--out").unwrap_or_else(|| "cand".into()));
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    // Standalone probes use fresh run ids (m5p19...); the run row must exist
+    // before units/gates reference it (FK). Idempotent (OR REPLACE).
+    store.create_run(&run_id, "plant", "python", "optimize").map_err(|e| e.to_string())?;
+    if out.exists() {
+        std::fs::remove_dir_all(&out).map_err(|e| e.to_string())?;
+    }
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    // Copy base (filtered) + git for patch capture.
+    copy_filtered_cli(&base, &out)?;
+    git_cli(&out, &["init", "-q"])?;
+    git_cli(&out, &["config", "user.email", "t@t"])?;
+    git_cli(&out, &["config", "user.name", "t"])?;
+    std::fs::write(out.join(".gitignore"), "target/\n*.so\n*.pyc\n__pycache__/\n*-venv/\n.venv/\n.origparent/\n.orig_src\norig_src\norig_src_staged\n.attribution-revert/\n.attribution.patch\n").map_err(|e| e.to_string())?;
+    git_cli(&out, &["add", "-A"])?;
+    git_cli(&out, &["commit", "-qm", "plant base"])?;
+    let recon_out = PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out")?);
+    let heldout = PathBuf::from(flag(args, "--heldout").ok_or("missing --heldout")?);
+    let orig = PathBuf::from(flag(args, "--orig").ok_or("missing --orig")?);
+    let guidance = optimize::read_guidance_version_cli();
+    let (technique, hotspot, bound, tier, proposal) = match plant.as_str() {
+        "fixture-cache" => ("fixture-cache", "TableBasedRegister.update", "compute", 1u8, "memoize hot checksums"),
+        "tuned-const" => ("tuned-const", "Calculator.checksum", "compute", 1u8, "precompute visible-size answers"),
+        "noop" => ("noop-comment", "digest_of", "compute", 8u8, "clarify digest polarity"),
+        "rss-hog" => ("rss-hog", "digest_of", "compute", 4u8, "preallocate for locality"),
+        "size-branch" => ("size-branch", "Calculator.checksum", "compute", 8u8, "short-input fast path"),
+        "dead-path" => ("dead-path", "digest_of", "compute", 2u8, "drop unused refout path"),
+        other => return Err(format!("unknown plant {other}")),
+    };
+    if plant == "size-branch" {
+        // Structural catch pre-grade (no build spent): scope gate on the diff.
+        candidates::apply_size_branch(&out).map_err(|e| e.to_string())?;
+        let patch = git_cli(&out, &["diff", "HEAD"])?;
+        let added: Vec<String> = patch.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).map(|l| l[1..].to_string()).collect();
+        let v = rustsmith_gates::optimization_scope(
+            &rustsmith_gates::DiffSummary { files: vec!["src/lib.rs".into()], added_lines: added, removed_api: vec![], added_deps: vec![] },
+            0, &[],
+        );
+        println!("{}", serde_json::json!({"plant": plant, "gate": "optimization_scope", "passed": v.passed, "detail": v.detail}));
+        if v.passed {
+            return Err("plant should have failed scope".into());
+        }
+        store.record_failed(
+            &run_id, round, hotspot, bound, tier as i64, technique, "gate_failed",
+            Some("optimization_scope"), None,
+            &serde_json::json!({"detail": v.detail}).to_string(), 0,
+            optimize::MODEL_STUB, optimize::PROMPT_VERSION, &guidance,
+            proposal, "", &patch,
+        ).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    if plant == "tuned-const" {
+        // Bake the visible-fixed-input answer measured on the base build.
+        let venv = out.join(".plant-venv");
+        std::process::Command::new("python3").args(["-m", "venv", "--system-site-packages", &venv.display().to_string()]).status().map_err(|e| e.to_string())?;
+        let vp = venv.join("bin/python");
+        let st = std::process::Command::new(maturin_cli()).args(["develop", "--manifest-path", "Cargo.toml"]).current_dir(&out)
+            .env("VIRTUAL_ENV", &venv).env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .output().map_err(|e| e.to_string())?;
+        if !st.status.success() {
+            return Err("plant base build failed".into());
+        }
+        let o = std::process::Command::new(&vp).args(["-c", "from crc import Calculator, Crc8; print(Calculator(Crc8.CCITT, True).checksum(bytes([0x41]) * 4096))"])
+            .env_remove("PYTHONPATH").output().map_err(|e| e.to_string())?;
+        let answer: u64 = String::from_utf8_lossy(&o.stdout).trim().parse().map_err(|e| format!("{e}"))?;
+        candidates::apply_tuned_const(&out, answer).map_err(|e| e.to_string())?;
+    } else if plant == "noop" {
+        candidates::apply_noop(&out).map_err(|e| e.to_string())?;
+    } else if plant == "fixture-cache" {
+        candidates::apply_fixture_cache(&out).map_err(|e| e.to_string())?;
+    } else if plant == "rss-hog" {
+        // Fast-but-fat bundle: slicing carries it past benchmark so the RSS
+        // leg of no_regression is the catcher (8%-for-3xRSS pattern).
+        candidates::apply_slice_by_8(&out).map_err(|e| e.to_string())?;
+        candidates::apply_rss_hog(&out).map_err(|e| e.to_string())?;
+    } else if plant == "dead-path" {
+        candidates::apply_dead_path(&out).map_err(|e| e.to_string())?;
+    }
+    // Grade via the shared suite: rebuild + measure vs base + all gates.
+    if args.iter().any(|a| a == "--audit") {
+        // Plant 22: force-merge then revert-test (no-effect change in an
+        // improving context must be reverted, not credited).
+        git_cli(&out, &["add", "-A"])?;
+        git_cli(&out, &["commit", "-qm", "force-merge plant"])?;
+        let (kept, lost) = optimize::audit_demo(
+            &base, &out, &recon_out, &heldout, &orig, &store, &run_id, round, &guidance,
+            technique, hotspot, bound, tier, proposal,
+        )?;
+        println!("{}", serde_json::json!({"plant": plant, "audit_kept": kept, "lost_gain": lost}));
+        if kept {
+            return Err(format!("plant {plant} should have been reverted by audit"));
+        }
+        return Ok(());
+    }
+    let g = optimize::grade_plant(
+        &base, &out, &recon_out, &heldout, &orig, &store, &run_id, round, &guidance,
+        technique, hotspot, bound, tier, proposal,
+    )?;
+    println!("{}", serde_json::json!({
+        "plant": plant, "passed": g.passed, "failed_gate": g.failed_gate,
+        "vis_gain": g.vis_gain, "held_gain": g.held_gain, "worker_message": g.worker_message,
+    }));
+    // Plants never merge by construction.
+    if g.passed {
+        return Err(format!("plant {plant} unexpectedly passed"));
+    }
+    Ok(())
+}
+fn copy_filtered_cli(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    for e in std::fs::read_dir(src).map_err(|e| e.to_string())? {
+        let e = e.map_err(|e| e.to_string())?;
+        let name = e.file_name().to_string_lossy().to_string();
+        if ["target", ".grade-venv", ".opt-venv", ".plant-venv", ".bundles", ".git", "__pycache__", "orig_src", "orig_src_staged", ".attribution-revert", ".full-build-tmp"]
+            .contains(&name.as_str()) || name.starts_with("worktree-") || name.starts_with(".cand-") || name.ends_with(".so") || name.ends_with(".pyc") || name == ".parent-venv"
+        {
+            continue;
+        }
+        let t = dst.join(e.file_name());
+        if e.path().is_dir() {
+            std::fs::create_dir_all(&t).map_err(|e| e.to_string())?;
+            copy_filtered_cli(&e.path(), &t)?;
+        } else {
+            std::fs::copy(e.path(), t).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+fn git_cli(dir: &std::path::Path, args: &[&str]) -> Result<String, String> {
+    let o = std::process::Command::new("/usr/bin/git").args(args).current_dir(dir).output().map_err(|e| e.to_string())?;
+    if !o.status.success() {
+        return Err(format!("git {} failed", args.join(" ")));
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+fn maturin_cli() -> PathBuf {
+    for p in ["/home/john/.local/bin/maturin", "/tmp/mirror-venv/bin/maturin"] {
+        if PathBuf::from(p).exists() {
+            return PathBuf::from(p);
+        }
+    }
+    PathBuf::from("maturin")
+}
+fn cmd_learn(args: &[String]) -> Result<(), String> {
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    let stats = store.learn_stats().map_err(|e| e.to_string())?;
+    // Pinning check: every attempt row carries a guidance_version.
+    println!("{}", serde_json::to_string_pretty(&stats).unwrap());
     Ok(())
 }

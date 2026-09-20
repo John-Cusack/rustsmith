@@ -120,7 +120,7 @@ pub fn assemble_bundle(
     })
 }
 
-fn maturin_bin() -> PathBuf {
+pub(crate) fn maturin_bin() -> PathBuf {
     for p in ["/home/john/.local/bin/maturin", "/tmp/mirror-venv/bin/maturin"] {
         let pb = PathBuf::from(p);
         if pb.exists() {
@@ -131,7 +131,7 @@ fn maturin_bin() -> PathBuf {
 }
 
 /// Grade venv: `--system-site-packages` (no network), maturin via absolute binary.
-fn ensure_grade_venv(venv: &Path) -> Result<(), String> {
+pub(crate) fn ensure_grade_venv(venv: &Path) -> Result<(), String> {
     if venv.join("bin/activate").exists() {
         return Ok(());
     }
@@ -145,12 +145,12 @@ fn ensure_grade_venv(venv: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn grade_venv_python(venv: &Path) -> PathBuf {
+pub(crate) fn grade_venv_python(venv: &Path) -> PathBuf {
     venv.join("bin/python")
 }
 
 /// Build the fork's extension into the venv (no build isolation: no network).
-fn build_ext(worktree: &Path, venv: &Path) -> Result<String, String> {
+pub(crate) fn build_ext(worktree: &Path, venv: &Path) -> Result<String, String> {
     let mut log = String::new();
     let mut path = venv.join("bin").as_os_str().to_owned();
     path.push(":");
@@ -172,7 +172,7 @@ fn build_ext(worktree: &Path, venv: &Path) -> Result<String, String> {
 
 /// Run the frozen oracle invocation inside the venv WITHOUT src-layout
 /// PYTHONPATH (the installed Rust extension is the implementation).
-fn run_oracle_in_venv(
+pub(crate) fn run_oracle_in_venv(
     venv: &Path,
     worktree: &Path,
     invocation: &[String],
@@ -808,7 +808,7 @@ fn default_providers() -> HashMap<Seat, String> {
     ])
 }
 
-fn parse_heldout_rate(t: &str) -> f64 {
+pub(crate) fn parse_heldout_rate(t: &str) -> f64 {
     // Parse "N passed" / failures from quiet pytest output.
     let (mut p, mut f) = (0u32, 0u32);
     for line in t.lines() {
@@ -839,7 +839,7 @@ fn parse_heldout_rate(t: &str) -> f64 {
     }
 }
 
-fn audit_unsafe(fork: &Path) -> Result<Vec<gates::UnsafeSite>, String> {
+pub(crate) fn audit_unsafe(fork: &Path) -> Result<Vec<gates::UnsafeSite>, String> {
     // `cargo geiger` cross-check would go here; the mirror ships zero unsafe,
     // so a textual audit plus geiger-if-present is the honest check.
     let mut count = 0usize;

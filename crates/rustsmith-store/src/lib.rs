@@ -53,8 +53,9 @@ impl Store {
     }
 
     fn init_schema(&self) -> Result<(), StoreError> {
-        let conn = self.conn.lock();
-        conn.execute_batch(
+        {
+            let conn = self.conn.lock();
+            conn.execute_batch(
             r#"
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
@@ -105,10 +106,107 @@ CREATE TABLE IF NOT EXISTS optimizations (
   delta_pct REAL NOT NULL,
   technique TEXT NOT NULL,
   harvest_class TEXT,
-  files_touched_json TEXT NOT NULL
+  files_touched_json TEXT NOT NULL,
+  bound TEXT NOT NULL DEFAULT '',
+  tier INTEGER NOT NULL DEFAULT 0,
+  ceiling_pct REAL NOT NULL DEFAULT 0,
+  visible_gain_pct REAL NOT NULL DEFAULT 0,
+  heldout_gain_pct REAL NOT NULL DEFAULT 0,
+  divergence_pct REAL NOT NULL DEFAULT 0,
+  instrument TEXT NOT NULL DEFAULT '',
+  ci_low REAL,
+  ci_high REAL,
+  attribution_verified INTEGER NOT NULL DEFAULT 0,
+  rss_delta_pct REAL NOT NULL DEFAULT 0,
+  alloc_delta_pct REAL NOT NULL DEFAULT 0,
+  model TEXT NOT NULL DEFAULT '',
+  prompt_version TEXT NOT NULL DEFAULT '',
+  guidance_version TEXT NOT NULL DEFAULT '',
+  proposal_text TEXT NOT NULL DEFAULT '',
+  tokens_spent INTEGER NOT NULL DEFAULT 0,
+  parent_sha TEXT NOT NULL DEFAULT '',
+  patch_text TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS failed_optimizations (
+  id INTEGER PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id),
+  round INTEGER NOT NULL,
+  hotspot TEXT NOT NULL,
+  bound TEXT NOT NULL,
+  tier INTEGER NOT NULL,
+  technique TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  gate TEXT,
+  measured_delta_pct REAL,
+  detail_json TEXT NOT NULL,
+  tokens_spent INTEGER NOT NULL,
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  guidance_version TEXT NOT NULL,
+  proposal_text TEXT NOT NULL,
+  parent_sha TEXT NOT NULL,
+  patch_text TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rounds (
+  id INTEGER PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id),
+  round INTEGER NOT NULL,
+  stop_reason TEXT NOT NULL,
+  gain_low REAL,
+  gain_high REAL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS guidance_revisions (
+  id INTEGER PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  guidance_version TEXT NOT NULL UNIQUE,
+  change_summary TEXT NOT NULL,
+  evidence_query TEXT NOT NULL,
+  stats_json TEXT NOT NULL,
+  runs_included_json TEXT NOT NULL,
+  decided_by TEXT NOT NULL,
+  prompt_diff TEXT NOT NULL
 );
 "#,
         )?;
+        }
+        self.migrate_stage2()?;
+        Ok(())
+    }
+
+    /// ADD COLUMN migration for pre-M5 databases (fresh DBs already match).
+    fn migrate_stage2(&self) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        let existing: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('optimizations')")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        let wants = [
+            ("bound", "TEXT NOT NULL DEFAULT ''"),
+            ("tier", "INTEGER NOT NULL DEFAULT 0"),
+            ("ceiling_pct", "REAL NOT NULL DEFAULT 0"),
+            ("visible_gain_pct", "REAL NOT NULL DEFAULT 0"),
+            ("heldout_gain_pct", "REAL NOT NULL DEFAULT 0"),
+            ("divergence_pct", "REAL NOT NULL DEFAULT 0"),
+            ("instrument", "TEXT NOT NULL DEFAULT ''"),
+            ("ci_low", "REAL"),
+            ("ci_high", "REAL"),
+            ("attribution_verified", "INTEGER NOT NULL DEFAULT 0"),
+            ("rss_delta_pct", "REAL NOT NULL DEFAULT 0"),
+            ("alloc_delta_pct", "REAL NOT NULL DEFAULT 0"),
+            ("model", "TEXT NOT NULL DEFAULT ''"),
+            ("prompt_version", "TEXT NOT NULL DEFAULT ''"),
+            ("guidance_version", "TEXT NOT NULL DEFAULT ''"),
+            ("proposal_text", "TEXT NOT NULL DEFAULT ''"),
+            ("tokens_spent", "INTEGER NOT NULL DEFAULT 0"),
+            ("parent_sha", "TEXT NOT NULL DEFAULT ''"),
+            ("patch_text", "TEXT NOT NULL DEFAULT ''"),
+        ];
+        for (col, ddl) in wants {
+            if !existing.iter().any(|e| e == col) {
+                conn.execute(&format!("ALTER TABLE optimizations ADD COLUMN {col} {ddl}"), [])?;
+            }
+        }
         Ok(())
     }
 
@@ -273,6 +371,140 @@ CREATE TABLE IF NOT EXISTS optimizations (
             params![run_id],
             |r| r.get(0),
         )?)
+    }
+
+    /// One row per MERGED optimization with full retrospective provenance (§17).
+    /// `patch_text` is the unified diff at grade time (512 KiB cap enforced by caller).
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_optimization(
+        &self,
+        run_id: &str,
+        round: i64,
+        hotspot: &str,
+        commit_sha: &str,
+        delta_pct: f64,
+        technique: &str,
+        harvest_class: Option<&str>,
+        files_touched_json: &str,
+        bound: &str,
+        tier: i64,
+        ceiling_pct: f64,
+        visible_gain_pct: f64,
+        heldout_gain_pct: f64,
+        divergence_pct: f64,
+        instrument: &str,
+        ci_low: Option<f64>,
+        ci_high: Option<f64>,
+        attribution_verified: bool,
+        rss_delta_pct: f64,
+        alloc_delta_pct: f64,
+        model: &str,
+        prompt_version: &str,
+        guidance_version: &str,
+        proposal_text: &str,
+        tokens_spent: i64,
+        parent_sha: &str,
+        patch_text: &str,
+    ) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO optimizations (run_id, round, hotspot, commit_sha, delta_pct, technique, harvest_class, files_touched_json, bound, tier, ceiling_pct, visible_gain_pct, heldout_gain_pct, divergence_pct, instrument, ci_low, ci_high, attribution_verified, rss_delta_pct, alloc_delta_pct, model, prompt_version, guidance_version, proposal_text, tokens_spent, parent_sha, patch_text) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)",
+            params![run_id, round, hotspot, commit_sha, delta_pct, technique, harvest_class, files_touched_json, bound, tier, ceiling_pct, visible_gain_pct, heldout_gain_pct, divergence_pct, instrument, ci_low, ci_high, attribution_verified as i32, rss_delta_pct, alloc_delta_pct, model, prompt_version, guidance_version, proposal_text, tokens_spent, parent_sha, patch_text],
+        )?;
+        Ok(())
+    }
+
+    /// One row per REJECTED/FAILED attempt (§11 in-run + §17 cross-run memory).
+    /// `patch_text` is `''` only when `outcome='rejected_at_proposal'` (no code existed).
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_failed(
+        &self,
+        run_id: &str,
+        round: i64,
+        hotspot: &str,
+        bound: &str,
+        tier: i64,
+        technique: &str,
+        outcome: &str,
+        gate: Option<&str>,
+        measured_delta_pct: Option<f64>,
+        detail_json: &str,
+        tokens_spent: i64,
+        model: &str,
+        prompt_version: &str,
+        guidance_version: &str,
+        proposal_text: &str,
+        parent_sha: &str,
+        patch_text: &str,
+    ) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO failed_optimizations (run_id, round, hotspot, bound, tier, technique, outcome, gate, measured_delta_pct, detail_json, tokens_spent, model, prompt_version, guidance_version, proposal_text, parent_sha, patch_text) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+            params![run_id, round, hotspot, bound, tier, technique, outcome, gate, measured_delta_pct, detail_json, tokens_spent, model, prompt_version, guidance_version, proposal_text, parent_sha, patch_text],
+        )?;
+        Ok(())
+    }
+
+    pub fn record_round(
+        &self,
+        run_id: &str,
+        round: i64,
+        stop_reason: &str,
+        gain_low: Option<f64>,
+        gain_high: Option<f64>,
+    ) -> Result<(), StoreError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO rounds (run_id, round, stop_reason, gain_low, gain_high, created_at) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![run_id, round, stop_reason, gain_low, gain_high, now],
+        )?;
+        Ok(())
+    }
+
+    /// Standard retrospective aggregations (§17.4, deterministic over store.db).
+    pub fn learn_stats(&self) -> Result<serde_json::Value, StoreError> {
+        let conn = self.conn.lock();
+        let mut by_technique = Vec::new();
+        let mut stmt = conn.prepare(
+            "SELECT bound, tier, technique, COUNT(*), AVG(visible_gain_pct) FROM (SELECT bound, tier, technique, visible_gain_pct FROM optimizations UNION ALL SELECT bound, tier, technique, measured_delta_pct FROM failed_optimizations) GROUP BY bound, tier, technique ORDER BY 4 DESC",
+        )?;
+        for r in stmt.query_map([], |r| {
+            Ok(serde_json::json!({"bound": r.get::<_, String>(0)?, "tier": r.get::<_, i64>(1)?, "technique": r.get::<_, String>(2)?, "n": r.get::<_, i64>(3)?, "avg_gain": r.get::<_, Option<f64>>(4)?}))
+        })? {
+            by_technique.push(r?);
+        }
+        let mut calib = Vec::new();
+        let mut s2 = conn.prepare(
+            "SELECT bound, AVG(ceiling_pct - visible_gain_pct) FROM optimizations GROUP BY bound",
+        )?;
+        for r in s2.query_map([], |r| {
+            Ok(serde_json::json!({"bound": r.get::<_, String>(0)?, "avg_overpredict": r.get::<_, Option<f64>>(1)?}))
+        })? {
+            calib.push(r?);
+        }
+        let mut kills = Vec::new();
+        let mut s3 = conn.prepare(
+            "SELECT gate, COUNT(*) FROM failed_optimizations WHERE outcome='gate_failed' GROUP BY gate",
+        )?;
+        for r in s3.query_map([], |r| {
+            Ok(serde_json::json!({"gate": r.get::<_, Option<String>>(0)?, "n": r.get::<_, i64>(1)?}))
+        })? {
+            kills.push(r?);
+        }
+        let mut cost = Vec::new();
+        let mut s4 = conn.prepare(
+            "SELECT model, SUM(tokens_spent) / NULLIF(SUM(visible_gain_pct),0) FROM optimizations GROUP BY model",
+        )?;
+        for r in s4.query_map([], |r| {
+            Ok(serde_json::json!({"model": r.get::<_, String>(0)?, "tokens_per_point": r.get::<_, Option<f64>>(1)?}))
+        })? {
+            cost.push(r?);
+        }
+        Ok(serde_json::json!({"yield_by_technique": by_technique, "ceiling_calibration": calib, "gate_kills": kills, "cost_per_point": cost}))
     }
 }
 
