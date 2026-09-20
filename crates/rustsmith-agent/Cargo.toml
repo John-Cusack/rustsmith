@@ -1,14 +1,13 @@
 [package]
-name = "rustsmith-sandbox"
+name = "rustsmith-agent"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 rustsmith-core = { path = "../rustsmith-core" }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
-camino = { workspace = true }
-tempfile = { workspace = true }
-parking_lot = { workspace = true }
+camino = { version = "1", features = ["serde1"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

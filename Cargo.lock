@@ -302,10 +302,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsmith-agent"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "rustsmith-core",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "rustsmith-cli"
 version = "0.1.0"
 dependencies = [
  "camino",
+ "rustsmith-agent",
  "rustsmith-core",
  "rustsmith-gates",
  "rustsmith-oracle",
@@ -353,6 +365,7 @@ name = "rustsmith-sandbox"
 version = "0.1.0"
 dependencies = [
  "camino",
+ "parking_lot",
  "rustsmith-core",
  "tempfile",
  "thiserror",

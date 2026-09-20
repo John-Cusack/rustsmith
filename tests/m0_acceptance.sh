@@ -12,19 +12,17 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 echo "== M0: work=$WORK fixture=$FIXTURE_URL@$PIN"
 
-echo "-- step 0: dep-check (gates/oracle must not reach agent/council)"
+echo "-- step 0: dep-check (SPEC S5 permanent: gates/oracle must not reach agent/council)"
 if grep -rn 'rustsmith-agent\|rustsmith-council' "$ROOT/crates/rustsmith-gates" "$ROOT/crates/rustsmith-oracle" 2>/dev/null; then
   echo "FAIL: gates/oracle depend on agent/council"; exit 1
 fi
-if grep -rln 'rustsmith-agent' "$ROOT/crates" 2>/dev/null | grep -v 'rustsmith-cli' | grep .; then
-  echo "FAIL: agent code outside cli"; exit 1
+# ADR-001: the "no agent crate anywhere" check was M0-time only. From M1 on the
+# agent crate exists by plan; the permanent invariant is gates/oracle isolation
+# (checked above) plus zero LLM calls in gates/oracle.
+if grep -rn 'openai\|anthropic' "$ROOT/crates/rustsmith-gates" "$ROOT/crates/rustsmith-oracle" 2>/dev/null; then
+  echo "FAIL: LLM strings in gates/oracle"; exit 1
 fi
 echo "dep-check OK"
-
-echo "-- step 0b: no LLM calls in M0 tree"
-if git -C "$ROOT" grep -l 'openai\|anthropic\|llm\|prompt_version' -- crates/ 2>/dev/null | grep -v 'prompt_version.*M1\|tokens' | head -5 | grep .; then
-  echo "note: checking for LLM strings (informational)"
-fi
 
 echo "-- step 1: clone fixture + freeze"
 git clone --quiet "$FIXTURE_URL" "$WORK/crc"

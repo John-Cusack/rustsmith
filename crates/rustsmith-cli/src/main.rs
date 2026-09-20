@@ -32,6 +32,7 @@ fn run() -> Result<(), String> {
         "audit" => cmd_audit(&args[2..]),
         "verify" => cmd_verify(&args[2..]),
         "grade" => cmd_grade(&args[2..]),
+        "m1probe" => cmd_m1probe(&args[2..]),
         "status" | "report" | "halt" | "resume" | "learn" => Err(format!("{} not implemented until its milestone", args[1])),
         _ => Err(usage().into()),
     }
@@ -193,4 +194,148 @@ fn cmd_grade(args: &[String]) -> Result<(), String> {
         std::process::exit(2);
     }
     Ok(())
+}
+fn cmd_m1probe(args: &[String]) -> Result<(), String> {
+    use rustsmith_agent::{Agent, UnitSpec};
+    use std::time::Duration;
+    let repo = PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?);
+    let run_id = flag(args, "--run-id").unwrap_or_else(|| "m1".into());
+    let units: usize = flag(args, "--units").unwrap_or_else(|| "8".into()).parse().map_err(|e| format!("{e}"))?;
+    let events = PathBuf::from(flag(args, "--events").unwrap_or_else(|| "events.jsonl".into()));
+    let shims = flag(args, "--shims").unwrap_or_else(|| "".into());
+    let run_branch = current_branch(&repo)?;
+    let before_head = current_head(&repo)?;
+    eprintln!("m1probe: repo={} branch={run_branch} head={before_head}", repo.display());
+    let sandbox = Sandbox::new("containers".into());
+    // 1. alloc N worktrees.
+    let mut wts = Vec::new();
+    for i in 0..units {
+        let uid = format!("u{i}");
+        let wt = sandbox.alloc_worktree(&repo, &run_id, &uid).map_err(|e| e.to_string())?;
+        wts.push((uid, wt));
+    }
+    // 2. spawn N stub tasks concurrently via Agent (each writes own whoami.txt).
+    // Shim PATH first so git/cargo go through the wrapper in children.
+    if !shims.is_empty() {
+        let old = std::env::var_os("PATH").unwrap_or_default();
+        let mut nv = std::ffi::OsString::from(&shims);
+        nv.push(":");
+        nv.push(old);
+        unsafe { std::env::set_var("PATH", nv) };
+    }
+    unsafe {
+        std::env::set_var("RUN_BRANCH", &run_branch);
+        std::env::set_var("RUN_ID", &run_id);
+        std::env::set_var("RUN_EVENTS", &events);
+    }
+    let agent = std::sync::Arc::new(Agent::new(Some(events.clone())));
+    let mut handles = Vec::new();
+    for (uid, wt) in &wts {
+        let spec = UnitSpec {
+            unit_id: uid.clone(),
+            worktree: wt.clone(),
+            task: format!("echo {uid} > whoami.txt && pwd"),
+            token_ceiling: 1000,
+        };
+        let h = agent.spawn(&spec).map_err(|e| e.to_string())?;
+        handles.push((uid.clone(), h));
+    }
+    for (uid, h) in handles {
+        let r = agent.wait(h, Duration::from_secs(20)).map_err(|e| format!("{uid}: {e}"))?;
+        if r.exit_code != 0 {
+            return Err(format!("{uid} exit {}", r.exit_code));
+        }
+    }
+    // 3. assert outputs landed in own worktrees, zero cross writes.
+    for (uid, wt) in &wts {
+        let content = std::fs::read_to_string(wt.as_std_path().join("whoami.txt")).map_err(|e| format!("{uid}: {e}"))?;
+        if content.trim() != uid {
+            return Err(format!("{uid} whoami mismatch: {content:?}"));
+        }
+    }
+    println!("m1probe: 8-way confinement OK");
+    // 4. negatives: git checkout run-branch + cargo manifest-path escape.
+    let (neg_uid, neg_wt) = &wts[0];
+    let git_status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("git checkout {run_branch}"))
+        .current_dir(neg_wt.as_std_path())
+        .env("UNIT_WORKTREE", neg_wt.as_str())
+        .env("UNIT_ID", neg_uid)
+        .env("RUN_EVENTS", &events)
+        .env("RUN_ID", &run_id)
+        .env("RUN_BRANCH", &run_branch)
+        .env("PATH", shim_path(&shims))
+        .output()
+        .map_err(|e| e.to_string())?;
+    eprintln!("git checkout exit={}", git_status.status.code().unwrap_or(-1));
+    if git_status.status.code() != Some(127) {
+        return Err("git checkout run-branch was not blocked with 127".into());
+    }
+    let cargo_status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("cargo --manifest-path /other/Cargo.toml --version")
+        .current_dir(neg_wt.as_std_path())
+        .env("UNIT_WORKTREE", neg_wt.as_str())
+        .env("UNIT_ID", neg_uid)
+        .env("RUN_EVENTS", &events)
+        .env("RUN_ID", &run_id)
+        .env("RUN_BRANCH", &run_branch)
+        .env("PATH", shim_path(&shims))
+        .output()
+        .map_err(|e| e.to_string())?;
+    eprintln!("cargo escape exit={}", cargo_status.status.code().unwrap_or(-1));
+    if cargo_status.status.code() != Some(127) {
+        return Err("cargo manifest-path escape was not blocked with 127".into());
+    }
+    // Bypass variants must also fail.
+    for cmd in [
+        "git -C /other status",
+        "git --git-dir=/other/.git status",
+    ] {
+        let s = std::process::Command::new("sh").arg("-c").arg(cmd)
+            .current_dir(neg_wt.as_std_path())
+            .env("UNIT_WORKTREE", neg_wt.as_str())
+            .env("UNIT_ID", neg_uid)
+            .env("RUN_EVENTS", &events)
+            .env("RUN_ID", &run_id)
+            .env("RUN_BRANCH", &run_branch)
+            .env("PATH", shim_path(&shims))
+            .output()
+            .map_err(|e| e.to_string())?;
+        if s.status.code() != Some(127) {
+            return Err(format!("bypass not blocked: {cmd}"));
+        }
+    }
+    // 5. run branch HEAD unchanged.
+    let after_head = current_head(&repo)?;
+    if before_head != after_head {
+        return Err(format!("run branch moved: {before_head} -> {after_head}"));
+    }
+    println!("m1probe: negatives blocked, HEAD unchanged ({after_head})");
+    // 6. drop worktrees.
+    for (_, wt) in &wts {
+        sandbox.drop_worktree(&repo, wt.as_std_path()).map_err(|e| e.to_string())?;
+    }
+    println!("m1probe: GREEN");
+    Ok(())
+}
+fn shim_path(shims: &str) -> std::ffi::OsString {
+    if shims.is_empty() {
+        return std::env::var_os("PATH").unwrap_or_default();
+    }
+    let old = std::env::var_os("PATH").unwrap_or_default();
+    let mut nv = std::ffi::OsString::from(shims);
+    nv.push(":");
+    nv.push(old);
+    nv
+}
+fn current_branch(repo: &PathBuf) -> Result<String, String> {
+    let o = std::process::Command::new("/usr/bin/git").arg("branch").arg("--show-current").current_dir(repo).output().map_err(|e| e.to_string())?;
+    let b = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    if b.is_empty() { Ok("main".into()) } else { Ok(b) }
+}
+fn current_head(repo: &PathBuf) -> Result<String, String> {
+    let o = std::process::Command::new("/usr/bin/git").arg("rev-parse").arg("HEAD").current_dir(repo).output().map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
 }

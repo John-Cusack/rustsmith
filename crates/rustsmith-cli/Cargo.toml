@@ -13,5 +13,6 @@ rustsmith-store = { path = "../rustsmith-store" }
 rustsmith-oracle = { path = "../rustsmith-oracle" }
 rustsmith-gates = { path = "../rustsmith-gates" }
 rustsmith-sandbox = { path = "../rustsmith-sandbox" }
+rustsmith-agent = { path = "../rustsmith-agent" }
 serde_json = { workspace = true }
 camino = { workspace = true }

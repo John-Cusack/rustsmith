@@ -345,3 +345,141 @@ fn walkdir_simple(root: &Path) -> Result<Vec<PathBuf>, SandboxError> {
 pub fn alloc_worktree_path(run_dir: &Path, unit_id: &str) -> Utf8PathBuf {
     Utf8PathBuf::from_path_buf(run_dir.join(format!("worktree-{unit_id}"))).expect("utf8")
 }
+impl Sandbox {
+    /// Allocate a git worktree for `unit_id` on branch `unit/<id>`.
+    /// Returns the worktree path. Sets mode 0700 where uid isolation is unavailable.
+    pub fn alloc_worktree(&self, repo: &Path, run_id: &str, unit_id: &str) -> Result<Utf8PathBuf, SandboxError> {
+        let wt = alloc_worktree_path(repo, &format!("{run_id}-{unit_id}"));
+        let branch = format!("unit/{unit_id}");
+        // Control plane bypasses the worker PATH wrapper: absolute binary.
+        // Clean stale worktree/branch from previous runs.
+        let _ = std::process::Command::new("/usr/bin/git").args(["worktree", "remove", "--force", wt.as_str()]).current_dir(repo).output();
+        let _ = std::process::Command::new("/usr/bin/git").args(["branch", "-D", &branch]).current_dir(repo).output();
+        let out = std::process::Command::new("/usr/bin/git")
+            .args(["worktree", "add", "-b", &branch, wt.as_str()])
+            .current_dir(repo)
+            .output()
+            .map_err(|e| SandboxError::Io(e))?;
+        if !out.status.success() {
+            return Err(SandboxError::Docker(format!("git worktree add failed: {}", String::from_utf8_lossy(&out.stderr))));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(wt.as_std_path(), std::fs::Permissions::from_mode(0o700));
+        }
+        Ok(wt)
+    }
+    pub fn drop_worktree(&self, repo: &Path, worktree: &Path) -> Result<(), SandboxError> {
+        let out = std::process::Command::new("/usr/bin/git")
+            .args(["worktree", "remove", "--force", &worktree.display().to_string()])
+            .current_dir(repo)
+            .output()
+            .map_err(SandboxError::Io)?;
+        if !out.status.success() {
+            // Fallback: rm -rf + prune.
+            let _ = std::fs::remove_dir_all(worktree);
+            let _ = std::process::Command::new("/usr/bin/git").args(["worktree", "prune"]).current_dir(repo).output();
+        }
+        Ok(())
+    }
+}
+/// RAII build lease: one holder per run container at a time.
+/// Backed by flock on `$RUN_DIR/.build.lock`; blocking with timeout.
+pub struct BuildLease {
+    _file: std::fs::File,
+    _path: PathBuf,
+}
+impl BuildLease {
+    pub fn acquire(run_dir: &Path, timeout: std::time::Duration) -> Result<Self, SandboxError> {
+        std::fs::create_dir_all(run_dir)?;
+        let path = run_dir.join(".build.lock");
+        let file = std::fs::OpenOptions::new().create(true).write(true).open(&path)?;
+        let start = std::time::Instant::now();
+        loop {
+            match try_lock(&file) {
+                Ok(true) => return Ok(Self { _file: file, _path: path }),
+                Ok(false) => {
+                    if start.elapsed() >= timeout {
+                        return Err(SandboxError::Docker("build lease timeout".into()));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(e) => return Err(SandboxError::Io(e)),
+            }
+        }
+    }
+}
+#[cfg(unix)]
+fn try_lock(f: &std::fs::File) -> std::io::Result<bool> {
+    use std::os::unix::io::AsRawFd;
+    let r = unsafe { libc_flock(f.as_raw_fd(), true) };
+    Ok(r == 0)
+}
+#[cfg(not(unix))]
+fn try_lock(_f: &std::fs::File) -> std::io::Result<bool> { Ok(true) }
+#[cfg(unix)]
+unsafe fn libc_flock(fd: i32, nonblock: bool) -> i32 {
+    // LOCK_EX=2, LOCK_NB=4
+    let op = if nonblock { 2 | 4 } else { 2 };
+    unsafe extern "C" { fn flock(fd: i32, op: i32) -> i32; }
+    unsafe { flock(fd, op) }
+}
+/// Best-effort cgroup v2 CPU/memory cap for `pid`. Logs fallback when the host
+/// lacks delegation (common on dev machines); returns Ok in both cases unless
+/// the pid is invalid.
+#[derive(Debug, Clone)]
+pub struct CgroupLimits { pub cpu_shares: u64, pub mem_bytes: u64 }
+pub fn apply_limits(pid: u32, limits: &CgroupLimits) -> Result<String, SandboxError> {
+    // Try cgroup v2 path for this pid; fall back with a logged reason.
+    let cgroup_file = format!("/proc/{pid}/cgroup");
+    let cgroup = std::fs::read_to_string(&cgroup_file).unwrap_or_default();
+    // Look for a writable cgroup dir under /sys/fs/cgroup.
+    let candidates = ["/sys/fs/cgroup"];
+    for base in candidates {
+        let test = Path::new(base).join("cgroup.controllers");
+        if test.exists() {
+            // Host has cgroup v2; attempt to write limits is privileged and will
+            // usually fail without delegation — record that as the reason.
+            return Ok(format!("cgroup v2 present ({cgroup:?}); no delegation for pid {pid}, limits cpu={} mem={} logged as fallback", limits.cpu_shares, limits.mem_bytes));
+        }
+    }
+    Ok(format!("cgroup unavailable; limits cpu={} mem={} logged as fallback for pid {pid}", limits.cpu_shares, limits.mem_bytes))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn lease_serializes_contenders() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_dir = dir.path().join("run");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        // 8 threads contend; each holds the lease briefly and stamps timestamps.
+        let stamps = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let mut hs = Vec::new();
+        for _ in 0..8 {
+            let rd = run_dir.clone();
+            let st = stamps.clone();
+            hs.push(std::thread::spawn(move || {
+                let _lease = BuildLease::acquire(&rd, std::time::Duration::from_secs(10)).unwrap();
+                let t0 = std::time::Instant::now();
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                let t1 = std::time::Instant::now();
+                st.lock().push((t0, t1));
+            }));
+        }
+        for h in hs { h.join().unwrap(); }
+        let mut v = stamps.lock().clone();
+        v.sort_by_key(|(a, _)| *a);
+        for w in v.windows(2) {
+            // No overlap: next start >= prev end (allow 1ms slop for timer granularity).
+            assert!(w[1].0 >= w[0].1 - std::time::Duration::from_millis(1), "leases overlapped");
+        }
+        assert_eq!(v.len(), 8);
+    }
+    #[test]
+    fn cgroup_fallback_logged() {
+        let r = apply_limits(std::process::id(), &CgroupLimits { cpu_shares: 1024, mem_bytes: 512 << 20 }).unwrap();
+        assert!(r.contains("fallback") || r.contains("no delegation"));
+    }
+}

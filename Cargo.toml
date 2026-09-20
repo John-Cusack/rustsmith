@@ -5,6 +5,7 @@ members = [
     "crates/rustsmith-oracle",
     "crates/rustsmith-gates",
     "crates/rustsmith-sandbox",
+    "crates/rustsmith-agent",
     "crates/rustsmith-cli",
 ]
 resolver = "2"
