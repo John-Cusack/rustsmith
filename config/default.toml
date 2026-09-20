@@ -1,0 +1,33 @@
+[run]
+max_parallel_runs = 3
+max_parallel_workers = 16
+unit_max_attempts = 3
+unit_token_ceiling = 2_000_000
+run_token_ceiling = 500_000_000
+
+[oracle]
+heldout_divergence_threshold = 0.05
+require_zero_skipped = true
+
+[gates]
+unsafe_budget_pct = 5.0
+unsafe_boundary_only = true
+benchmark_noise_floor_pct = 1.0
+
+[optimize]
+hotspots_per_round = 8
+iterations_per_hotspot = 6
+round_gain_threshold_pct = 3.0
+max_rounds = 6
+enable_pgo = true
+
+[models]
+architect = { provider = "placeholder", model = "architect-model" }
+verifier = { provider = "placeholder", model = "verifier-model" }
+performance = { provider = "placeholder", model = "performance-model" }
+scope = { provider = "placeholder", model = "scope-model" }
+worker = { provider = "placeholder", model = "worker-model" }
+
+[privacy]
+training_tier_models = ["worker"]
+allow_training_tier_on_private_repos = false

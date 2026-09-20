@@ -1,0 +1,14 @@
+[package]
+name = "rustsmith-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustsmith-core = { path = "../rustsmith-core" }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

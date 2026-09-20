@@ -1,0 +1,10 @@
+[package]
+name = "rustsmith-sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustsmith-core = { path = "../rustsmith-core" }
+thiserror = { workspace = true }
+camino = { workspace = true }
+tempfile = { workspace = true }

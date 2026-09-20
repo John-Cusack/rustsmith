@@ -1,0 +1,11 @@
+[package]
+name = "rustsmith-gates"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustsmith-core = { path = "../rustsmith-core" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+camino = { version = "1", features = ["serde1"] }

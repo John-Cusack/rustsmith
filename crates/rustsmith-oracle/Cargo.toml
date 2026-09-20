@@ -1,0 +1,15 @@
+[package]
+name = "rustsmith-oracle"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustsmith-core = { path = "../rustsmith-core" }
+rustsmith-store = { path = "../rustsmith-store" }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+camino = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+walkdir = { workspace = true }
+tempfile = { workspace = true }

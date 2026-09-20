@@ -1,0 +1,31 @@
+# Fixture repos (pinned for acceptance scripts)
+#
+# Primary fixture: used for M0/M4/M5/M6 acceptance (oracle, mirror, optimize, harvest).
+# Secondary fixture: used ONLY for the M3 unit-DAG check (crc is single-module,
+# so its DAG is vacuous).
+
+[primary]
+name = "crc"
+url = "https://github.com/Nicoretti/crc"
+pinned_sha = "4e65ac4"          # re-pin with full SHA after `git rev-parse HEAD`
+license = "BSD-2-Clause"
+# Verified 2026-09-20 (PYTHONPATH=src, pytest):
+#   80 tests collected, 80 passed + 28 subtests, 0 skipped, 0 xfailed.
+#   Layout: src/crc/_crc.py (715 lines) + __init__.py + __main__.py; total ~750.
+#   Tests: test/unit/test_crc.py (unittest+pytest, 2x parametrize),
+#          test/unit/regression/test_unstable_digest.py (pytest, 1x parametrize),
+#          test/integration/test_cli.py (unittest, CLI via mocks).
+#   No hypothesis, no skip/xfail markers. Test-only dep: pytest>=7.2.0.
+#   Invocation is SPLIT (see tasks.py): `pytest test/unit` then `pytest test/integration`
+#   (bench/ at test/bench/benches.py is NOT part of the oracle).
+#   src-layout: grading container needs `pip install -e .` or PYTHONPATH=src.
+# Known harvestable win: byte-at-a-time table lookup ships; slice-by-8/16 does not
+# (language_independent candidate for M6).
+
+[secondary]
+name = "strsimpy"
+url = "https://github.com/luozhouyang/python-string-similarity"
+pinned_sha = "115acaa"          # re-pin with full SHA
+license = "MIT"
+purpose = "M3 DAG check only — ~19 modules (levenshtein, jaro_winkler, cosine, ...)"
+note = "Thin per-module unittest files; NOT an oracle fixture."

@@ -1,0 +1,17 @@
+[package]
+name = "rustsmith-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rustsmith"
+path = "src/main.rs"
+
+[dependencies]
+rustsmith-core = { path = "../rustsmith-core" }
+rustsmith-store = { path = "../rustsmith-store" }
+rustsmith-oracle = { path = "../rustsmith-oracle" }
+rustsmith-gates = { path = "../rustsmith-gates" }
+rustsmith-sandbox = { path = "../rustsmith-sandbox" }
+serde_json = { workspace = true }
+camino = { workspace = true }

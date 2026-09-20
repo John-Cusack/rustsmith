@@ -1,0 +1,22 @@
+[workspace]
+members = [
+    "crates/rustsmith-core",
+    "crates/rustsmith-store",
+    "crates/rustsmith-oracle",
+    "crates/rustsmith-gates",
+    "crates/rustsmith-sandbox",
+    "crates/rustsmith-cli",
+]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+camino = "1"
+sha2 = "0.10"
+hex = "0.4"
+walkdir = "2"
+tempfile = "3"
+parking_lot = "0.12"
