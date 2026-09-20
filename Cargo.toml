@@ -7,6 +7,8 @@ members = [
     "crates/rustsmith-sandbox",
     "crates/rustsmith-agent",
     "crates/rustsmith-council",
+    "crates/rustsmith-adapters",
+    "crates/rustsmith-profile",
     "crates/rustsmith-cli",
 ]
 resolver = "2"

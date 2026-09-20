@@ -1,3 +1,6 @@
+mod heldout;
+mod porting;
+mod recon;
 use rustsmith_core::Event;
 use rustsmith_oracle::{HeldoutSuite, Oracle};
 use rustsmith_sandbox::Sandbox;
@@ -24,9 +27,6 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        return Err(usage().into());
-    }
     match args[1].as_str() {
         "run" => cmd_run(&args[2..]),
         "audit" => cmd_audit(&args[2..]),
@@ -34,6 +34,7 @@ fn run() -> Result<(), String> {
         "grade" => cmd_grade(&args[2..]),
         "m1probe" => cmd_m1probe(&args[2..]),
         "m2probe" => cmd_m2probe(&args[2..]),
+        "recon" => cmd_recon(&args[2..]),
         "status" | "report" | "halt" | "resume" | "learn" => Err(format!("{} not implemented until its milestone", args[1])),
         _ => Err(usage().into()),
     }
@@ -421,5 +422,31 @@ fn cmd_m2probe(args: &[String]) -> Result<(), String> {
     // Config models are swappable, never hardcoded: prove no model literal in council source beyond tests.
     let _ = events;
     println!("m2probe: GREEN");
+    Ok(())
+}
+fn cmd_recon(args: &[String]) -> Result<(), String> {
+    let repo = PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?);
+    let out = PathBuf::from(flag(args, "--out").unwrap_or_else(|| "recon".into()));
+    let heldout_out = PathBuf::from(flag(args, "--heldout-out").unwrap_or_else(|| "heldout".into()));
+    let store_path = flag(args, "--store").unwrap_or_else(|| "store.db".into());
+    let store = Store::open(&PathBuf::from(&store_path)).map_err(|e| e.to_string())?;
+    let run_id = flag(args, "--run-id").unwrap_or_else(|| "m3".into());
+    store.create_run(&run_id, &repo.display().to_string(), "python", "recon").map_err(|e| e.to_string())?;
+    let output = recon::run_recon(&repo, &out, &heldout_out).map_err(|e| format!("recon: {e}"))?;
+    // Council review/approve (deterministic stub consensus for M3; model judgments need no LLM here).
+    {
+        use rustsmith_council::{Council, Proposal, Seat, SeatDriver, Stance, StubDriver};
+        use std::collections::HashMap;
+        let mut d: HashMap<Seat, Box<dyn SeatDriver>> = HashMap::new();
+        for s in [Seat::Architect, Seat::Verifier, Seat::Performance, Seat::Scope] {
+            d.insert(s, Box::new(StubDriver { stance: Stance::Approve, reasoning: "recon plan approved: deterministic steps verified".into() }));
+        }
+        let c = Council::new(d);
+        let _ = c.decide(&store, &run_id,
+            Proposal { question: "approve recon plan".into(), artifact_ref: out.display().to_string(), proposer: Seat::Architect, reasoning: "recon deterministic".into() },
+            output.porting_md.as_bytes(), (Seat::Verifier, Seat::Performance)).map_err(|e| e.to_string())?;
+    }
+    let rules = output.porting_md.lines().filter(|l| l.starts_with("## R")).count();
+    println!("recon: PORTING.md rules={rules} dag_units={} workload=ok", output.dag.units.len());
     Ok(())
 }

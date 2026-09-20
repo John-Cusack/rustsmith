@@ -15,5 +15,8 @@ rustsmith-gates = { path = "../rustsmith-gates" }
 rustsmith-sandbox = { path = "../rustsmith-sandbox" }
 rustsmith-agent = { path = "../rustsmith-agent" }
 rustsmith-council = { path = "../rustsmith-council" }
+rustsmith-adapters = { path = "../rustsmith-adapters" }
+rustsmith-profile = { path = "../rustsmith-profile" }
 serde_json = { workspace = true }
 camino = { workspace = true }
+walkdir = { workspace = true }

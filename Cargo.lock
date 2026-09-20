@@ -302,6 +302,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsmith-adapters"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "walkdir",
+]
+
+[[package]]
 name = "rustsmith-agent"
 version = "0.1.0"
 dependencies = [
@@ -317,14 +327,17 @@ name = "rustsmith-cli"
 version = "0.1.0"
 dependencies = [
  "camino",
+ "rustsmith-adapters",
  "rustsmith-agent",
  "rustsmith-core",
  "rustsmith-council",
  "rustsmith-gates",
  "rustsmith-oracle",
+ "rustsmith-profile",
  "rustsmith-sandbox",
  "rustsmith-store",
  "serde_json",
+ "walkdir",
 ]
 
 [[package]]
@@ -370,6 +383,14 @@ dependencies = [
  "tempfile",
  "thiserror",
  "walkdir",
+]
+
+[[package]]
+name = "rustsmith-profile"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
