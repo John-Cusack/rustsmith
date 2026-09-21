@@ -106,6 +106,15 @@ const SLICE_PATCH: &str = include_str!("../patches/slice_by_8_crc_py.patch");
 pub const ATTRIBUTION: &str = "Nicoretti/crc";
 pub const LICENSE_TAG: &str = "SPDX-License-Identifier: BSD-2-Clause";
 
+/// Fixture-aware attribution (crc consts above are pinned by tests; strsimpy
+/// runs carry MIT + upstream attribution instead of crc's).
+pub fn attribution_for(fixture: &str) -> (&'static str, &'static str) {
+    match fixture {
+        "strsimpy" => ("luozhouyang/python-string-similarity", "SPDX-License-Identifier: MIT"),
+        _ => (ATTRIBUTION, LICENSE_TAG),
+    }
+}
+
 /// Text-level provenance pre-check: license header + attribution present.
 /// The structural `rustsmith_gates::provenance` gate runs the same rule.
 pub fn artifact_provenance_ok(text: &str) -> bool {

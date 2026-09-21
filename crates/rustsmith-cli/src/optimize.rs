@@ -8,6 +8,7 @@
 //! Candidate code comes from `candidates` (deterministic source standing in
 //! for dispatched workers); every number below is measured, every gate real.
 
+use crate::fixture::FixtureKind;
 use rustsmith_gates as gates;
 use rustsmith_profile as profile;
 use rustsmith_store::Store;
@@ -25,12 +26,13 @@ fn now() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
-
 pub struct OptCtx {
     pub heldout: PathBuf,
     pub run_id: String,
     pub venv: PathBuf,
     pub manifest: rustsmith_core::Manifest,
+    /// "crc" | "strsimpy" (frozen fixture name; drives workload/differential dispatch).
+    pub fixture: String,
 }
 
 /// Visible (fixed, deterministic) + held-out (same sizes, disjoint values) workloads.
@@ -46,6 +48,72 @@ pub fn heldout_workloads() -> Vec<profile::Workload> {
         table_workload("held-4K", 4096, b'B'),
         table_workload("held-shift-511", 511, b'C'),
     ]
+}
+
+/// Fixture-dispatched workloads. crc keeps the exact workloads above;
+/// strsimpy measures edit-distance throughput on disjoint ASCII pairs.
+pub fn visible_workloads_for(kind: &FixtureKind) -> Vec<profile::Workload> {
+    match kind {
+        FixtureKind::Strsimpy => vec![
+            profile::Workload {
+                name: "strsim-vis-256".into(),
+                setup_py: "from strsimpy.levenshtein import Levenshtein\nm = Levenshtein()\na = 'a' * 256\nb = 'b' * 256".into(),
+                stmt_py: "m.distance(a, b)".into(),
+                iters: 300,
+            },
+            profile::Workload {
+                name: "strsim-vis-shingle".into(),
+                setup_py: "from strsimpy.cosine import Cosine\nm = Cosine(2)\na = ' '.join(['hello'] * 64)\nb = ' '.join(['world'] * 64)".into(),
+                stmt_py: "m.distance(a, b)".into(),
+                iters: 300,
+            },
+        ],
+        _ => visible_workloads(),
+    }
+}
+
+pub fn heldout_workloads_for(kind: &FixtureKind) -> Vec<profile::Workload> {
+    match kind {
+        FixtureKind::Strsimpy => vec![
+            profile::Workload {
+                name: "strsim-held-251".into(),
+                setup_py: "from strsimpy.damerau import Damerau\nm = Damerau()\na = 'x' * 251\nb = 'y' * 251".into(),
+                stmt_py: "m.distance(a, b)".into(),
+                iters: 300,
+            },
+            profile::Workload {
+                name: "strsim-held-shift".into(),
+                setup_py: "from strsimpy.jaro_winkler import JaroWinkler\nm = JaroWinkler()\na = 'dixon'\nb = 'dicksonx'".into(),
+                stmt_py: "m.similarity(a, b)".into(),
+                iters: 300,
+            },
+        ],
+        _ => heldout_workloads(),
+    }
+}
+
+pub fn tiny_workload_for(kind: &FixtureKind) -> profile::Workload {
+    match kind {
+        FixtureKind::Strsimpy => profile::Workload {
+            name: "tiny".into(),
+            setup_py: "from strsimpy.levenshtein import Levenshtein\nm = Levenshtein()\na = ''\nb = ''".into(),
+            stmt_py: "m.distance(a, b)".into(),
+            iters: 300,
+        },
+        _ => profile::Workload {
+            name: "tiny".into(),
+            setup_py: "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = b''".into(),
+            stmt_py: "calc.checksum(data)".into(),
+            iters: 300,
+        },
+    }
+}
+
+fn fixture_of(ctx_fixture: &str) -> FixtureKind {
+    match ctx_fixture {
+        "strsimpy" => FixtureKind::Strsimpy,
+        _ => FixtureKind::Crc,
+    }
 }
 
 fn table_workload(name: &str, size: usize, fill: u8) -> profile::Workload {
@@ -146,9 +214,10 @@ pub fn grade_candidate(
     // Deterministic measures, INTERLEAVED parent/candidate (drift-robust:
     // alternating samples share the thermal/frequency window; minute-scale
     // ramps cannot masquerade as gains).
-    let vis = visible_workloads();
-    let held = heldout_workloads();
     let parent_py = m::grade_venv_python(parent_venv);
+    let kind = fixture_of(&ctx.fixture);
+    let vis = visible_workloads_for(&kind);
+    let held = heldout_workloads_for(&kind);
     let (parent_stats, got) = measure_interleaved(&parent_py, &venv_py, &vis[0])?;
     let (parent_held, got_held) = measure_interleaved(&parent_py, &venv_py, &held[0])?;
     let det_gain = gain_frac(parent_stats.cpu_per_op, got.cpu_per_op);
@@ -208,12 +277,13 @@ fn measure_interleaved(
     let bench = gates::benchmark_restated(det_gain, floor, None, 1.0);
     // Gate 4: differential incl. workload pairs (original vs candidate).
     stage_orig_src(cand_dir, parent_dir)?;
-    let mut pairs = m::differential_pairs(
+    let mut pairs = m::differential_pairs_for(
+        &kind,
         &PathBuf::from("python3"),
         &m::grade_venv_python(venv),
         cand_dir,
     )?;
-    pairs.extend(workload_pairs(&venv_py, parent_dir, cand_dir)?);
+    pairs.extend(workload_pairs_for(&kind, &venv_py, parent_dir, cand_dir)?);
     let _ = std::fs::remove_dir_all(cand_dir.join("orig_src"));
     let diff = gates::differential(&pairs, 0.0);
     // Gate 5: causal attribution (revert + remeasure, contemporaneous: the
@@ -477,12 +547,14 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
         return Err(format!("pip install wheel failed:\n{log}"));
     }
     // Mirror the freshly built ext into the tree (in-place .so), so pytest's
-    // cwd-rooted `import crc` resolves THIS tree's build. Wheels alone leave
-    // `./crc/` without an ext, and grading runs with cwd=worktree — the local
-    // package then shadows site-packages and the import fails outright.
-    // Refreshed on every build, so the copy can never go stale on success.
+    // cwd-rooted package import resolves THIS tree's build. Package + ext stem
+    // come from the tree's own Cargo.toml (fixture-agnostic). Wheels alone
+    // leave the local package without an ext, and grading runs with
+    // cwd=worktree — the local package then shadows site-packages and the
+    // import fails outright. Refreshed on every build, so never stale.
+    let (pkg, ext) = crate_package(worktree)?;
     let so_q = std::process::Command::new(venv.join("bin/python"))
-        .args(["-c", "import glob,sysconfig;print(glob.glob(sysconfig.get_path('purelib')+'/crc/_crc*.so')[0])"])
+        .args(["-c", &format!("import glob,sysconfig;print(glob.glob(sysconfig.get_path('purelib')+'/{pkg}/{ext}*.so')[0])")])
         .env("VIRTUAL_ENV", venv)
         .output()
         .map_err(|e| e.to_string())?;
@@ -491,7 +563,7 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
         return Err(format!("installed ext not found:\n{log}"));
     }
     // Purge any stale in-place ext first, then copy the fresh one.
-    if let Ok(rd) = std::fs::read_dir(worktree.join("crc")) {
+    if let Ok(rd) = std::fs::read_dir(worktree.join(&pkg)) {
         for e in rd.flatten() {
             let p = e.path();
             if p.extension().map(|x| x == "so").unwrap_or(false) {
@@ -502,8 +574,34 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
     let so_name = std::path::Path::new(&so_src)
         .file_name()
         .ok_or("bad ext name")?;
-    std::fs::copy(&so_src, worktree.join("crc").join(so_name)).map_err(|e| e.to_string())?;
+    std::fs::copy(&so_src, worktree.join(&pkg).join(so_name)).map_err(|e| e.to_string())?;
     Ok(log)
+}
+
+/// `[package] name` + `[lib] name` from a tree's Cargo.toml (no toml dep;
+/// line-oriented parse is enough for maturin template manifests).
+fn crate_package(worktree: &Path) -> Result<(String, String), String> {
+    let t = std::fs::read_to_string(worktree.join("Cargo.toml")).map_err(|e| e.to_string())?;
+    let mut section = String::new();
+    let (mut pkg, mut lib) = (None, None);
+    for line in t.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            section = l.to_string();
+        }
+        if let Some(v) = l.strip_prefix("name") {
+            let v = v.trim().trim_start_matches('=').trim().trim_matches('"').trim_matches('\'');
+            if section == "[package]" && pkg.is_none() {
+                pkg = Some(v.to_string());
+            } else if section == "[lib]" && lib.is_none() {
+                lib = Some(v.to_string());
+            }
+        }
+    }
+    match (pkg, lib) {
+        (Some(p), Some(l)) => Ok((p, l)),
+        _ => Err("Cargo.toml missing [package] name or [lib] name".into()),
+    }
 }
 
 fn full_build_secs(src_dir: &Path, venv: &Path) -> Result<f64, String> {
@@ -567,6 +665,41 @@ fn workload_pairs(
         ));
     }
     Ok(pairs)
+}
+
+/// Fixture dispatch for workload-output differentials.
+fn workload_pairs_for(
+    kind: &FixtureKind,
+    venv_py: &Path,
+    parent_dir: &Path,
+    cand_dir: &Path,
+) -> Result<Vec<(String, String)>, String> {
+    match kind {
+        FixtureKind::Strsimpy => workload_pairs_strsimpy(venv_py, parent_dir, cand_dir),
+        _ => workload_pairs(venv_py, parent_dir, cand_dir),
+    }
+}
+
+/// strsimpy workload-output differential on fixed pairs (catches fast-but-wrong).
+fn workload_pairs_strsimpy(
+    venv_py: &Path,
+    parent_dir: &Path,
+    cand_dir: &Path,
+) -> Result<Vec<(String, String)>, String> {
+    let script = "from strsimpy.levenshtein import Levenshtein\nfrom strsimpy.jaro_winkler import JaroWinkler\nprint(repr(Levenshtein().distance('qwxy', 'qwxy1')))\nprint(repr(JaroWinkler().similarity('dixon', 'dicksonx')))";
+    let run = |py: &Path, staged: bool| -> Result<String, String> {
+        let mut c = std::process::Command::new(py);
+        c.args(["-c", script]);
+        if staged {
+            c.env("PYTHONPATH", parent_dir.join("orig_src_staged"));
+        } else {
+            c.current_dir(cand_dir);
+            c.env_remove("PYTHONPATH");
+        }
+        let o = c.output().map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    Ok(vec![(run(Path::new("python3"), true)?, run(venv_py, false)?)])
 }
 fn diff_summary(patch: &str) -> gates::DiffSummary {
     let mut files = Vec::new();
@@ -730,9 +863,16 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     }
     std::fs::create_dir_all(&a.work).map_err(|e| e.to_string())?;
     copy_filtered(&a.fork, &a.work)?;
-    // Stage the ORIGINAL implementation sources for differential baselines.
+    // Stage the ORIGINAL implementation sources for differential baselines
+    // (src-layout: contents of src/; flat: the package dir itself).
+    let kind = crate::fixture::resolve_fixture(&a.recon_out, &a.orig)?;
     let staged = a.work.join("orig_src_staged");
-    copy_tree(&a.orig.join("src"), &staged)?;
+    let staged_src = if kind.src_layout() {
+        a.orig.join("src")
+    } else {
+        a.orig.join(kind.package())
+    };
+    copy_tree(&staged_src, &staged)?;
     // Stage-2 scratch must never enter commits (venvs, candidates, reports).
     {
         use std::fmt::Write;
@@ -754,9 +894,10 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
         run_id: run_id.clone(),
         venv: venv.clone(),
         manifest: manifest.clone(),
+        fixture: kind.name().into(),
     };
     // Baseline: deterministic + noise floor + wall CI + resources.
-    let vis = visible_workloads();
+    let vis = visible_workloads_for(&kind);
     let (e_set, e_rm) = py_env(&venv_py, true, &staged);
     let floor = profile::measure_noise_floor(&venv_py, &vis[0], &e_set, &e_rm)
         .map_err(|e| e.to_string())?;
@@ -768,12 +909,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     let r0 = round0_report(&a.work);
     // Candidate pool (deterministic source; ceilings from measured share).
     // time_share of the update loop: 1 - empty/short overhead ratio.
-    let tiny = profile::Workload {
-        name: "tiny".into(),
-        setup_py: "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = b''".into(),
-        stmt_py: "calc.checksum(data)".into(),
-        iters: 300,
-    };
+    let tiny = tiny_workload_for(&kind);
     let tiny_stats =
         profile::deterministic_measure(&venv_py, &tiny, &e_set, &e_rm).map_err(|e| e.to_string())?;
     let share = 1.0 - tiny_stats.cpu_per_op / base_stats.cpu_per_op.max(1e-12);
@@ -784,8 +920,11 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     let mut merged: Vec<serde_json::Value> = vec![];
     let mut failed_rows: Vec<serde_json::Value> = vec![];
     let mut rounds_log: Vec<serde_json::Value> = vec![];
-    // Round 1 pool: slice + honest losers + one proposal-reject.
-    let pool_r1 = vec![
+    // Round 1 pool: slice + honest losers + one proposal-reject (crc only;
+    // strsimpy has no applicable candidates: zero survivors is a stopping rule).
+    let pool_r1 = match kind {
+        FixtureKind::Strsimpy => vec![],
+        _ => vec![
         profile::Candidate {
             hotspot: "TableBasedRegister.update".into(),
             bound: profile::Bound::Compute,
@@ -818,7 +957,8 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
             ceiling: ceil,
             est_cost: 5.0,
         },
-    ];
+        ],
+    };
     let mut round = 1usize;
     let stop_reason: String;
     loop {
@@ -979,7 +1119,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
                 })
                 .collect::<Vec<_>>(),
             &pre_round_sha,
-            floor,
+            floor, &vis[0],
         )?;
         for ((c, g, _), (_, keep, lost)) in round_winners.iter().zip(audits.iter()) {
             if *keep {
@@ -1056,7 +1196,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     ev("optimize_stop", serde_json::json!({"stop": stop_reason.clone()}));
     let report = serde_json::json!({
         "run_id": run_id,
-        "workload": "crc-checksum TableBasedRegister (vis-4K/vis-64K) + heldout (held-4K/held-shift-511)",
+        "workload": match kind { FixtureKind::Strsimpy => "strsimpy-levenshtein (vis-256/shingle) + heldout (held-251/held-shift)", _ => "crc-checksum TableBasedRegister (vis-4K/vis-64K) + heldout (held-4K/held-shift-511)" },
         "guidance_version": guidance_version,
         "floor": floor,
         "baseline_ci": {"low": base_ci.low, "high": base_ci.high, "point": base_ci.point},
@@ -1220,6 +1360,7 @@ pub fn audit_winners(
     winners: &[AuditWinner],
     pre_round_sha: &str,
     floor: f64,
+    vis0: &profile::Workload,
 ) -> Result<Vec<(String, bool, f64)>, String> {
     use crate::mirror as m;
     // Merged tree installed once; each without-N tree installed in turn.
@@ -1228,7 +1369,7 @@ pub fn audit_winners(
     build_release(merged_dir, merged_venv).map_err(|e| format!("audit merged build: {e}"))?;
     let merged_py = m::grade_venv_python(merged_venv);
     let rev_py = m::grade_venv_python(rev_venv);
-    let vis = visible_workloads();
+    let vis = vec![vis0.clone()];
     let mut out = Vec::new();
     for (idx, w) in winners.iter().enumerate() {
         // Without-N tree: clone (own repo: --3way resolves at its own top),
@@ -1334,7 +1475,8 @@ pub fn grade_plant(
     let parent_venv = out.join(".parent-venv");
     m::ensure_grade_venv(&parent_venv)?;
     build_release(base, &parent_venv).map_err(|e| format!("parent build: {e}"))?;
-    let vis = visible_workloads();
+    let kind = crate::fixture::resolve_fixture(recon_out, orig)?;
+    let vis = visible_workloads_for(&kind);
     let parent_py = m::grade_venv_python(&parent_venv);
     let e_set: Vec<(String, String)> = vec![];
     let e_rm: Vec<&str> = vec!["PYTHONPATH"];
@@ -1344,12 +1486,14 @@ pub fn grade_plant(
     let staging = out.join(".origparent");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(staging.join("orig_src_staged")).map_err(|e| e.to_string())?;
-    copy_tree(&orig.join("src"), &staging.join("orig_src_staged"))?;
+    let staged_src = if kind.src_layout() { orig.join("src") } else { orig.join(kind.package()) };
+    copy_tree(&staged_src, &staging.join("orig_src_staged"))?;
     let ctx = OptCtx {
         heldout: heldout.to_path_buf(),
         run_id: run_id.into(),
         venv: venv.clone(),
         manifest,
+        fixture: kind.name().into(),
     };
     let parent_compile = full_build_secs(base, &venv)?;
     let g = grade_candidate(
@@ -1429,7 +1573,7 @@ pub fn audit_demo(
             patch_text: patch.clone(),
         }],
         &base_sha,
-        floor,
+        floor, &visible_workloads()[0],
     )?;
     let (tech, keep, lost) = audits.into_iter().next().unwrap_or((technique.into(), true, 0.0));
     assert_eq!(tech, technique);

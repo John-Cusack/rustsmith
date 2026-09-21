@@ -109,6 +109,8 @@ pub fn render(
     parity_text: &str,
     divergence_text: &str,
     stop: &str,
+    attribution: &str,
+    license: &str,
 ) -> Result<Report, ReportError> {
     let run = store
         .get_run(run_id)
@@ -203,8 +205,8 @@ pub fn render(
         stop: stop.into(),
         floor,
         guidance_version,
-        attribution: rustsmith_harvest::ATTRIBUTION.into(),
-        license: rustsmith_harvest::LICENSE_TAG.into(),
+        attribution: attribution.into(),
+        license: license.into(),
     })
 }
 
@@ -268,7 +270,7 @@ pub fn emit_md(r: &Report) -> String {
     for n in &r.negative_results {
         s.push_str(&format!("- {}: {} at {}\n", n.technique, n.outcome, n.gate));
     }
-    s.push_str(&format!("\nAttribution: {} ({})\n", rustsmith_harvest::ATTRIBUTION, rustsmith_harvest::LICENSE_TAG));
+    s.push_str(&format!("\nAttribution: {} ({})\n", r.attribution, r.license));
     s
 }
 
@@ -331,7 +333,7 @@ pub fn emit_html(r: &Report) -> String {
         s.push_str(&format!("<li>{}: {} at {}</li>", n.technique, n.outcome, n.gate));
     }
     s.push_str("</ul>");
-    s.push_str(&format!("<p>Attribution: {} ({})</p></body></html>", rustsmith_harvest::ATTRIBUTION, rustsmith_harvest::LICENSE_TAG));
+    s.push_str(&format!("<p>Attribution: {} ({})</p></body></html>", r.attribution, r.license));
     s
 }
 

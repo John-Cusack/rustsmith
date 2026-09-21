@@ -171,7 +171,7 @@ pub fn load_template(dir: &Path) -> Result<TemplateSpec, String> {
             }
         }
     }
-    Ok(TemplateSpec {
+    let spec = TemplateSpec {
         package: v["package"].as_str().unwrap_or("").to_string(),
         extension_module: v["extension_module"].as_str().unwrap_or("").to_string(),
         src_layout: v["src_layout"].as_bool().unwrap_or(true),
@@ -179,7 +179,17 @@ pub fn load_template(dir: &Path) -> Result<TemplateSpec, String> {
         extra_files,
         delete_on_merge: strmap(&v["delete_on_merge"]),
         orig_source,
-    })
+    };
+    if spec.package.is_empty() {
+        return Err(format!("{}: template.json lacks package", dir.display()));
+    }
+    if spec.extension_module.is_empty() {
+        return Err(format!("{}: template.json lacks extension_module", dir.display()));
+    }
+    if spec.files.is_empty() {
+        return Err(format!("{}: template.json lists no files", dir.display()));
+    }
+    Ok(spec)
 }
 
 /// Worker stub task: materialize the unit from the template, commit on its

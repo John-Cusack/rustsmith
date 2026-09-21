@@ -523,6 +523,14 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     // The template manifest lists every file the port needs (no hardcodes).
     let kind = resolve_fixture(&a.recon_out, &a.repo)?;
     let tspec = load_template(&a.template)?;
+    // Template/fixture cross-check: a crc template against a strsimpy repo
+    // (or vice versa) is a refused misconfiguration, never a weird run.
+    if tspec.package != kind.package() {
+        return Err(format!("template package {} does not match fixture {}", tspec.package, kind.package()));
+    }
+    if tspec.src_layout != kind.src_layout() {
+        return Err(format!("template layout does not match fixture {}", kind.package()));
+    }
     // Keep an orig-src copy for differential grading (src-layout vs flat).
     let orig_src = if kind.src_layout() {
         a.repo.join("src")

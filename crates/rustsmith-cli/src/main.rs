@@ -17,9 +17,8 @@ fn now() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
-
 fn usage() -> &'static str {
-    "usage: rustsmith run --stage recon --repo <path-or-url> --run-id <id> [--store <store.db>] [--heldout <dir>]\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]\n       rustsmith report --run-id <id> --fork <dir> --orig <dir> --store <store.db> --recon-out <dir> --opt <dir>\n       rustsmith status --run-id <id> [--store <store.db>]\n       rustsmith halt --run-id <id> [--store <store.db>] [--reason <r>]\n       rustsmith resume --run-id <id> [--store <store.db>]"
+    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]"
 }
 
 fn main() {
@@ -65,6 +64,108 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 }
 
 fn cmd_run(args: &[String]) -> Result<(), String> {
+    let stage = flag(args, "--stage").unwrap_or_else(|| "full".into());
+    // M0 legacy: `run --stage recon` with explicit --out (m0_acceptance.sh shape).
+    if stage == "recon" && flag(args, "--out").is_some() {
+        return cmd_run_legacy(args);
+    }
+    let repo_spec = flag(args, "--repo").ok_or("missing --repo")?;
+    let run_id = flag(args, "--run-id").unwrap_or_else(|| "run0".into());
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let fork = PathBuf::from(flag(args, "--fork").unwrap_or_else(|| "fork".into()));
+    let work = PathBuf::from(flag(args, "--work").unwrap_or_else(|| "work".into()));
+    let plant = flag(args, "--plant-live");
+    if plant.is_some() && stage != "full" {
+        return Err("--plant-live needs full-pipeline mode".into());
+    }
+    if let Some(p) = plant.as_deref() {
+        if p != "test-edit" && p != "hardcode" {
+            return Err(format!("unknown --plant-live {p} (test-edit|hardcode)"));
+        }
+    }
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    // Resolve repo: URL[#pin] clones into work/orig, else a local path.
+    let orig = resolve_repo(&repo_spec, &work)?;
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    store
+        .create_run(&run_id, &repo_spec, "python", "run")
+        .map_err(|e| e.to_string())?;
+    ev_run(&store, &run_id, "run_start", serde_json::json!({"repo": repo_spec, "stage": stage}));
+    let recon_out = work.join("recon");
+    let heldout_out = work.join("heldout");
+    let opt = work.join("opt");
+    let store_s = store_path.display().to_string();
+    let stages: Vec<&str> = match stage.as_str() {
+        "full" => vec!["recon", "mirror", "optimize", "harvest"],
+        "recon" | "mirror" | "optimize" | "harvest" => vec![stage.as_str()],
+        _ => return Err(format!("unknown --stage {stage} (full|recon|mirror|optimize|harvest)")),
+    };
+    for s in stages {
+        let r = match s {
+            "recon" => cmd_recon(&sargs(vec![
+                ("--repo", &orig.display().to_string()),
+                ("--out", &recon_out.display().to_string()),
+                ("--heldout-out", &heldout_out.display().to_string()),
+                ("--store", &store_s),
+                ("--run-id", &run_id),
+            ])),
+            "mirror" => {
+                if plant.as_deref() == Some("test-edit") {
+                    plant_test_edit(&store, &run_id, &recon_out, &orig, &work)?;
+                    return Err(format!("halted: {}", store.halt_reason(&run_id).map_err(|e| e.to_string())?.unwrap_or_default()));
+                }
+                cmd_mirror(&sargs(vec![
+                    ("--repo", &orig.display().to_string()),
+                    ("--fork", &fork.display().to_string()),
+                    ("--recon-out", &recon_out.display().to_string()),
+                    ("--heldout", &heldout_out.display().to_string()),
+                    ("--store", &store_s),
+                    ("--run-id", &run_id),
+                ]))
+            }
+            "optimize" => {
+                if plant.as_deref() == Some("hardcode") {
+                    return plant_hardcode(&store, &run_id, &fork, &orig, &recon_out, &heldout_out);
+                }
+                cmd_optimize(&sargs(vec![
+                    ("--fork", &fork.display().to_string()),
+                    ("--work", &opt.display().to_string()),
+                    ("--recon-out", &recon_out.display().to_string()),
+                    ("--heldout", &heldout_out.display().to_string()),
+                    ("--store", &store_s),
+                    ("--run-id", &run_id),
+                    ("--orig", &orig.display().to_string()),
+                    ("--max-rounds", "6"),
+                ]))
+            }
+            "harvest" => cmd_report(&sargs(vec![
+                ("--run-id", &run_id),
+                ("--fork", &fork.display().to_string()),
+                ("--orig", &orig.display().to_string()),
+                ("--store", &store_s),
+                ("--recon-out", &recon_out.display().to_string()),
+                ("--opt", &opt.display().to_string()),
+            ])),
+            _ => unreachable!(),
+        };
+        if let Err(e) = r {
+            // Stages record tamper/divergence halts themselves; anything else
+            // halts the run as a stage failure (never silent, never success).
+            let has_halt = store.halt_reason(&run_id).map_err(|e| e.to_string())?;
+            if has_halt.is_none() {
+                let reason = format!("{s}_failed: {e}");
+                store.set_halt(&run_id, &reason).map_err(|e| e.to_string())?;
+                ev_run(&store, &run_id, "halt", serde_json::json!({"stage": s, "reason": reason}));
+            }
+            return Err(e);
+        }
+    }
+    println!("run {run_id}: done fork={} work={}", fork.display(), work.display());
+    Ok(())
+}
+
+/// M0 recon-only skeleton (byte-identical behavior; m0_acceptance.sh pins it).
+fn cmd_run_legacy(args: &[String]) -> Result<(), String> {
     let stage = flag(args, "--stage").unwrap_or_else(|| "recon".into());
     if stage != "recon" {
         return Err(format!("M0 skeleton supports only --stage recon (got {stage})"));
@@ -142,6 +243,182 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     );
     let _ = graded;
     Ok(())
+}
+
+fn ev_run(store: &Store, run_id: &str, kind: &str, detail: serde_json::Value) {
+    let _ = store.append_event(&Event { ts: now(), run_id: run_id.into(), kind: kind.into(), detail });
+}
+
+fn sargs(pairs: Vec<(&str, &str)>) -> Vec<String> {
+    let mut out = vec!["run".to_string()];
+    for (k, v) in pairs {
+        out.push(k.to_string());
+        out.push(v.to_string());
+    }
+    out
+}
+
+/// Resolve `--repo`: URL[#pin] clones into `work/orig`, else a local path.
+fn resolve_repo(spec: &str, work: &std::path::Path) -> Result<PathBuf, String> {
+    if spec.contains("://") {
+        let (url, pin) = match spec.split_once('#') {
+            Some((u, p)) => (u, p),
+            None => (spec, ""),
+        };
+        let dest = work.join("orig");
+        if dest.exists() {
+            std::fs::remove_dir_all(&dest).map_err(|e| e.to_string())?;
+        }
+        let st = std::process::Command::new("/usr/bin/git")
+            .args(["clone", "--quiet", url, &dest.display().to_string()])
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !st.success() {
+            return Err(format!("git clone failed for {url}"));
+        }
+        if !pin.is_empty() {
+            let st = std::process::Command::new("/usr/bin/git")
+                .args(["checkout", "--quiet", pin])
+                .current_dir(&dest)
+                .status()
+                .map_err(|e| e.to_string())?;
+            if !st.success() {
+                return Err(format!("git checkout {pin} failed"));
+            }
+        }
+        Ok(dest)
+    } else {
+        let p = PathBuf::from(spec);
+        if !p.is_dir() {
+            return Err(format!("--repo must be a local checkout or URL (got {spec})"));
+        }
+        Ok(p)
+    }
+}
+
+/// Live-loop adversarial plant 11: a unit that edits a frozen test file.
+/// Graded through the real `oracle_integrity` gate; halts with a tamper event.
+fn plant_test_edit(
+    store: &Store,
+    run_id: &str,
+    recon_out: &std::path::Path,
+    orig: &std::path::Path,
+    work: &std::path::Path,
+) -> Result<(), String> {
+    let manifest = load_manifest(&recon_out.join("manifest.json").display().to_string())?;
+    let unit_id = format!("{run_id}:plant-test-edit");
+    store
+        .create_unit(&unit_id, run_id, "mirror", &serde_json::json!({"plant": "test-edit"}).to_string())
+        .map_err(|e| e.to_string())?;
+    ev_run(store, run_id, "unit_start", serde_json::json!({"unit": unit_id}));
+    // Scratch copy of the original; the real tree is never touched.
+    let scratch = work.join("plant-test-edit");
+    if scratch.exists() {
+        std::fs::remove_dir_all(&scratch).map_err(|e| e.to_string())?;
+    }
+    copy_filtered_cli(orig, &scratch)?;
+    let rel = manifest
+        .files
+        .iter()
+        .map(|f| f.path.as_str().to_string())
+        .find(|p| p.contains("test") && p.ends_with(".py"))
+        .ok_or("manifest has no test file")?;
+    let target = scratch.join(&rel);
+    let mut t = std::fs::read_to_string(&target).map_err(|e| e.to_string())?;
+    t.push_str("\n# cheat (adversarial probe: test-editing unit)\n");
+    std::fs::write(&target, t).map_err(|e| e.to_string())?;
+    match Oracle::verify_hashes(&manifest, &scratch) {
+        Ok(()) => Err("plant misfired: test edit not detected".into()),
+        Err(reason) => {
+            let detail = reason.to_string();
+            store
+                .record_gate(&unit_id, rustsmith_core::Gate::OracleIntegrity, false, &serde_json::json!({"reason": detail}))
+                .map_err(|e| e.to_string())?;
+            let halt = format!("oracle_tamper {rel}");
+            store.set_halt(run_id, &halt).map_err(|e| e.to_string())?;
+            ev_run(store, run_id, "tamper", serde_json::json!({"unit": unit_id, "reason": halt, "detail": detail}));
+            Ok(())
+        }
+    }
+}
+
+/// Live-loop adversarial plant 12: visible-input-only correct answers on the
+/// live fork (crc). Real whole-repo grade: parity passes, held-out fails,
+/// divergence halts the run. No magnitudes leak to any worker surface.
+fn plant_hardcode(
+    store: &Store,
+    run_id: &str,
+    fork: &std::path::Path,
+    orig: &std::path::Path,
+    recon_out: &std::path::Path,
+    heldout: &std::path::Path,
+) -> Result<(), String> {
+    let kind = fixture::detect_fixture(orig)?;
+    if kind != fixture::FixtureKind::Crc {
+        return Err("--plant-live hardcode supports only the crc fixture".into());
+    }
+    let manifest = load_manifest(&recon_out.join("manifest.json").display().to_string())?;
+    let unit_id = format!("{run_id}:plant-hardcode");
+    store
+        .create_unit(&unit_id, run_id, "mirror", &serde_json::json!({"plant": "hardcode"}).to_string())
+        .map_err(|e| e.to_string())?;
+    ev_run(store, run_id, "unit_start", serde_json::json!({"unit": unit_id}));
+    // Monkeypatch the live shim (class-level assignment works on the ext;
+    // instance attributes are read-only, so only Calculator is wrapped —
+    // enough: its pins fail while visible vectors delegate exactly).
+    // Canonicalization reuses the ORIGINAL module's exact helper.
+    let shim = fork.join("crc/__init__.py");
+    let orig_src = orig.join("src/crc/_crc.py").display().to_string();
+    let wrapper = include_str!("plant_hardcode_crc.py").replace("@@ORIG@@", &orig_src);
+    let mut t = std::fs::read_to_string(&shim).map_err(|e| e.to_string())?;
+    t.push_str(&wrapper);
+    std::fs::write(&shim, t).map_err(|e| e.to_string())?;
+    let _ = git_cli(&fork.to_path_buf(), &["add", "-A"]);
+    let _ = git_cli(&fork.to_path_buf(), &["commit", "-qm", "plant hardcode (adversarial probe)"]);
+    // Whole-repo grade through the real path (no rebuild: pure-Python patch).
+    // Measure first (counts-first precedence, same as `grade`).
+    let venv = fork.join(".grade-venv");
+    let got = mirror::run_oracle_in_venv(&venv, fork, &manifest.invocation)?;
+    let hashes = Oracle::current_hashes(&manifest, fork);
+    let integrity = rustsmith_gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+    let parity = rustsmith_gates::oracle_parity(&got);
+    let held_rate = {
+        let py = mirror::grade_venv_python(&venv);
+        let o = std::process::Command::new(&py)
+            .args(["-m", "pytest"])
+            .arg(heldout)
+            .args(["-q", "--tb=no"])
+            .env("PY_COLORS", "0")
+            .output()
+            .map_err(|e| e.to_string())?;
+        mirror::parse_heldout_rate(&format!("{}\n{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)))
+    };
+    let div = rustsmith_gates::heldout_divergence(got.pass_rate(), held_rate, 0.05);
+    for (g, v) in [("oracle_integrity", &integrity), ("oracle_parity", &parity), ("heldout_divergence", &div)] {
+        let gate = match g {
+            "oracle_integrity" => rustsmith_core::Gate::OracleIntegrity,
+            "oracle_parity" => rustsmith_core::Gate::OracleParity,
+            _ => rustsmith_core::Gate::HeldoutDivergence,
+        };
+        store.record_gate(&unit_id, gate, v.passed, &v.detail).map_err(|e| e.to_string())?;
+    }
+    ev_run(store, run_id, "gate", serde_json::json!({"unit": unit_id, "integrity": integrity.passed, "parity": parity.passed, "divergence": div.passed}));
+    if !integrity.passed {
+        let halt = format!("oracle_tamper plant broke manifest: {}", integrity.detail);
+        store.set_halt(run_id, &halt).map_err(|e| e.to_string())?;
+        ev_run(store, run_id, "tamper", serde_json::json!({"unit": unit_id, "reason": halt}));
+        return Err(halt);
+    }
+    if !parity.passed {
+        return Err(format!("plant misfired: visible parity broke ({})", parity.detail));
+    }
+    if !div.passed {
+        let halt = format!("heldout_divergence plant-hardcode: {}", div.detail);
+        store.set_halt(run_id, &halt).map_err(|e| e.to_string())?;
+        ev_run(store, run_id, "heldout_divergence", serde_json::json!({"unit": unit_id, "reason": halt}));
+        return Err(halt);
+    }
+    Err("plant misfired: hardcode survived grading".into())
 }
 
 fn cmd_audit(args: &[String]) -> Result<(), String> {
@@ -468,6 +745,8 @@ fn cmd_mirror(args: &[String]) -> Result<(), String> {
         // Auto-select the pinned template from repo layout (refuse unknowns).
         None => fixture::template_dir(&fixture::detect_fixture(&repo)?),
     };
+    // Tasks run with cwd=worktree: the template path must be absolute.
+    let template = std::fs::canonicalize(&template).map_err(|e| format!("bad template {}: {e}", template.display()))?;
     let a = mirror::MirrorArgs {
         repo,
         fork: PathBuf::from(flag(args, "--fork").ok_or("missing --fork")?),
@@ -676,11 +955,14 @@ fn cmd_learn(args: &[String]) -> Result<(), String> {
 fn cmd_report(args: &[String]) -> Result<(), String> {
     let run_id = flag(args, "--run-id").ok_or("missing --run-id")?;
     let fork = PathBuf::from(flag(args, "--fork").ok_or("missing --fork")?);
-    let _orig = flag(args, "--orig").ok_or("missing --orig")?;
+    let orig = PathBuf::from(flag(args, "--orig").ok_or("missing --orig")?);
     let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
     let recon_out = PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out")?);
     let opt = PathBuf::from(flag(args, "--opt").ok_or("missing --opt")?);
     let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    // Fixture-aware headers (frozen fixture; never guessed per-report).
+    let kind = fixture::resolve_fixture(&recon_out, &orig).unwrap_or(fixture::FixtureKind::Crc);
+    let (attribution, license) = rustsmith_harvest::attribution_for(kind.name());
     // Floor + stop come from the graded optimize run (no new measurement).
     let opt_rep: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(opt.join("optimize-report.json")).map_err(|e| e.to_string())?,
@@ -721,20 +1003,20 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         .unwrap_or_else(|| {
             opt_rep["stop"].as_str().unwrap_or("unknown").to_string()
         });
-    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop)
+    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop, attribution, license)
         .map_err(|e| e.to_string())?;
-    // Fork layout (every file provenance-gated before write).
-    write_gated(&fork.join("RUSTSMITH_REPORT.md"), &rustsmith_report::emit_md(&rep))?;
-    write_gated(&fork.join("rustsmith-report.json"), &rustsmith_report::emit_json(&rep))?;
-    write_gated(&fork.join("rustsmith-report.html"), &rustsmith_report::emit_html(&rep))?;
+    write_gated(&fork.join("RUSTSMITH_REPORT.md"), &rustsmith_report::emit_md(&rep), attribution)?;
+    write_gated(&fork.join("rustsmith-report.json"), &rustsmith_report::emit_json(&rep), attribution)?;
+    write_gated(&fork.join("rustsmith-report.html"), &rustsmith_report::emit_html(&rep), attribution)?;
     let sug_dir = fork.join("suggestions");
     let patches_dir = sug_dir.join("patches");
     let accel_dir = sug_dir.join("accelerators");
     std::fs::create_dir_all(&patches_dir).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&accel_dir).map_err(|e| e.to_string())?;
     let opts = store.list_optimizations(&run_id).map_err(|e| e.to_string())?;
+    let header = format!("<!-- {license} | Original work: {attribution} -->\n");
     let mut readme = format!(
-        "<!-- SPDX-License-Identifier: BSD-2-Clause | Original work: Nicoretti/crc -->\n# Suggestions\n\nGuidance: {}\n\n## Ranking\n\n",
+        "{header}# Suggestions\n\nGuidance: {}\n\n## Ranking\n\n",
         rep.guidance_version
     );
     for (i, s) in rep.suggestions.iter().enumerate() {
@@ -746,17 +1028,17 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
     for s in &rep.suggestions {
         readme.push_str(&format!("\n## {}\n{}\n", s.technique, s.reasoning));
     }
-    write_gated(&sug_dir.join("README.md"), &readme)?;
+    write_gated(&sug_dir.join("README.md"), &readme, attribution)?;
     for s in &rep.suggestions {
         let row = opts.iter().find(|r| r.technique == s.technique).ok_or("row vanished")?;
         let mut item = format!(
-            "<!-- SPDX-License-Identifier: BSD-2-Clause | Original work: Nicoretti/crc -->\n# {} [{}]\n\n## Reasoning\n\n{}\n\n## Expected gain\n\n{:.4} (fractional, in-original-language for backports)\n\n## Review burden\n\n{:.1} (added-line proxy)\n",
+            "{header}# {} [{}]\n\n## Reasoning\n\n{}\n\n## Expected gain\n\n{:.4} (fractional, in-original-language for backports)\n\n## Review burden\n\n{:.1} (added-line proxy)\n",
             s.technique, s.class, s.reasoning, s.expected_gain, s.review_burden
         );
         if let Some(pf) = &s.patch_file {
             match rustsmith_harvest::emit_patch(row) {
                 Ok(p) => {
-                    write_gated(&patches_dir.join(pf), &p.text)?;
+                    write_gated(&patches_dir.join(pf), &p.text, attribution)?;
                     item.push_str(&format!("\n## Patch\n\n`patches/{}` — apply with `git apply --check`, then: `{}` (expected gain {:.4})\n", pf, p.benchmark_cmd, p.expected_gain));
                 }
                 Err(e) => {
@@ -764,11 +1046,11 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
                 }
             }
         }
-        write_gated(&sug_dir.join(format!("{}.md", sanitize(s.technique.clone()))), &item)?;
+        write_gated(&sug_dir.join(format!("{}.md", sanitize(s.technique.clone()))), &item, attribution)?;
     }
     // Accelerators: real ones where a module_local row earns it, else a
     // provenance-carrying note explaining the empty case.
-    let mut acc_note = "<!-- SPDX-License-Identifier: BSD-2-Clause | Original work: Nicoretti/crc -->\n# Accelerators\n\n".to_string();
+    let mut acc_note = format!("{header}# Accelerators\n\n");
     let mut any_acc = false;
     for s in &rep.suggestions {
         if s.class != "module_local" {
@@ -776,7 +1058,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         }
         if let Some(row) = opts.iter().find(|r| r.technique == s.technique) {
             if let Ok(a) = rustsmith_harvest::emit_accelerator(row) {
-                write_gated(&accel_dir.join(&a.filename), &a.text)?;
+                write_gated(&accel_dir.join(&a.filename), &a.text, attribution)?;
                 acc_note.push_str(&format!("- {}: {}\n", s.technique, a.filename));
                 any_acc = true;
             }
@@ -785,7 +1067,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
     if !any_acc {
         acc_note.push_str("No module_local rows this run: every merged win was language_independent (backported as a patch) or port_only (documented). No accelerator ships.\n");
     }
-    write_gated(&accel_dir.join("README.md"), &acc_note)?;
+    write_gated(&accel_dir.join("README.md"), &acc_note, attribution)?;
     println!(
         "{}",
         serde_json::json!({
@@ -798,11 +1080,21 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
 }
 
 /// Provenance-gated file write (M6 trap 2: every artifact carries headers).
-fn write_gated(path: &PathBuf, text: &str) -> Result<(), String> {
+fn write_gated(path: &PathBuf, text: &str, attribution: &str) -> Result<(), String> {
+    // Either pinned attribution satisfies the gate (crc backports written
+    // during a strsimpy run keep their own headers; never the reverse).
+    let other = rustsmith_harvest::ATTRIBUTION;
+    let attr = if text.contains(attribution) {
+        attribution
+    } else if text.contains(other) {
+        other
+    } else {
+        ""
+    };
     let v = rustsmith_gates::provenance(
         text.contains("SPDX-License-Identifier") || text.contains("BSD-2-Clause"),
         true,
-        if text.contains(rustsmith_harvest::ATTRIBUTION) { rustsmith_harvest::ATTRIBUTION } else { "" },
+        attr,
     );
     if !v.passed {
         return Err(format!("provenance gate rejects {}: {}", path.display(), v.detail));
