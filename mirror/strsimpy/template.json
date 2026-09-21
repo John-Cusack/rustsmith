@@ -1,0 +1,14 @@
+{
+  "package": "strsimpy",
+  "extension_module": "strsimpy._strsimpy",
+  "src_layout": false,
+  "files": [
+    ["Cargo.toml", "Cargo.toml"],
+    ["pyproject.toml", "pyproject.toml"],
+    ["src/lib.rs", "src/lib.rs"],
+    ["strsimpy/__init__.py", "strsimpy/__init__.py"]
+  ],
+  "extra_files": {},
+  "delete_on_merge": {},
+  "orig_source": {}
+}

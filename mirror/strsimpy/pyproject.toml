@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "strsimpy"
+version = "0.2.1"
+description = "Pure-Rust string similarity library (rustsmith Stage-1 mirror of luozhouyang/python-string-similarity)"
+authors = [{ name = "ZhouYang Luo", email = "zhouyang.luo@gmail.com" }]
+requires-python = ">=3.11,<4.0"
+license = "MIT"
+
+[tool.maturin]
+module-name = "strsimpy._strsimpy"
+bindings = "pyo3"
+features = ["pyo3/extension-module"]
