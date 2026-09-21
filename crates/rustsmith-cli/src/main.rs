@@ -316,12 +316,17 @@ fn plant_test_edit(
     if scratch.exists() {
         std::fs::remove_dir_all(&scratch).map_err(|e| e.to_string())?;
     }
+    std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
     copy_filtered_cli(orig, &scratch)?;
     let rel = manifest
         .files
         .iter()
         .map(|f| f.path.as_str().to_string())
-        .find(|p| p.contains("test") && p.ends_with(".py"))
+        .find(|p| {
+            p.ends_with(".py") && !p.contains("bench")
+                && (p.contains("test/unit") || p.contains("test/integration")
+                    || p.contains("test_") || p.contains("_test"))
+        })
         .ok_or("manifest has no test file")?;
     let target = scratch.join(&rel);
     let mut t = std::fs::read_to_string(&target).map_err(|e| e.to_string())?;
