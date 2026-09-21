@@ -8,6 +8,7 @@
 //! swaps the stub task for a real OMP worker task; grading, gating, merging,
 //! and review are identical. The PROOF is in the gates, not the task.
 
+use crate::fixture::{load_template, resolve_fixture, FixtureKind};
 use rustsmith_adapters::UnitDag;
 use rustsmith_agent::{Agent, UnitSpec};
 use rustsmith_council::{Council, Proposal, Seat, SeatDriver, Stance, StubDriver};
@@ -298,7 +299,19 @@ fn summary_counts(s: &str) -> (u32, u32, u32) {
     (p, f, sk)
 }
 
-/// Differential: original vs mirror checksums across generated inputs.
+/// Differential: original vs mirror outputs across generated inputs.
+/// Fixture-dispatched; the graded pairs are the same shape for both fixtures.
+pub fn differential_pairs_for(
+    kind: &FixtureKind,
+    orig_py: &Path,
+    venv_py: &Path,
+    worktree: &Path,
+) -> Result<Vec<(String, String)>, String> {
+    match kind {
+        FixtureKind::Crc => differential_pairs(orig_py, venv_py, worktree),
+        FixtureKind::Strsimpy => differential_pairs_strsimpy(orig_py, venv_py, worktree),
+    }
+}
 pub fn differential_pairs(
     orig_py: &Path,
     venv_py: &Path,
@@ -317,7 +330,7 @@ mods = {'Crc8': __import__('crc', fromlist=['Crc8']).Crc8,
 cat, member = config.split('.')
 calc = Calculator(getattr(mods[cat], member))
 print(calc.checksum(data))
-"#;
+:"#;
     let inputs: Vec<(&str, Vec<u8>)> = vec![
         ("Crc8.CCITT", b"123456789".to_vec()),
         ("Crc8.CCITT", vec![]),
@@ -328,6 +341,58 @@ print(calc.checksum(data))
         ("Crc8.BLUETOOTH", b"Hello World!".to_vec()),
         ("Crc16.KERMIT", b"abc".to_vec()),
     ];
+    run_pairs(orig_py, venv_py, worktree, script, &inputs)
+}
+/// strsimpy differential: edit-distance / similarity outputs on short strings,
+/// including empty/singleton/adversarial shapes. Float outputs compare exact:
+/// both sides run the same algorithm over ASCII inputs (deterministic).
+pub fn differential_pairs_strsimpy(
+    orig_py: &Path,
+    venv_py: &Path,
+    worktree: &Path,
+) -> Result<Vec<(String, String)>, String> {
+    let script = r#"
+import sys
+expr = sys.argv[1]
+ns = {}
+exec("from strsimpy.levenshtein import Levenshtein\nfrom strsimpy.damerau import Damerau\nfrom strsimpy.jaro_winkler import JaroWinkler\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\nfrom strsimpy.cosine import Cosine\nfrom strsimpy.jaccard import Jaccard\nfrom strsimpy.ngram import NGram\nfrom strsimpy.optimal_string_alignment import OptimalStringAlignment\nfrom strsimpy.longest_common_subsequence import LongestCommonSubsequence\nfrom strsimpy.metric_lcs import MetricLCS\nfrom strsimpy.qgram import QGram\nfrom strsimpy.sorensen_dice import SorensenDice\nfrom strsimpy.overlap_coefficient import OverlapCoefficient\nfrom strsimpy.weighted_levenshtein import WeightedLevenshtein\nfrom strsimpy.sift4 import SIFT4", ns)
+print(repr(eval(expr, ns)))
+:"#;
+    let inputs: Vec<(&str, Vec<u8>)> = vec![
+        ("Levenshtein().distance('kitten','sitting')", vec![]),
+        ("Levenshtein().distance('','abc')", vec![]),
+        ("Damerau().distance('abcd','acbd')", vec![]),
+        ("JaroWinkler().similarity('martha','marhta')", vec![]),
+        ("NormalizedLevenshtein().distance('abc','abd')", vec![]),
+        ("Cosine(2).distance('hello world','hello there')", vec![]),
+        ("Jaccard(2).similarity('abc','abd')", vec![]),
+        ("NGram(2).distance('abcd','abce')", vec![]),
+    ];
+    let mut pairs = Vec::new();
+    for (expr, _) in inputs {
+        let o1 = std::process::Command::new(orig_py)
+            .args(["-c", script, expr])
+            .env("PYTHONPATH", worktree.join("orig_src"))
+            .output()
+            .map_err(|e| e.to_string())?;
+        let o2 = std::process::Command::new(venv_py)
+            .args(["-c", script, expr])
+            .output()
+            .map_err(|e| e.to_string())?;
+        pairs.push((
+            String::from_utf8_lossy(&o1.stdout).trim().to_string(),
+            String::from_utf8_lossy(&o2.stdout).trim().to_string(),
+        ));
+    }
+    Ok(pairs)
+}
+fn run_pairs(
+    orig_py: &Path,
+    venv_py: &Path,
+    worktree: &Path,
+    script: &str,
+    inputs: &[(&str, Vec<u8>)],
+) -> Result<Vec<(String, String)>, String> {
     let mut pairs = Vec::new();
     for (cfg, data) in inputs {
         let hex = data.iter().map(|b| format!("{b:02x}")).collect::<String>();
@@ -454,8 +519,17 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         std::fs::read_to_string(a.recon_out.join("manifest.json")).map_err(|e| e.to_string())?;
     let manifest: rustsmith_core::Manifest =
         serde_json::from_str(&manifest_text).map_err(|e| e.to_string())?;
-    // Keep an orig-src copy for differential grading.
-    let orig_src = a.repo.join("src");
+    // Fixture + template: frozen fixture if recon wrote one, else detect.
+    // The template manifest lists every file the port needs (no hardcodes).
+    let kind = resolve_fixture(&a.recon_out, &a.repo)?;
+    let tspec = load_template(&a.template)?;
+    // Keep an orig-src copy for differential grading (src-layout vs flat).
+    let orig_src = if kind.src_layout() {
+        a.repo.join("src")
+    } else {
+        a.repo.clone()
+    };
+    let recon_modules = crate::fixture::read_recon_modules(&a.recon_out);
     let manifest_inv = manifest.invocation.clone();
 
     // Init fork from the original (full copy minus .git), run branch.
@@ -512,12 +586,11 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             .set_unit_worktree(id, wt.as_str())
             .map_err(|e| e.to_string())?;
         // Bundle (held-out blind: no held-out input exists on this path).
+        // Orig source + task come from the template manifest, never hardcodes.
         let bundle_dir = a.fork.join(format!(".bundles/{id}"));
-        let orig_file = a.repo.join(if id == "__main__" {
-            "src/crc/__main__.py"
-        } else {
-            "src/crc/_crc.py"
-        });
+        let (orig_rel, _) =
+            crate::fixture::unit_sources(&tspec, &recon_modules, id)?;
+        let orig_file = a.repo.join(&orig_rel);
         let orig_source =
             std::fs::read_to_string(&orig_file).unwrap_or_else(|_| String::from("// empty"));
         assemble_bundle(
@@ -536,18 +609,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         }
         // Worker stub task (real subprocess via Agent): materialize the unit,
         // then commit on its branch so the merge carries the files.
-        let task = if id == "__main__" {
-            format!(
-                "mkdir -p crc && cp {}/crc/__main__.py ./crc/__main__.py && git add -A && git -c user.email=t@t -c user.name=t commit -qm 'unit {id}' && echo {id} > unit_done.txt",
-                a.template.display()
-            )
-        } else {
-            format!(
-                "mkdir -p src crc && cp {t}/Cargo.toml ./Cargo.toml && cp {t}/pyproject.toml ./pyproject.toml && cp {t}/src/lib.rs ./src/lib.rs && cp {t}/crc/__init__.py ./crc/__init__.py && git add -A && git -c user.email=t@t -c user.name=t commit -qm 'unit {id}' && echo {id} > unit_done.txt",
-                t = a.template.display(),
-                id = id
-            )
-        };
+        let task = crate::fixture::unit_task(&tspec, &a.template, id)?;
         let spec = UnitSpec {
             unit_id: id.clone(),
             worktree: wt.clone(),
@@ -596,7 +658,8 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // Stage orig_src for the differential's PYTHONPATH.
         std::fs::create_dir_all(wt_path.join("orig_src")).map_err(|e| e.to_string())?;
         copy_tree(&orig_src, &wt_path.join("orig_src"))?;
-        let diff_pairs = differential_pairs(
+        let diff_pairs = differential_pairs_for(
+            &kind,
             &PathBuf::from("python3"),
             &grade_venv_python(&venv),
             wt_path,
@@ -625,7 +688,14 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             "gate",
             serde_json::json!({"unit": id, "integrity": integrity.passed, "parity": parity.passed, "divergence": div.passed, "differential": diff.passed}),
         );
-        if !(integrity.passed && parity.passed && div.passed && diff.passed) {
+        // Tamper is an immediate run halt (SPEC 10.3), not a unit retry.
+        if !integrity.passed {
+            let reason = format!("oracle_tamper unit {id}: {}", integrity.detail);
+            store.set_halt(run_id, &reason).map_err(|e| e.to_string())?;
+            ev(store, run_id, "tamper", serde_json::json!({"unit": id, "reason": reason}));
+            return Err(reason);
+        }
+        if !(parity.passed && div.passed && diff.passed) {
             let n = store.bump_attempts(id).map_err(|e| e.to_string())?;
             if n >= 3 {
                 escalate(store, run_id, id)?;
@@ -636,8 +706,9 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         let providers = default_providers();
         let (r1, r2) = assign_reviewers(None, &providers);
         record_review(store, run_id, id, &format!("unit {id} diff"), r1, r2)?;
-        // Merge + delete mirrored module in the SAME commit.
-        merge_unit(&a.fork, wt.as_str(), id)?;
+        // Merge + delete mirrored module in the SAME commit (targets from template).
+        let (_, deletes) = crate::fixture::unit_sources(&tspec, &recon_modules, id)?;
+        merge_unit(&a.fork, wt.as_str(), id, &deletes)?;
         let sha = git(&a.fork, &["rev-parse", "HEAD"])?;
         store.set_unit_commit(id, &sha).map_err(|e| e.to_string())?;
         store.set_unit_status(id, "passed").map_err(|e| e.to_string())?;
@@ -651,7 +722,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     let hashes = Oracle::current_hashes(&manifest, &a.fork);
     let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
     let parity = gates::oracle_parity(&got);
-    if !(integrity.passed && parity.passed) {
+    if !integrity.passed {
+        let reason = format!("oracle_tamper whole-repo: {}", integrity.detail);
+        store.set_halt(run_id, &reason).map_err(|e| e.to_string())?;
+        ev(store, run_id, "tamper", serde_json::json!({"reason": reason}));
+        return Err(reason);
+    }
+    if !parity.passed {
         return Err("whole-repo grade failed".into());
     }
     let held_rate_all = {
@@ -671,6 +748,19 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         parse_heldout_rate(&t)
     };
     let whole_div = rate_of(&got) - held_rate_all;
+    // Held-out divergence over threshold halts the run (SPEC 10.3).
+    let wdiv = gates::heldout_divergence(rate_of(&got), held_rate_all, 0.05);
+    if !wdiv.passed {
+        let reason = format!("heldout_divergence whole-repo: {}", wdiv.detail);
+        store.set_halt(run_id, &reason).map_err(|e| e.to_string())?;
+        ev(
+            store,
+            run_id,
+            "heldout_divergence",
+            serde_json::json!({"reason": reason, "visible": rate_of(&got)}),
+        );
+        return Err(reason);
+    }
     // Unsafe audit: count + SAFETY + FFI-boundary (0 expected on the mirror).
     let unsafe_sites = audit_unsafe(&a.fork)?;
     let uv = gates::unsafe_budget(&unsafe_sites, 5.0, 10);
@@ -774,18 +864,13 @@ fn record_review(
     Ok(())
 }
 
-fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str) -> Result<(), String> {
+fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -> Result<(), String> {
     // Merge worker branch with --no-commit, delete the mirrored
-    // original-language module, then commit ONCE: merge + deletion land in the
-    // same commit so interface drift surfaces now, not at the end.
+    // original-language modules (template manifest), then commit ONCE:
+    // merge + deletion land in the same commit so interface drift surfaces now.
     let wt_branch = format!("unit/{unit_id}");
     git(fork, &["merge", "--no-commit", "--no-ff", &wt_branch])?;
-    let target = if unit_id == "__main__" {
-        vec!["src/crc/__init__.py", "src/crc/__main__.py"]
-    } else {
-        vec!["src/crc/_crc.py"]
-    };
-    for t in target {
+    for t in deletes {
         if fork.join(t).exists() {
             git(fork, &["rm", "-q", t])?;
         }

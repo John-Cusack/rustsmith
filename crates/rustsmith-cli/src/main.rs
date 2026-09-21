@@ -1,4 +1,5 @@
 mod candidates;
+mod fixture;
 mod heldout;
 mod mirror;
 mod optimize;
@@ -461,14 +462,20 @@ fn cmd_recon(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 fn cmd_mirror(args: &[String]) -> Result<(), String> {
+    let repo = PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?);
+    let template = match flag(args, "--template") {
+        Some(t) => PathBuf::from(t),
+        // Auto-select the pinned template from repo layout (refuse unknowns).
+        None => fixture::template_dir(&fixture::detect_fixture(&repo)?),
+    };
     let a = mirror::MirrorArgs {
-        repo: PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?),
+        repo,
         fork: PathBuf::from(flag(args, "--fork").ok_or("missing --fork")?),
         recon_out: PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out")?),
         heldout: PathBuf::from(flag(args, "--heldout").ok_or("missing --heldout")?),
         store_path: PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into())),
         run_id: flag(args, "--run-id").unwrap_or_else(|| "m4".into()),
-        template: PathBuf::from(flag(args, "--template").unwrap_or_else(|| "mirror/crc".into())),
+        template,
     };
     let store = Store::open(&a.store_path).map_err(|e| e.to_string())?;
     let report = mirror::run_mirror(&a, &store)?;

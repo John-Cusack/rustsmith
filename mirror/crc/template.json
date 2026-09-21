@@ -1,0 +1,22 @@
+{
+  "package": "crc",
+  "extension_module": "crc._crc",
+  "src_layout": true,
+  "files": [
+    ["Cargo.toml", "Cargo.toml"],
+    ["pyproject.toml", "pyproject.toml"],
+    ["src/lib.rs", "src/lib.rs"],
+    ["crc/__init__.py", "crc/__init__.py"]
+  ],
+  "extra_files": {
+    "__main__": [["crc/__main__.py", "crc/__main__.py"]]
+  },
+  "delete_on_merge": {
+    "_crc": ["src/crc/_crc.py"],
+    "__main__": ["src/crc/__init__.py", "src/crc/__main__.py"]
+  },
+  "orig_source": {
+    "_crc": "src/crc/_crc.py",
+    "__main__": "src/crc/__main__.py"
+  }
+}
