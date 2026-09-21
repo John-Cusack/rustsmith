@@ -114,3 +114,165 @@ def test_pinned_fox():
         ),
     ]
 }
+
+/// Dispatch by fixture. crc keeps the exact suite above; strsimpy gets
+/// property + agreement + pinned-absolute tests on inputs disjoint from the
+/// visible suite (visible uses eat/eating, AGCAT/GAC, car/bar, long sentences,
+/// CJK 上海; pins below use disjoint vectors verified against the original).
+pub fn generate_heldout_tests_for(fixture: &str) -> Vec<(String, String)> {
+    match fixture {
+        "strsimpy" => generate_heldout_tests_strsimpy(),
+        _ => generate_heldout_tests(),
+    }
+}
+
+pub fn generate_heldout_tests_strsimpy() -> Vec<(String, String)> {
+    vec![
+        (
+            "test_heldout_edit.py".into(),
+            r#""""Held-out: edit-distance properties + cross-metric agreement (host-only)."""
+from strsimpy.levenshtein import Levenshtein
+from strsimpy.damerau import Damerau
+from strsimpy.optimal_string_alignment import OptimalStringAlignment
+from strsimpy.weighted_levenshtein import WeightedLevenshtein
+from strsimpy.sift4 import SIFT4
+
+
+def test_symmetry():
+    for m in [Levenshtein(), Damerau(), OptimalStringAlignment(), WeightedLevenshtein()]:
+        assert m.distance("kitten", "sitting") == m.distance("sitting", "kitten")
+    assert SIFT4().distance("kitten", "sitting") == SIFT4().distance("sitting", "kitten")
+
+
+def test_empty_is_length():
+    for m in [Levenshtein(), Damerau(), WeightedLevenshtein()]:
+        assert m.distance("", "zxqw") == 4
+        assert m.distance("zxqw", "") == 4
+    # Original quirk (pinned): OSA returns 0.0 on empty, not the length.
+    assert OptimalStringAlignment().distance("", "zxqw") == 0.0
+    assert OptimalStringAlignment().distance("zxqw", "") == 0.0
+
+
+def test_osa_agrees_levenshtein_single_edit():
+    assert OptimalStringAlignment().distance("abcd", "abce") == Levenshtein().distance("abcd", "abce") == 1
+
+
+def test_identity_sensitive_repeats():
+    # Equal-but-not-identical objects must agree (catches identity-keyed caches).
+    a = "kitten"
+    b = "".join(["k", "i", "t", "t", "e", "n"])
+    assert a == b and (a is not b)
+    assert Levenshtein().distance(a, "sitting") == 3
+    assert Levenshtein().distance(b, "sitting") == 3
+
+
+def test_unicode_property():
+    a, b = "上海市", "上海"
+    assert Levenshtein().distance(a, b) == Levenshtein().distance(b, a)
+    assert Damerau().distance(a, b) >= 0
+"#
+            .to_string(),
+        ),
+        (
+            "test_heldout_norm.py".into(),
+            r#""""Held-out: normalized metrics self-agreement + adversarial shapes (host-only)."""
+from strsimpy.jaro_winkler import JaroWinkler
+from strsimpy.normalized_levenshtein import NormalizedLevenshtein
+from strsimpy.cosine import Cosine
+from strsimpy.jaccard import Jaccard
+from strsimpy.ngram import NGram
+from strsimpy.metric_lcs import MetricLCS
+from strsimpy.sorensen_dice import SorensenDice
+from strsimpy.overlap_coefficient import OverlapCoefficient
+from strsimpy.qgram import QGram
+from strsimpy.longest_common_subsequence import LongestCommonSubsequence
+
+
+def test_self_similarity_is_one():
+    s = "zxqw"
+    assert NormalizedLevenshtein().similarity(s, s) == 1.0
+    assert JaroWinkler().similarity(s, s) == 1.0
+    assert SorensenDice(2).similarity(s, s) == 1.0
+    assert Jaccard(2).similarity(s, s) == 1.0
+    assert OverlapCoefficient(2).similarity(s, s) == 1.0
+
+
+def test_self_distance_is_zero():
+    s = "zxqw"
+    assert NormalizedLevenshtein().distance(s, s) == 0.0
+    assert MetricLCS().distance(s, s) == 0.0
+    assert NGram(2).distance(s, s) == 0.0
+    assert Cosine(2).distance(s, s) == 0.0
+    assert LongestCommonSubsequence().distance(s, s) == 0
+
+
+def test_adversarial_shapes():
+    for m in [NormalizedLevenshtein(), MetricLCS(), NGram(2), Cosine(2), QGram(3)]:
+        assert m.distance("", "") == 0.0
+        v = m.distance("a", "abcdefghij")
+        assert v >= 0.0
+
+
+def test_lcs_length_property():
+    assert LongestCommonSubsequence().length("zxqw", "zxqw") == 4
+    assert LongestCommonSubsequence().length("", "zxqw") == 0
+"#
+            .to_string(),
+        ),
+        (
+            "test_heldout_pinned.py".into(),
+            r#""""Held-out: pinned absolute values on disjoint inputs (host-only)."""
+from strsimpy.levenshtein import Levenshtein
+from strsimpy.damerau import Damerau
+from strsimpy.jaro_winkler import JaroWinkler
+from strsimpy.normalized_levenshtein import NormalizedLevenshtein
+from strsimpy.cosine import Cosine
+from strsimpy.jaccard import Jaccard
+from strsimpy.ngram import NGram
+from strsimpy.optimal_string_alignment import OptimalStringAlignment
+from strsimpy.longest_common_subsequence import LongestCommonSubsequence
+from strsimpy.metric_lcs import MetricLCS
+from strsimpy.qgram import QGram
+from strsimpy.sorensen_dice import SorensenDice
+from strsimpy.overlap_coefficient import OverlapCoefficient
+from strsimpy.weighted_levenshtein import WeightedLevenshtein
+from strsimpy.sift4 import SIFT4
+
+
+def test_pinned_kitten():
+    assert Levenshtein().distance("kitten", "sitting") == 3
+    assert SIFT4().distance("kitten", "sitting") == 3
+
+
+def test_pinned_transposition():
+    assert Damerau().distance("abcd", "acbd") == 1
+    assert OptimalStringAlignment().distance("abcd", "acbd") == 1
+
+
+def test_pinned_jaro():
+    assert JaroWinkler().similarity("martha", "marhta") == 0.9611111111111111
+    assert JaroWinkler(threshold=0.7).get_threshold() == 0.7
+
+
+def test_pinned_normalized():
+    assert NormalizedLevenshtein().distance("abc", "abd") == 0.3333333333333333
+    assert MetricLCS().distance("abc", "abd") == 0.33333333333333337
+    assert NGram(2).distance("abcd", "abce") == 0.125
+
+
+def test_pinned_shingle():
+    assert Cosine(2).distance("hello world", "hello there") == 0.4522774424948339
+    assert Jaccard(2).similarity("abc", "abd") == 0.3333333333333333
+    assert QGram(3).distance("abcd", "abce") == 2
+    assert SorensenDice(2).similarity("abc", "abd") == 0.5
+    assert OverlapCoefficient(2).similarity("abc", "abd") == 0.5
+
+
+def test_pinned_misc():
+    assert LongestCommonSubsequence().length("abcde", "abce") == 4
+    assert WeightedLevenshtein().distance("abc", "abd") == 1.0
+"#
+            .to_string(),
+        ),
+    ]
+}

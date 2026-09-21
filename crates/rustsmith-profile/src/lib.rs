@@ -65,9 +65,13 @@ pub fn capture_hotspot_baseline(
             wall_secs: 0.0,
         });
     }
-    // cProfile fallback: time the import + a representative call.
+    // cProfile fallback: time the import + a representative call (probe by layout).
     let start = std::time::Instant::now();
-    let probe = "import crc; c=crc.Calculator(crc.Crc8.CCITT); c.checksum(b'123456789'*100)";
+    let probe = if repo.join("src/crc").is_dir() {
+        "import crc; c=crc.Calculator(crc.Crc8.CCITT); c.checksum(b'123456789'*100)"
+    } else {
+        "import strsimpy; m=strsimpy.Levenshtein(); m.distance('kitten'*20,'sitting'*20)"
+    };
     let src = repo.join("src");
     let mut cmd = std::process::Command::new("python3");
     cmd.arg("-c").arg(format!("import cProfile; cProfile.run(\"{probe}\", sort='cumulative')"));

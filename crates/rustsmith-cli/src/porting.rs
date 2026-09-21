@@ -271,6 +271,129 @@ pub fn generate_porting_md(repo: &Path) -> String {
     md
 }
 
+/// Dispatch by fixture. crc keeps the exact rulebook above.
+pub fn generate_porting_md_for(fixture: &str, repo: &Path) -> String {
+    match fixture {
+        "strsimpy" => generate_porting_md_strsimpy(),
+        _ => generate_porting_md(repo),
+    }
+}
+
+/// strsimpy Python→Rust rulebook (architect-v1). Same triple format
+/// (original-pattern + rust-pattern + example); verified against the pinned
+/// sources (constructors, defaults, quirks) before writing.
+pub fn generate_porting_md_strsimpy() -> String {
+    let mut rules: Vec<(String, String, String, String)> = Vec::new();
+    let mut push = |t: &str, o: &str, r: &str, e: &str| {
+        rules.push((t.to_string(), o.to_string(), r.to_string(), e.to_string()));
+    };
+    push("str not bytes", "Original (Python): all inputs are `str`",
+         "Rust: `&str`, iterate `chars()` never bytes", "Example: 上海 is 2 chars, 6 bytes");
+    push("None TypeError", "Original (Python): `None` arg raises `TypeError('Argument s0 is NoneType.')`",
+         "Rust: pyo3 `String` extraction rejects `None` as `TypeError`; keep messages", "Example: `distance(None, 'a')` raises");
+    push("int returns stay int", "Original (Python): edit distances return `int` (`3`), normalized return `float`",
+         "Rust: `usize`/`i64` for edit, `f64` for normalized (repr parity)", "Example: `repr(distance)` is `3` not `3.0`");
+    push("levenshtein zero float", "Original (Python): `Levenshtein` returns `0.0` float on equal, `int` otherwise",
+         "Rust: replicate exactly (`0.0` on `s0 == s1`)", "Example: `distance('a','a') == 0.0` and `isinstance(_, float)`");
+    push("true division", "Original (Python): `/` is true division",
+         "Rust: `a as f64 / b as f64`", "Example: normalized metrics");
+    push("chars indexing", "Original (Python): `s[i]` indexes chars",
+         "Rust: `Vec<char>` collect once, index the vec", "Example: CJK vectors");
+    push("range loops", "Original (Python): `for i in range(len(s))`",
+         "Rust: `for i in 0..n`", "Example: DP row loops");
+    push("min chains", "Original (Python): `min(a, b, c)` same order",
+         "Rust: `a.min(b).min(c)` same order (float bitwise)", "Example: levenshtein recurrence");
+    push("dict get default", "Original (Python): `d.get(k, 0)`",
+         "Rust: `*d.get(&k).unwrap_or(&0)`", "Example: shingle profiles");
+    push("profile insertion order", "Original (Python): profile dicts iterate first-occurrence order",
+         "Rust: order-preserving profile (`Vec` + map; order-sensitive float sums)", "Example: Cosine norm bit-exact");
+    push("float op order", "Original (Python): accumulation order is the spec",
+         "Rust: same order, no reassociation, no `fast-math`", "Example: cosine `_dot_product`/`_norm`");
+    push("sqrt once", "Original (Python): `math.sqrt` on final sums",
+         "Rust: `f64::sqrt` once on the same sum", "Example: jaccard/cosine denominators");
+    push("JaroWinkler default", "Original (Python): `threshold=0.7`",
+         "Rust: `#[pyo3(signature = (threshold=0.7))]`", "Example: `JaroWinkler()`");
+    push("get_threshold", "Original (Python): `get_threshold()` accessor",
+         "Rust: `fn get_threshold(&self) -> f64`", "Example: held-out pins `0.7`");
+    push("Cosine k", "Original (Python): `Cosine(k)` positional shingle size",
+         "Rust: `fn new(k: usize)`", "Example: `Cosine(2)`");
+    push("Jaccard k", "Original (Python): `Jaccard(k)`",
+         "Rust: `fn new(k: usize)`", "Example: `Jaccard(2)`");
+    push("NGram n default", "Original (Python): `NGram(n=2)`",
+         "Rust: `#[pyo3(signature = (n=2))]`", "Example: `NGram()`");
+    push("QGram k default", "Original (Python): `QGram(k=3)`",
+         "Rust: `#[pyo3(signature = (k=3))]`", "Example: `QGram(3).distance` is `int`");
+    push("Overlap k default", "Original (Python): `OverlapCoefficient(k=3)`",
+         "Rust: `#[pyo3(signature = (k=3))]`", "Example: `OverlapCoefficient(2)`");
+    push("SorensenDice k", "Original (Python): `SorensenDice(k)`",
+         "Rust: `fn new(k: usize)`", "Example: `SorensenDice(2)`");
+    push("SIFT4 signature", "Original (Python): `distance(s1, s2, maxoffset=5, options=None)`",
+         "Rust: `#[pyo3(signature = (s1, s2, maxoffset=5, options=None))]`", "Example: `SIFT4().distance('kitten','sitting') == 3`");
+    push("SIFT4Options dict", "Original (Python): `SIFT4Options(options=None)` dict-merge with `ValueError` on bad maxdistance",
+         "Rust: options struct, `ValueError` preserved", "Example: `SIFT4Options()`");
+    push("base classes", "Original (Python): `StringDistance`/`StringSimilarity`/`Metric*`/`Normalized*` plain bases",
+         "Rust: `#[pyclass(subclass)]` bases with `extends=` on leaves (isinstance holds)", "Example: `Levenshtein` extends `MetricStringDistance`");
+    push("ShingleBased base", "Original (Python): `ShingleBased` holds `k`, `get_k()`, `get_profile(string)`",
+         "Rust: base class with `k: usize` + profile fn", "Example: `Cosine` extends it");
+    push("get_k", "Original (Python): `get_k()` returns k",
+         "Rust: `fn get_k(&self) -> usize`", "Example: `Cosine(2).get_k() == 2`");
+    push("get_profile type", "Original (Python): `get_profile` returns `dict[str, int]`",
+         "Rust: `HashMap<String, i64>` (order kept separately where summed)", "Example: held-out agreement");
+    push("staticmethods", "Original (Python): `matches`, `length`, `distance_profile`, tokenizers are staticmethods",
+         "Rust: `#[staticmethod]`", "Example: `LongestCommonSubsequence.length('abcde','abce') == 4`");
+    push("similarity+distance", "Original (Python): some classes expose both (`similarity`, `distance`)",
+         "Rust: expose both where the original has both", "Example: `Jaccard`/`Cosine`/`NormalizedLevenshtein`");
+    push("distance-only", "Original (Python): `Levenshtein`/`Damerau`/`OSA` expose only `distance`",
+         "Rust: no invented `similarity` (mirror, no cleverness)", "Example: exact API surface");
+    push("OSA empty quirk", "Original (Python): `OptimalStringAlignment` returns `0.0` on empty input",
+         "Rust: replicate the quirk (early `0.0`), do not 'fix'", "Example: held-out pins `0.0`");
+    push("Weighted defaults", "Original (Python): `WeightedLevenshtein()` default costs (sub=1.0)",
+         "Rust: same defaults", "Example: `distance('abc','abd') == 1.0`");
+    push("MetricLCS formula", "Original (Python): `1 - lcs_len / max_len` float order",
+         "Rust: same order", "Example: `distance('abc','abd') == 0.33333333333333337`");
+    push("damerau alphabet", "Original (Python): `Damerau` full DP with alphabet dict",
+         "Rust: same algorithm, `HashMap<char, usize>`", "Example: `distance('abcd','acbd') == 1`");
+    push("setuptools flat", "Original (Python): `setup.py` setuptools, flat `strsimpy/` package",
+         "Rust: maturin mixed project, `module-name = 'strsimpy._strsimpy'`", "Example: `pip install -e .` parity");
+    push("colocated tests", "Original (Python): `*_test.py` next to sources, `pytest -q` root invocation",
+         "Rust: invocation preserved verbatim in manifest", "Example: 18 tests, 0 skipped");
+    push("relative imports", "Original (Python): tests use `from .x import Y` and `from strsimpy.x import Y`",
+         "Rust: shim `__init__.py` + `sys.modules` aliases per submodule", "Example: no `.py` files remain but imports resolve");
+    push("no runtime deps", "Original (Python): `install_requires=[]`",
+         "Rust: only `pyo3` (build)", "Example: `deps=[]`");
+    push("MIT preserved", "Original (Python): MIT License, ZhouYang Luo",
+         "Rust: MIT headers + attribution on every artifact (provenance)", "Example: `__init__.py` header");
+    push("version kept", "Original (Python): `__version__ = '0.2.1'`, `__name__ = 'strsimpy'`",
+         "Rust: shim sets both", "Example: `import strsimpy; strsimpy.__version__`");
+    push("no caching", "Original (Python): no memoization",
+         "Rust: no caches in mirror", "Example: workload_divergence guard");
+    push("per-module units", "Original (Python): ~19 modules, import DAG",
+         "Rust: one unit per module, leaf-first (bases first)", "Example: `shingle_based` before `cosine`");
+    push("single ext", "Original (Python): many modules, one package",
+         "Rust: one `_strsimpy` ext + one shim (no premature split)", "Example: template `files` has 4 entries");
+    push("no SIMD in mirror", "Original (Python): no vectorization",
+         "Rust: no SIMD in mirror", "Example: bound gate");
+    push("zero unsafe", "Original (Python): pure Python",
+         "Rust: zero `unsafe`", "Example: `cargo geiger` count 0");
+    push("miri+clippy", "Original (Python): n/a",
+         "Rust: `cargo +nightly miri test --lib` + `clippy -- -D warnings` clean", "Example: acceptance item 6");
+    let mut md = String::from(
+        "# PORTING.md — strsimpy Python→Rust rulebook (architect-v1)\n\n\
+         Concrete translation rules. Each rule has original-pattern, rust-pattern, and example.\n\n",
+    );
+    for (i, (title, orig, rust, example)) in rules.iter().enumerate() {
+        md.push_str(&format!(
+            "## R{:03}: {}\n- {}\n- Rust: {}\n- Example: {}\n\n",
+            i + 1,
+            title,
+            orig,
+            rust.replace("Rust: ", ""),
+            example.replace("Example: ", "")
+        ));
+    }
+    md
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

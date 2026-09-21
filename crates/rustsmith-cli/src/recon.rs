@@ -18,6 +18,9 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(heldout_out).map_err(|e| e.to_string())?;
 
+    // 0. Fixture dispatch (frozen; mirror/optimize/report read the file).
+    let kind = crate::fixture::detect_fixture(repo)?;
+    crate::fixture::write_frozen_fixture(out, &kind, repo)?;
     // 1-2. Detect + call graph.
     let build = adapter.detect(repo).map_err(|e| e.to_string())?;
     let graph = adapter.call_graph(repo).map_err(|e| e.to_string())?;
@@ -40,10 +43,10 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     // 5. License.
     let attr = adapter.license_terms(repo).map_err(|e| e.to_string())?;
     // 6. Hotspot baseline (py-spy preferred, cProfile fallback).
-    let hotspot = capture_hotspot_baseline(repo, &visible_workloads())
+    let hotspot = capture_hotspot_baseline(repo, &visible_workloads_for(&kind))
         .map_err(|e| e.to_string())?;
     // 7. WORKLOAD.md (frozen contract; derived from repo artifacts).
-    let contract = workload_contract(repo)?;
+    let contract = workload_contract_for(&kind, repo)?;
     let workload_md = contract.to_markdown();
     std::fs::write(out.join("WORKLOAD.md"), &workload_md).map_err(|e| e.to_string())?;
     // 8. Benchmark freeze: hash bench files into manifest alongside oracle files.
@@ -54,11 +57,11 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     )
     .map_err(|e| e.to_string())?;
     // 9. Held-out TEST suite (host-only) + held-out WORKLOADS (host-only).
-    let heldout_tests = crate::heldout::generate_heldout_tests();
+    let heldout_tests = crate::heldout::generate_heldout_tests_for(kind.name());
     for (name, content) in &heldout_tests {
         std::fs::write(heldout_out.join(name), content).map_err(|e| e.to_string())?;
     }
-    let heldout_workloads = heldout_workload_descriptors();
+    let heldout_workloads = heldout_workload_descriptors_for(&kind);
     std::fs::write(
         heldout_out.join("heldout_workloads.json"),
         serde_json::to_string_pretty(&heldout_workloads).unwrap(),
@@ -67,11 +70,11 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     // Visible workloads (frozen, hashed via manifest benchmark section).
     std::fs::write(
         out.join("visible_workloads.json"),
-        serde_json::to_string_pretty(&serde_json::json!(visible_workloads())).unwrap(),
+        serde_json::to_string_pretty(&serde_json::json!(visible_workloads_for(&kind))).unwrap(),
     )
     .map_err(|e| e.to_string())?;
     // 10. PORTING.md (deterministic rulebook; Architect reviews).
-    let porting_md = crate::porting::generate_porting_md(repo);
+    let porting_md = crate::porting::generate_porting_md_for(kind.name(), repo);
     std::fs::write(out.join("PORTING.md"), &porting_md).map_err(|e| e.to_string())?;
     // 11. Unit DAG (leaf-first).
     let dag = dag_from_call_graph(&graph);
@@ -202,6 +205,21 @@ fn visible_workloads() -> Vec<String> {
     ]
 }
 
+use crate::fixture::FixtureKind as ReconFixture;
+
+fn visible_workloads_for(kind: &ReconFixture) -> Vec<String> {
+    match kind {
+        ReconFixture::Strsimpy => vec![
+            "tiny:lev('abc','abd')".into(),
+            "short:lev('kitten','sitting')".into(),
+            "shingle:cosine(2) 8-word pair".into(),
+            "medium:lev(256ch,256ch)".into(),
+            "large:sift4(4KB,4KB)".into(),
+        ],
+        _ => visible_workloads(),
+    }
+}
+
 fn heldout_workload_descriptors() -> serde_json::Value {
     // Same distribution, disjoint inputs: shifted sizes, adversarial shapes,
     // coverage-complement, identity-sensitive repeats. Host-only.
@@ -213,6 +231,20 @@ fn heldout_workload_descriptors() -> serde_json::Value {
         "coverage_complement": ["refin/refout combos not in visible", "width 16/32/64 paths"],
         "identity_sensitive_repeats": ["equal-but-not-identical bytes objects (catches identity-keyed caches)"],
     })
+}
+
+fn heldout_workload_descriptors_for(kind: &ReconFixture) -> serde_json::Value {
+    match kind {
+        ReconFixture::Strsimpy => serde_json::json!({
+            "distribution": "string similarity/distance; lengths 0..4096 chars; ASCII + CJK; pairs identical/near/far",
+            "visible_lengths": [3, 6, 8, 256],
+            "heldout_lengths": [0, 1, 7, 63, 511, 4096],
+            "adversarial_shapes": ["empty", "singleton", "all-identical", "all-distinct", "max-length", "CJK"],
+            "coverage_complement": ["SIFT4 tokenizers not in visible", "shingle sizes not in visible"],
+            "identity_sensitive_repeats": ["equal-but-not-identical str objects (catches identity-keyed caches)"],
+        }),
+        _ => heldout_workload_descriptors(),
+    }
 }
 
 fn workload_contract(repo: &Path) -> Result<WorkloadContract, String> {
@@ -254,6 +286,38 @@ fn workload_contract(repo: &Path) -> Result<WorkloadContract, String> {
              contract budgets enforced in Stage 2 no_regression"
         ),
     })
+}
+
+fn workload_contract_for(kind: &ReconFixture, repo: &Path) -> Result<WorkloadContract, String> {
+    match kind {
+        ReconFixture::Strsimpy => {
+            // Measure a wall baseline for budgets (flat layout: no PYTHONPATH).
+            let t0 = std::time::Instant::now();
+            let _ = std::process::Command::new("python3")
+                .arg("-c")
+                .arg("import strsimpy; m=strsimpy.Levenshtein(); [m.distance('a'*256,'b'*256) for _ in range(200)]")
+                .current_dir(repo)
+                .output();
+            let wall = t0.elapsed().as_secs_f64();
+            Ok(WorkloadContract {
+                primary_metric: "wall_time_p50".into(),
+                secondary_metric: Some("throughput".into()),
+                input_distribution: "similarity/distance strings via strsimpy edit + shingle APIs \
+                    (no bench file; derived from test vectors + public API); \
+                    distribution: lengths empty, tiny (3ch), short (6-11ch), medium (256ch), large (4Kch); \
+                    values: ASCII near/far pairs, identical, all-distinct, CJK; \
+                    degenerate: empty/singleton included; share: API-shaped (edit one-shot 70%, shingle 30%)"
+                    .into(),
+                out_of_scope: "inputs >1MB chars; None inputs (raise TypeError)".into(),
+                budgets: format!(
+                    "measured 200x256ch lev wall={wall:.3}s (quiesced host); \
+                     budget: RSS ceiling +5% vs original; \
+                     contract budgets enforced in Stage 2 no_regression"
+                ),
+            })
+        }
+        _ => workload_contract(repo),
+    }
 }
 
 fn frozen_manifest_with_benchmarks(repo: &Path) -> Result<serde_json::Value, String> {
