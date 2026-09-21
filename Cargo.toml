@@ -8,8 +8,9 @@ members = [
     "crates/rustsmith-agent",
     "crates/rustsmith-council",
     "crates/rustsmith-adapters",
-    "crates/rustsmith-profile",
     "crates/rustsmith-cli",
+    "crates/rustsmith-harvest",
+    "crates/rustsmith-report",
 ]
 resolver = "2"
 

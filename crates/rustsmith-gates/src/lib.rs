@@ -609,4 +609,12 @@ mod tests {
         };
         assert!(optimization_scope(&diff, 0, &[]).passed);
     }
+
+    #[test]
+    fn provenance_needs_headers_notice_attribution() {
+        assert!(provenance(true, true, "Nicoretti").passed);
+        assert!(!provenance(false, true, "Nicoretti").passed);
+        assert!(!provenance(true, false, "Nicoretti").passed);
+        assert!(!provenance(true, true, "").passed);
+    }
 }

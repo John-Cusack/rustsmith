@@ -1,0 +1,11 @@
+[package]
+name = "rustsmith-report"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustsmith-store = { path = "../rustsmith-store" }
+rustsmith-harvest = { path = "../rustsmith-harvest" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

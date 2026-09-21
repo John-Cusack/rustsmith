@@ -1,0 +1,169 @@
+diff --git a/src/crc/_crc.py b/src/crc/_crc.py
+index 338067d..2b2417f 100644
+--- a/src/crc/_crc.py
++++ b/src/crc/_crc.py
+@@ -336,6 +336,22 @@ class TableBasedRegister(BasicRegister):
+         self.register = self._lookup_table[index] ^ (self.register << 8)
+         return self.register
+ 
++    def update(self, data: bytes) -> int:
++        """
++        See `BasicRegister.update`.
++
++        Slicing-by-8 fast path (language-independent algorithmic win, first
++        found by the rustsmith Stage-2 optimizer in the Rust mirror): eight
++        input bytes per loop iteration through precomputed combined tables
++        instead of one byte with per-byte object overhead. Tables are derived
++        by simulating the byte-at-a-time recurrence above, so this computes
++        exactly what the loop it replaces computes. Short tails (< 8 bytes)
++        and empty input use the same recurrence byte by byte.
++
++        Original work: Nicoretti/crc (BSD-2-Clause), Copyright (c) 2018,
++        Nicola Coretti. SPDX-License-Identifier: BSD-2-Clause.
++        """
++        return _update_sliced(self, data)
+ 
+ @functools.lru_cache
+ def create_lookup_table(width: int, polynomial: int) -> list[int]:
+@@ -360,6 +376,141 @@ def create_lookup_table(width: int, polynomial: int) -> list[int]:
+     return lookup_table
+ 
+ 
++_BIT_REVERSED_BYTE: Final = [int(f"{b:08b}"[::-1], 2) for b in range(256)]
++"""Bit-reversal for one byte; matches `Byte.reversed` for all values 0-255."""
++
++
++@functools.lru_cache
++def _slicing_tables(width: int, polynomial: int) -> tuple:
++    """Combined slicing-by-8 tables derived by simulating the recurrence.
++
++    `tables[j][b]` is the register delta of byte `b` at block position `j`;
++    `advance0`/`advance_tab[k][x]` advance the state by eight zero bytes.
++    Because every entry is produced by the byte-at-a-time step itself, the
++    sliced update below is equal to the loop it replaces by construction.
++    """
++    base = create_lookup_table(width, polynomial)
++    mask = (1 << width) - 1
++    shift = width - 8
++
++    def step(state: int, byte: int) -> int:
++        return base[((state >> shift) & 0xFF) ^ byte] ^ ((state << 8) & mask)
++
++    def run(state: int, block: bytes) -> int:
++        for b in block:
++            state = step(state, b)
++        return state
++
++    zero8 = bytes(8)
++    advance0 = run(0, zero8)
++    tables = []
++    for pos in range(8):
++        row = []
++        for b in range(256):
++            probe = bytearray(zero8)
++            probe[pos] = b
++            row.append(run(0, probe))
++        tables.append(row)
++    state_bytes = (width + 7) // 8
++    advance_tab = []
++    for k in range(state_bytes):
++        row = []
++        for x in range(256):
++            row.append(run(x << (8 * k), zero8) ^ advance0)
++        advance_tab.append(row)
++    return advance0, tables, advance_tab, mask, state_bytes
++
++
++def _update_sliced(reg: TableBasedRegister, data: bytes) -> int:
++    """Eight-bytes-per-iteration update; same result as the inherited loop."""
++    width = reg._config.width
++    rev_in = reg._config.reverse_input
++    advance0, tables, advance_tab, mask, state_bytes = _slicing_tables(
++        width, reg._config.polynomial
++    )
++    base = reg._lookup_table
++    state = reg.register
++    n = len(data)
++    i = 0
++    if rev_in:
++        while n - i >= 8:
++            b0 = _BIT_REVERSED_BYTE[data[i]]
++            b1 = _BIT_REVERSED_BYTE[data[i + 1]]
++            b2 = _BIT_REVERSED_BYTE[data[i + 2]]
++            b3 = _BIT_REVERSED_BYTE[data[i + 3]]
++            b4 = _BIT_REVERSED_BYTE[data[i + 4]]
++            b5 = _BIT_REVERSED_BYTE[data[i + 5]]
++            b6 = _BIT_REVERSED_BYTE[data[i + 6]]
++            b7 = _BIT_REVERSED_BYTE[data[i + 7]]
++            acc = advance0
++            if state_bytes > 7:
++                acc ^= advance_tab[7][(state >> 56) & 0xFF]
++            if state_bytes > 6:
++                acc ^= advance_tab[6][(state >> 48) & 0xFF]
++            if state_bytes > 5:
++                acc ^= advance_tab[5][(state >> 40) & 0xFF]
++            if state_bytes > 4:
++                acc ^= advance_tab[4][(state >> 32) & 0xFF]
++            if state_bytes > 3:
++                acc ^= advance_tab[3][(state >> 24) & 0xFF]
++            if state_bytes > 2:
++                acc ^= advance_tab[2][(state >> 16) & 0xFF]
++            if state_bytes > 1:
++                acc ^= advance_tab[1][(state >> 8) & 0xFF]
++            acc ^= advance_tab[0][state & 0xFF]
++            state = (
++                acc
++                ^ tables[0][b0]
++                ^ tables[1][b1]
++                ^ tables[2][b2]
++                ^ tables[3][b3]
++                ^ tables[4][b4]
++                ^ tables[5][b5]
++                ^ tables[6][b6]
++                ^ tables[7][b7]
++            ) & mask
++            i += 8
++        while i < n:
++            byte = _BIT_REVERSED_BYTE[data[i]]
++            state = base[((state >> (width - 8)) & 0xFF) ^ byte] ^ ((state << 8) & mask)
++            i += 1
++    else:
++        while n - i >= 8:
++            acc = advance0
++            if state_bytes > 7:
++                acc ^= advance_tab[7][(state >> 56) & 0xFF]
++            if state_bytes > 6:
++                acc ^= advance_tab[6][(state >> 48) & 0xFF]
++            if state_bytes > 5:
++                acc ^= advance_tab[5][(state >> 40) & 0xFF]
++            if state_bytes > 4:
++                acc ^= advance_tab[4][(state >> 32) & 0xFF]
++            if state_bytes > 3:
++                acc ^= advance_tab[3][(state >> 24) & 0xFF]
++            if state_bytes > 2:
++                acc ^= advance_tab[2][(state >> 16) & 0xFF]
++            if state_bytes > 1:
++                acc ^= advance_tab[1][(state >> 8) & 0xFF]
++            acc ^= advance_tab[0][state & 0xFF]
++            state = (
++                acc
++                ^ tables[0][data[i]]
++                ^ tables[1][data[i + 1]]
++                ^ tables[2][data[i + 2]]
++                ^ tables[3][data[i + 3]]
++                ^ tables[4][data[i + 4]]
++                ^ tables[5][data[i + 5]]
++                ^ tables[6][data[i + 6]]
++                ^ tables[7][data[i + 7]]
++            ) & mask
++            i += 8
++        while i < n:
++            byte = data[i]
++            state = base[((state >> (width - 8)) & 0xFF) ^ byte] ^ ((state << 8) & mask)
++            i += 1
++    reg.register = state
++    return reg.register
++
+ class Calculator:
+     def __init__(self, configuration: Configuration, optimized: bool = False) -> None:
+         """

@@ -7,6 +7,7 @@ edition = "2021"
 rustsmith-core = { path = "../rustsmith-core" }
 rusqlite = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
 parking_lot = { workspace = true }
 

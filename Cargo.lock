@@ -348,14 +348,15 @@ dependencies = [
 name = "rustsmith-cli"
 version = "0.1.0"
 dependencies = [
- "camino",
  "rustsmith-adapters",
  "rustsmith-agent",
  "rustsmith-core",
  "rustsmith-council",
  "rustsmith-gates",
+ "rustsmith-harvest",
  "rustsmith-oracle",
  "rustsmith-profile",
+ "rustsmith-report",
  "rustsmith-sandbox",
  "rustsmith-store",
  "serde_json",
@@ -394,6 +395,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsmith-harvest"
+version = "0.1.0"
+dependencies = [
+ "rustsmith-gates",
+ "rustsmith-store",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "rustsmith-oracle"
 version = "0.1.0"
 dependencies = [
@@ -418,6 +430,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsmith-report"
+version = "0.1.0"
+dependencies = [
+ "rustsmith-harvest",
+ "rustsmith-store",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "rustsmith-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -435,6 +458,7 @@ dependencies = [
  "parking_lot",
  "rusqlite",
  "rustsmith-core",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

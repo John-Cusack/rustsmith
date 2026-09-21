@@ -16,6 +16,49 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
 }
 
+/// M6 harvest/report row types (full column reads).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OptimizationRow {
+    pub round: i64, pub hotspot: String, pub commit_sha: String, pub delta_pct: f64,
+    pub technique: String, pub harvest_class: String, pub files_touched_json: String,
+    pub bound: String, pub tier: i64, pub ceiling_pct: f64, pub visible_gain_pct: f64,
+    pub heldout_gain_pct: f64, pub divergence_pct: f64, pub instrument: String,
+    pub ci_low: Option<f64>, pub ci_high: Option<f64>, pub attribution_verified: bool,
+    pub rss_delta_pct: f64, pub alloc_delta_pct: f64, pub model: String,
+    pub prompt_version: String, pub guidance_version: String, pub proposal_text: String,
+    pub tokens_spent: i64, pub parent_sha: String, pub patch_text: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FailedRow {
+    pub round: i64, pub hotspot: String, pub bound: String, pub tier: i64,
+    pub technique: String, pub outcome: String, pub gate: Option<String>,
+    pub measured_delta_pct: Option<f64>, pub detail_json: String, pub tokens_spent: i64,
+    pub model: String, pub prompt_version: String, pub guidance_version: String,
+    pub proposal_text: String, pub parent_sha: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoundRow {
+    pub round: i64, pub stop_reason: String,
+    pub gain_low: Option<f64>, pub gain_high: Option<f64>,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RunRow {
+    pub id: String, pub repo_url: String, pub source_lang: String, pub status: String,
+    pub stage: String, pub halt_reason: Option<String>,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GateRow {
+    pub unit_id: String, pub gate: String, pub passed: bool, pub detail_json: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DecisionRow {
+    pub question: String, pub seat_positions_json: String, pub resolution: String,
+    pub resolved_by: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpendRow {
+    pub tokens_spent: i64, pub units: i64, pub gates: i64,
+}
 pub struct Store {
     conn: Mutex<Connection>,
     pub db_path: PathBuf,
@@ -270,6 +313,15 @@ CREATE TABLE IF NOT EXISTS guidance_revisions (
         Ok(())
     }
 
+    /// Resume a non-tamper halt (caller enforces `can_resume` first).
+    pub fn clear_halt(&self, run_id: &str) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE runs SET status='running', halt_reason=NULL WHERE id=?1",
+            params![run_id],
+        )?;
+        Ok(())
+    }
     pub fn halt_reason(&self, run_id: &str) -> Result<Option<String>, StoreError> {
         let conn = self.conn.lock();
         let v: Option<String> = conn
@@ -371,6 +423,114 @@ CREATE TABLE IF NOT EXISTS guidance_revisions (
             params![run_id],
             |r| r.get(0),
         )?)
+    }
+    /// M6 readers: full rows for harvest classification + report rendering.
+    pub fn list_optimizations(&self, run_id: &str) -> Result<Vec<OptimizationRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT round, hotspot, commit_sha, delta_pct, technique, COALESCE(harvest_class,''), files_touched_json, bound, tier, ceiling_pct, visible_gain_pct, heldout_gain_pct, divergence_pct, instrument, ci_low, ci_high, attribution_verified, rss_delta_pct, alloc_delta_pct, model, prompt_version, guidance_version, proposal_text, tokens_spent, parent_sha, patch_text FROM optimizations WHERE run_id=?1 ORDER BY round, id",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok(OptimizationRow {
+                round: r.get(0)?, hotspot: r.get(1)?, commit_sha: r.get(2)?, delta_pct: r.get(3)?,
+                technique: r.get(4)?, harvest_class: r.get(5)?, files_touched_json: r.get(6)?,
+                bound: r.get(7)?, tier: r.get(8)?, ceiling_pct: r.get(9)?, visible_gain_pct: r.get(10)?,
+                heldout_gain_pct: r.get(11)?, divergence_pct: r.get(12)?, instrument: r.get(13)?,
+                ci_low: r.get(14)?, ci_high: r.get(15)?, attribution_verified: r.get::<_, i64>(16)? != 0,
+                rss_delta_pct: r.get(17)?, alloc_delta_pct: r.get(18)?, model: r.get(19)?,
+                prompt_version: r.get(20)?, guidance_version: r.get(21)?, proposal_text: r.get(22)?,
+                tokens_spent: r.get(23)?, parent_sha: r.get(24)?, patch_text: r.get(25)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+    pub fn list_failed(&self, run_id: &str) -> Result<Vec<FailedRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT round, hotspot, bound, tier, technique, outcome, gate, measured_delta_pct, detail_json, tokens_spent, model, prompt_version, guidance_version, proposal_text, parent_sha FROM failed_optimizations WHERE run_id=?1 ORDER BY round, id",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok(FailedRow {
+                round: r.get(0)?, hotspot: r.get(1)?, bound: r.get(2)?, tier: r.get(3)?,
+                technique: r.get(4)?, outcome: r.get(5)?, gate: r.get(6)?,
+                measured_delta_pct: r.get(7)?, detail_json: r.get(8)?, tokens_spent: r.get(9)?,
+                model: r.get(10)?, prompt_version: r.get(11)?, guidance_version: r.get(12)?,
+                proposal_text: r.get(13)?, parent_sha: r.get(14)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+    pub fn list_rounds(&self, run_id: &str) -> Result<Vec<RoundRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT round, stop_reason, gain_low, gain_high FROM rounds WHERE run_id=?1 ORDER BY round")?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok(RoundRow { round: r.get(0)?, stop_reason: r.get(1)?, gain_low: r.get(2)?, gain_high: r.get(3)? })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+    pub fn get_run(&self, run_id: &str) -> Result<Option<RunRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT id, repo_url, source_lang, status, stage, halt_reason FROM runs WHERE id=?1")?;
+        let mut rows = stmt.query_map(params![run_id], |r| {
+            Ok(RunRow {
+                id: r.get(0)?, repo_url: r.get(1)?, source_lang: r.get(2)?, status: r.get(3)?,
+                stage: r.get(4)?, halt_reason: r.get(5)?,
+            })
+        })?;
+        Ok(rows.next().transpose()?)
+    }
+    pub fn list_gate_results(&self, run_id: &str) -> Result<Vec<GateRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT g.unit_id, g.gate, g.passed, g.detail_json FROM gate_results g JOIN units u ON u.id=g.unit_id WHERE u.run_id=?1 ORDER BY g.id",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok(GateRow { unit_id: r.get(0)?, gate: r.get(1)?, passed: r.get::<_, i64>(2)? != 0, detail_json: r.get(3)? })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+    pub fn list_decisions(&self, run_id: &str) -> Result<Vec<DecisionRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT question, seat_positions_json, resolution, resolved_by FROM decisions WHERE run_id=?1 ORDER BY id")?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok(DecisionRow { question: r.get(0)?, seat_positions_json: r.get(1)?, resolution: r.get(2)?, resolved_by: r.get(3)? })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+    pub fn spend_summary(&self, run_id: &str) -> Result<SpendRow, StoreError> {
+        let conn = self.conn.lock();
+        let tokens: Option<i64> = conn.query_row(
+            "SELECT SUM(tokens_spent) FROM (SELECT tokens_spent FROM optimizations WHERE run_id=?1 UNION ALL SELECT tokens_spent FROM failed_optimizations WHERE run_id=?1)",
+            params![run_id],
+            |r| r.get(0),
+        )?;
+        let units: i64 = conn.query_row("SELECT COUNT(*) FROM units WHERE run_id=?1", params![run_id], |r| r.get(0))?;
+        let gates: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM gate_results g JOIN units u ON u.id=g.unit_id WHERE u.run_id=?1",
+            params![run_id],
+            |r| r.get(0),
+        )?;
+        Ok(SpendRow { tokens_spent: tokens.unwrap_or(0), units, gates })
     }
 
     /// One row per MERGED optimization with full retrospective provenance (§17).

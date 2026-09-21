@@ -18,7 +18,7 @@ fn now() -> i64 {
 }
 
 fn usage() -> &'static str {
-    "usage: rustsmith run --stage recon --repo <path-or-url> --run-id <id> [--store <store.db>] [--heldout <dir>]\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]"
+    "usage: rustsmith run --stage recon --repo <path-or-url> --run-id <id> [--store <store.db>] [--heldout <dir>]\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]\n       rustsmith report --run-id <id> --fork <dir> --orig <dir> --store <store.db> --recon-out <dir> --opt <dir>\n       rustsmith status --run-id <id> [--store <store.db>]\n       rustsmith halt --run-id <id> [--store <store.db>] [--reason <r>]\n       rustsmith resume --run-id <id> [--store <store.db>]"
 }
 
 fn main() {
@@ -42,6 +42,10 @@ fn run() -> Result<(), String> {
         "optimize" => cmd_optimize(&args[2..]),
         "grade-candidate" => cmd_grade_candidate(&args[2..]),
         "learn" => cmd_learn(&args[2..]),
+        "report" => cmd_report(&args[2..]),
+        "status" => cmd_status(&args[2..]),
+        "halt" => cmd_halt(&args[2..]),
+        "resume" => cmd_resume(&args[2..]),
         _ => Err(usage().into()),
     }
 }
@@ -656,4 +660,231 @@ fn cmd_learn(args: &[String]) -> Result<(), String> {
     // Pinning check: every attempt row carries a guidance_version.
     println!("{}", serde_json::to_string_pretty(&stats).unwrap());
     Ok(())
+}
+
+/// M6 harvest + fork layout writer.
+/// Writes RUSTSMITH_REPORT.md + rustsmith-report.{html,json} + suggestions/
+/// into `--fork`; prints a JSON summary. Works on halted runs (harvest over
+/// merged rows needs no live loop).
+fn cmd_report(args: &[String]) -> Result<(), String> {
+    let run_id = flag(args, "--run-id").ok_or("missing --run-id")?;
+    let fork = PathBuf::from(flag(args, "--fork").ok_or("missing --fork")?);
+    let _orig = flag(args, "--orig").ok_or("missing --orig")?;
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let recon_out = PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out")?);
+    let opt = PathBuf::from(flag(args, "--opt").ok_or("missing --opt")?);
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    // Floor + stop come from the graded optimize run (no new measurement).
+    let opt_rep: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(opt.join("optimize-report.json")).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let floor = opt_rep["floor"].as_f64().ok_or("optimize-report.json lacks floor")?;
+    let dag: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(recon_out.join("dag.json")).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let dag_units: Vec<String> = dag["units"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|u| u["module"].as_str().map(|s| s.to_string()))
+        .collect();
+    let unsafe_count = count_unsafe(&fork);
+    let gates = store.list_gate_results(&run_id).map_err(|e| e.to_string())?;
+    let parity_units: Vec<&str> = gates
+        .iter()
+        .filter(|g| g.gate == "oracle_parity" && g.passed)
+        .map(|g| g.unit_id.as_str())
+        .collect();
+    let parity_text = format!("{}/{} units oracle_parity passed", parity_units.len(), store.list_units(&run_id).map_err(|e| e.to_string())?.len());
+    let max_div = store
+        .list_optimizations(&run_id)
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|r| r.divergence_pct.abs())
+        .fold(0.0f64, f64::max);
+    let divergence_text = format!("max merged divergence {max_div:.4}");
+    let stop = store
+        .get_run(&run_id)
+        .map_err(|e| e.to_string())?
+        .and_then(|r| r.halt_reason)
+        .map(|h| format!("halted: {h}"))
+        .unwrap_or_else(|| {
+            opt_rep["stop"].as_str().unwrap_or("unknown").to_string()
+        });
+    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop)
+        .map_err(|e| e.to_string())?;
+    // Fork layout (every file provenance-gated before write).
+    write_gated(&fork.join("RUSTSMITH_REPORT.md"), &rustsmith_report::emit_md(&rep))?;
+    write_gated(&fork.join("rustsmith-report.json"), &rustsmith_report::emit_json(&rep))?;
+    write_gated(&fork.join("rustsmith-report.html"), &rustsmith_report::emit_html(&rep))?;
+    let sug_dir = fork.join("suggestions");
+    let patches_dir = sug_dir.join("patches");
+    let accel_dir = sug_dir.join("accelerators");
+    std::fs::create_dir_all(&patches_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&accel_dir).map_err(|e| e.to_string())?;
+    let opts = store.list_optimizations(&run_id).map_err(|e| e.to_string())?;
+    let mut readme = format!(
+        "<!-- SPDX-License-Identifier: BSD-2-Clause | Original work: Nicoretti/crc -->\n# Suggestions\n\nGuidance: {}\n\n## Ranking\n\n",
+        rep.guidance_version
+    );
+    for (i, s) in rep.suggestions.iter().enumerate() {
+        readme.push_str(&format!(
+            "{}. {} [{}] — expected gain {:.4} / burden {:.1}\n",
+            i + 1, s.technique, s.class, s.expected_gain, s.review_burden
+        ));
+    }
+    for s in &rep.suggestions {
+        readme.push_str(&format!("\n## {}\n{}\n", s.technique, s.reasoning));
+    }
+    write_gated(&sug_dir.join("README.md"), &readme)?;
+    for s in &rep.suggestions {
+        let row = opts.iter().find(|r| r.technique == s.technique).ok_or("row vanished")?;
+        let mut item = format!(
+            "<!-- SPDX-License-Identifier: BSD-2-Clause | Original work: Nicoretti/crc -->\n# {} [{}]\n\n## Reasoning\n\n{}\n\n## Expected gain\n\n{:.4} (fractional, in-original-language for backports)\n\n## Review burden\n\n{:.1} (added-line proxy)\n",
+            s.technique, s.class, s.reasoning, s.expected_gain, s.review_burden
+        );
+        if let Some(pf) = &s.patch_file {
+            match rustsmith_harvest::emit_patch(row) {
+                Ok(p) => {
+                    write_gated(&patches_dir.join(pf), &p.text)?;
+                    item.push_str(&format!("\n## Patch\n\n`patches/{}` — apply with `git apply --check`, then: `{}` (expected gain {:.4})\n", pf, p.benchmark_cmd, p.expected_gain));
+                }
+                Err(e) => {
+                    item.push_str(&format!("\n## Patch\n\nNo backport: {e}\n"));
+                }
+            }
+        }
+        write_gated(&sug_dir.join(format!("{}.md", sanitize(s.technique.clone()))), &item)?;
+    }
+    // Accelerators: real ones where a module_local row earns it, else a
+    // provenance-carrying note explaining the empty case.
+    let mut acc_note = "<!-- SPDX-License-Identifier: BSD-2-Clause | Original work: Nicoretti/crc -->\n# Accelerators\n\n".to_string();
+    let mut any_acc = false;
+    for s in &rep.suggestions {
+        if s.class != "module_local" {
+            continue;
+        }
+        if let Some(row) = opts.iter().find(|r| r.technique == s.technique) {
+            if let Ok(a) = rustsmith_harvest::emit_accelerator(row) {
+                write_gated(&accel_dir.join(&a.filename), &a.text)?;
+                acc_note.push_str(&format!("- {}: {}\n", s.technique, a.filename));
+                any_acc = true;
+            }
+        }
+    }
+    if !any_acc {
+        acc_note.push_str("No module_local rows this run: every merged win was language_independent (backported as a patch) or port_only (documented). No accelerator ships.\n");
+    }
+    write_gated(&accel_dir.join("README.md"), &acc_note)?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "run_id": run_id,
+            "stop": rep.stop,
+            "suggestions": rep.suggestions.iter().map(|s| serde_json::json!({"technique": s.technique, "class": s.class})).collect::<Vec<_>>(),
+        })
+    );
+    Ok(())
+}
+
+/// Provenance-gated file write (M6 trap 2: every artifact carries headers).
+fn write_gated(path: &PathBuf, text: &str) -> Result<(), String> {
+    let v = rustsmith_gates::provenance(
+        text.contains("SPDX-License-Identifier") || text.contains("BSD-2-Clause"),
+        true,
+        if text.contains(rustsmith_harvest::ATTRIBUTION) { rustsmith_harvest::ATTRIBUTION } else { "" },
+    );
+    if !v.passed {
+        return Err(format!("provenance gate rejects {}: {}", path.display(), v.detail));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, text).map_err(|e| e.to_string())
+}
+
+/// Count `unsafe` blocks in the delivered Rust tree (fresh, not stored).
+fn count_unsafe(fork: &PathBuf) -> usize {
+    let mut n = 0;
+    let mut stack = vec![fork.join("src")];
+    while let Some(p) = stack.pop() {
+        if let Ok(rd) = std::fs::read_dir(&p) {
+            for e in rd.flatten() {
+                let q = e.path();
+                if q.is_dir() {
+                    stack.push(q);
+                } else if q.extension().map(|x| x == "rs").unwrap_or(false) {
+                    if let Ok(t) = std::fs::read_to_string(&q) {
+                        n += t.matches("unsafe").count();
+                    }
+                }
+            }
+        }
+    }
+    n
+}
+
+fn sanitize(s: String) -> String {
+    s.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
+}
+
+/// Live units / gates / spend for a run.
+fn cmd_status(args: &[String]) -> Result<(), String> {
+    let run_id = flag(args, "--run-id").ok_or("missing --run-id")?;
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    let run = store.get_run(&run_id).map_err(|e| e.to_string())?.ok_or("no such run")?;
+    let units = store.list_units(&run_id).map_err(|e| e.to_string())?;
+    let gates = store.list_gate_results(&run_id).map_err(|e| e.to_string())?;
+    let mut by_unit = serde_json::Map::new();
+    for g in &gates {
+        let e = by_unit.entry(g.unit_id.clone()).or_insert_with(|| serde_json::json!({}));
+        e[g.gate.clone()] = serde_json::json!(g.passed);
+    }
+    let spend = store.spend_summary(&run_id).map_err(|e| e.to_string())?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "run_id": run_id, "status": run.status, "stage": run.stage, "halt_reason": run.halt_reason,
+            "units": units.iter().map(|(id, st, _)| serde_json::json!({"id": id, "status": st})).collect::<Vec<_>>(),
+            "gates": by_unit,
+            "spend": {"tokens": spend.tokens_spent, "units": spend.units, "gates": spend.gates},
+        })
+    );
+    Ok(())
+}
+
+/// Halt a run (tamper halts are permanent; see `resume`).
+fn cmd_halt(args: &[String]) -> Result<(), String> {
+    let run_id = flag(args, "--run-id").ok_or("missing --run-id")?;
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let reason = flag(args, "--reason").unwrap_or_else(|| "operator halt".into());
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    rustsmith_council::halt_run(&store, &run_id, &reason).map_err(|e| e.to_string())?;
+    println!("{}", serde_json::json!({"halted": run_id, "reason": reason}));
+    Ok(())
+}
+
+/// Resume a halted run; tamper/divergence halts are refused (permanent).
+fn cmd_resume(args: &[String]) -> Result<(), String> {
+    let run_id = flag(args, "--run-id").ok_or("missing --run-id")?;
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    match store.halt_reason(&run_id).map_err(|e| e.to_string())? {
+        None => {
+            println!("{}", serde_json::json!({"resumed": false, "reason": "not halted"}));
+            Ok(())
+        }
+        Some(h) if !rustsmith_council::can_resume(&h) => {
+            Err(format!("resume refused: tamper halt is permanent ({h})"))
+        }
+        Some(_) => {
+            store.clear_halt(&run_id).map_err(|e| e.to_string())?;
+            println!("{}", serde_json::json!({"resumed": run_id}));
+            Ok(())
+        }
+    }
 }
