@@ -348,6 +348,8 @@ dependencies = [
 name = "rustsmith-cli"
 version = "0.1.0"
 dependencies = [
+ "camino",
+ "hex",
  "rustsmith-adapters",
  "rustsmith-agent",
  "rustsmith-core",

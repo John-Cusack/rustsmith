@@ -21,6 +21,8 @@ rustsmith-harvest = { path = "../rustsmith-harvest" }
 rustsmith-report = { path = "../rustsmith-report" }
 serde_json = { workspace = true }
 walkdir = { workspace = true }
+camino = "1"
+hex = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

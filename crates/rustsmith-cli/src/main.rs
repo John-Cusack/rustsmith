@@ -5,7 +5,7 @@ mod mirror;
 mod optimize;
 mod porting;
 mod recon;
-use rustsmith_core::Event;
+use rustsmith_core::{Event, Gate};
 use rustsmith_oracle::{HeldoutSuite, Oracle};
 use rustsmith_sandbox::Sandbox;
 use rustsmith_store::Store;
@@ -18,7 +18,7 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 fn usage() -> &'static str {
-    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]"
+    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>"
 }
 
 fn main() {
@@ -32,11 +32,14 @@ fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     match args[1].as_str() {
         "run" => cmd_run(&args[2..]),
+        "run-batch" => cmd_run_batch(&args[2..]),
         "audit" => cmd_audit(&args[2..]),
         "verify" => cmd_verify(&args[2..]),
         "grade" => cmd_grade(&args[2..]),
         "m1probe" => cmd_m1probe(&args[2..]),
         "m2probe" => cmd_m2probe(&args[2..]),
+        "worker-probe" => cmd_worker_probe(&args[2..]),
+        "seat-probe" => cmd_seat_probe(&args[2..]),
         "recon" => cmd_recon(&args[2..]),
         "mirror" => cmd_mirror(&args[2..]),
         "optimize" => cmd_optimize(&args[2..]),
@@ -63,6 +66,53 @@ fn flag(args: &[String], name: &str) -> Option<String> {
     None
 }
 
+/// Effective run configuration. Defaults match `config/default.toml`;
+/// `--config PATH` overrides the fields below (unknown keys ignored).
+#[derive(Debug, Clone)]
+struct RunConfig {
+    max_rounds: usize,
+    gain_threshold_pct: f64,
+}
+impl RunConfig {
+    fn defaults() -> Self {
+        Self { max_rounds: 6, gain_threshold_pct: 3.0 }
+    }
+    fn as_json(&self) -> serde_json::Value {
+        serde_json::json!({"optimize": {"max_rounds": self.max_rounds, "round_gain_threshold_pct": self.gain_threshold_pct}})
+    }
+}
+/// Minimal TOML merge over `[optimize] max_rounds`, `round_gain_threshold_pct`.
+/// Missing file => Err (never silently default a typo'd path).
+fn load_run_config(path: Option<&str>) -> Result<RunConfig, String> {
+    let mut cfg = RunConfig::defaults();
+    let p = match path {
+        None => return Ok(cfg),
+        Some(p) => p,
+    };
+    let text = std::fs::read_to_string(p).map_err(|e| format!("bad --config {p}: {e}"))?;
+    let mut section = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        if t.starts_with('[') && t.ends_with(']') {
+            section = t[1..t.len() - 1].trim().to_string();
+            continue;
+        }
+        let (k, v) = t.split_once('=').ok_or(format!("bad --config line: {line}"))?;
+        let val = v.split('#').next().unwrap_or("").trim().replace('_', "");
+        if section == "optimize" {
+            match k.trim() {
+                "max_rounds" => cfg.max_rounds = val.parse().map_err(|e| format!("bad max_rounds: {e}"))?,
+                "round_gain_threshold_pct" => cfg.gain_threshold_pct = val.parse().map_err(|e| format!("bad threshold: {e}"))?,
+                _ => {}
+            }
+        }
+    }
+    Ok(cfg)
+}
+
 fn cmd_run(args: &[String]) -> Result<(), String> {
     let stage = flag(args, "--stage").unwrap_or_else(|| "full".into());
     // M0 legacy: `run --stage recon` with explicit --out (m0_acceptance.sh shape).
@@ -83,10 +133,28 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             return Err(format!("unknown --plant-live {p} (test-edit|hardcode)"));
         }
     }
+    let cfg = load_run_config(flag(args, "--config").as_deref())?;
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     // Resolve repo: URL[#pin] clones into work/orig, else a local path.
     let orig = resolve_repo(&repo_spec, &work)?;
-    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    run_pipeline(&orig, &repo_spec, &fork, &work, &store_path, &run_id, &stage, plant.as_deref(), &cfg)
+}
+
+/// Shared full-pipeline body for `run` and `run-batch` (sequential).
+/// One repo per call; isolated fork/work dirs; one shared store file.
+#[allow(clippy::too_many_arguments)]
+fn run_pipeline(
+    orig: &std::path::Path,
+    repo_spec: &str,
+    fork: &std::path::Path,
+    work: &std::path::Path,
+    store_path: &std::path::Path,
+    run_id: &str,
+    stage: &str,
+    plant: Option<&str>,
+    cfg: &RunConfig,
+) -> Result<(), String> {
+    let store = Store::open(store_path).map_err(|e| e.to_string())?;
     store
         .create_run(&run_id, &repo_spec, "python", "run")
         .map_err(|e| e.to_string())?;
@@ -95,9 +163,9 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     let heldout_out = work.join("heldout");
     let opt = work.join("opt");
     let store_s = store_path.display().to_string();
-    let stages: Vec<&str> = match stage.as_str() {
+    let stages: Vec<&str> = match stage {
         "full" => vec!["recon", "mirror", "optimize", "harvest"],
-        "recon" | "mirror" | "optimize" | "harvest" => vec![stage.as_str()],
+        "recon" | "mirror" | "optimize" | "harvest" => vec![stage],
         _ => return Err(format!("unknown --stage {stage} (full|recon|mirror|optimize|harvest)")),
     };
     for s in stages {
@@ -110,7 +178,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
                 ("--run-id", &run_id),
             ])),
             "mirror" => {
-                if plant.as_deref() == Some("test-edit") {
+                if plant == Some("test-edit") {
                     plant_test_edit(&store, &run_id, &recon_out, &orig, &work)?;
                     return Err(format!("halted: {}", store.halt_reason(&run_id).map_err(|e| e.to_string())?.unwrap_or_default()));
                 }
@@ -124,9 +192,12 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
                 ]))
             }
             "optimize" => {
-                if plant.as_deref() == Some("hardcode") {
+                if plant == Some("hardcode") {
                     return plant_hardcode(&store, &run_id, &fork, &orig, &recon_out, &heldout_out);
                 }
+                let max_rounds_s = cfg.max_rounds.to_string();
+                let gain_s = cfg.gain_threshold_pct.to_string();
+                let cfg_s = cfg.as_json().to_string();
                 cmd_optimize(&sargs(vec![
                     ("--fork", &fork.display().to_string()),
                     ("--work", &opt.display().to_string()),
@@ -135,7 +206,9 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
                     ("--store", &store_s),
                     ("--run-id", &run_id),
                     ("--orig", &orig.display().to_string()),
-                    ("--max-rounds", "6"),
+                    ("--max-rounds", &max_rounds_s),
+                    ("--gain-threshold", &gain_s),
+                    ("--config-json", &cfg_s),
                 ]))
             }
             "harvest" => cmd_report(&sargs(vec![
@@ -717,6 +790,127 @@ fn cmd_m2probe(args: &[String]) -> Result<(), String> {
     println!("m2probe: GREEN");
     Ok(())
 }
+/// M8 slice-3 probe: one worker-command turn, fully recorded.
+/// Builds the prompt (stable prefix + PORTING.md + unit bundle), shells
+/// `RUSTSMITH_WORKER_CMD` with the prompt on stdin, parses usage JSON from
+/// stdout, records tokens + a `loop_detector` gate row stamped with the
+/// worker prompt version. Usage only — never evidence of correctness.
+fn cmd_worker_probe(args: &[String]) -> Result<(), String> {
+    use rustsmith_agent::{build_worker_prompt, worker_cmd_from_env, Agent, UnitSpec};
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let run_id = flag(args, "--run-id").unwrap_or_else(|| "m8w".into());
+    let unit = flag(args, "--unit").ok_or("missing --unit")?;
+    let prompt_out = PathBuf::from(flag(args, "--prompt-out").unwrap_or_else(|| "prompt.txt".into()));
+    let cmd = worker_cmd_from_env().ok_or("RUSTSMITH_WORKER_CMD not set")?;
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    store.create_run(&run_id, "worker-probe", "python", "probe").map_err(|e| e.to_string())?;
+    store.create_unit(&unit, &run_id, "mirror", &serde_json::json!({"module": unit}).to_string()).map_err(|e| e.to_string())?;
+    let bundle = serde_json::json!({"unit_id": unit, "instructions": "Port this module to behavior-identical Rust per PORTING.md. No redesign."}).to_string();
+    let prompt = build_worker_prompt(&unit, "# PORTING.md (probe excerpt)\n", &bundle);
+    std::fs::write(&prompt_out, &prompt).map_err(|e| e.to_string())?;
+    let wt = std::env::temp_dir().join(format!("rustsmith-probe-{unit}"));
+    std::fs::create_dir_all(&wt).map_err(|e| e.to_string())?;
+    let agent = Agent::new(None);
+    let spec = UnitSpec {
+        unit_id: unit.clone(),
+        worktree: camino::Utf8PathBuf::from_path_buf(wt).map_err(|e| format!("{e:?}"))?,
+        task: "worker-probe".into(),
+        token_ceiling: 1_000_000,
+    };
+    let w = agent.spawn_worker(&spec, &prompt, &cmd).map_err(|e| e.to_string())?;
+    store.set_unit_tokens(&unit, w.tokens_in as i64, w.tokens_out as i64).map_err(|e| e.to_string())?;
+    store
+        .record_gate(
+            &unit,
+            Gate::LoopDetector,
+            true,
+            &serde_json::json!({"prompt_version": rustsmith_agent::WORKER_PROMPT_VERSION, "note": w.note}),
+        )
+        .map_err(|e| e.to_string())?;
+    ev_run(&store, &run_id, "worker_probe", serde_json::json!({"unit": unit, "tokens_in": w.tokens_in, "tokens_out": w.tokens_out}));
+    println!("worker-probe: unit={unit} tokens={}/{} version={}", w.tokens_in, w.tokens_out, rustsmith_agent::WORKER_PROMPT_VERSION);
+    Ok(())
+}
+/// M8 slice-4: seat wiring probe. Every seat with a RUSTSMITH_SEAT_CMD_*
+/// command critiques through the worker-command interface; seats without one
+/// use an approving stub. Decision + minority reasoning recorded as usual.
+fn cmd_seat_probe(args: &[String]) -> Result<(), String> {
+    use rustsmith_council::{model_for_seat, seat_commands_from_env, Council, Proposal, Seat, SeatDriver, StubDriver};
+    use std::collections::HashMap;
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let run_id = flag(args, "--run-id").unwrap_or_else(|| "m8s".into());
+    let question = flag(args, "--question").unwrap_or_else(|| "adopt X".into());
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    store.create_run(&run_id, "seat-probe", "python", "probe").map_err(|e| e.to_string())?;
+    let cmds = seat_commands_from_env();
+    let mut drivers: HashMap<Seat, Box<dyn SeatDriver>> = HashMap::new();
+    for seat in [Seat::Architect, Seat::Verifier, Seat::Performance, Seat::Scope] {
+        if let Some(cmd) = cmds.get(&seat) {
+            drivers.insert(
+                seat,
+                Box::new(rustsmith_council::WorkerSeatDriver {
+                    seat,
+                    command: cmd.clone(),
+                    model: model_for_seat(seat),
+                }),
+            );
+        } else {
+            drivers.insert(
+                seat,
+                Box::new(StubDriver { stance: rustsmith_council::Stance::Approve, reasoning: "stub approve".into() }),
+            );
+        }
+    }
+    let council = Council::new(drivers);
+    let res = council
+        .decide(
+            &store,
+            &run_id,
+            Proposal {
+                question: question.clone(),
+                artifact_ref: "seat-probe-artifact".into(),
+                proposer: Seat::Architect,
+                reasoning: "seat-probe proposal".into(),
+            },
+            b"seat-probe-artifact-bytes",
+            (Seat::Verifier, Seat::Performance),
+        )
+        .map_err(|e| e.to_string())?;
+    println!("seat-probe: {res:?}");
+    Ok(())
+}
+/// M9 slice-5: sequential multi-repo batch. One shared store, distinct
+/// run-ids, isolated fork/work dirs per repo. Sequential only (see ADR-005).
+fn cmd_run_batch(args: &[String]) -> Result<(), String> {
+    let repos: Vec<String> = flag(args, "--repo")
+        .ok_or("missing --repo")?
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if repos.is_empty() {
+        return Err("run-batch needs --repo <a[,b...]>".into());
+    }
+    if flag(args, "--plant-live").is_some() {
+        return Err("--plant-live is single-run only".into());
+    }
+    let cfg = load_run_config(flag(args, "--config").as_deref())?;
+    let work_root = PathBuf::from(flag(args, "--work").unwrap_or_else(|| "batch".into()));
+    let store_default = work_root.join("store.db").display().to_string();
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| store_default.clone()));
+    let prefix = flag(args, "--run-id-prefix").unwrap_or_else(|| "batch".into());
+    std::fs::create_dir_all(&work_root).map_err(|e| e.to_string())?;
+    for (i, repo_spec) in repos.iter().enumerate() {
+        let run_id = format!("{prefix}-{i}");
+        let fork = work_root.join(format!("fork-{i}"));
+        let work = work_root.join(format!("work-{i}"));
+        std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+        let orig = resolve_repo(repo_spec, &work)?;
+        run_pipeline(&orig, repo_spec, &fork, &work, &store_path, &run_id, "full", None, &cfg)?;
+    }
+    println!("run-batch: {} repos done work={}", repos.len(), work_root.display());
+    Ok(())
+}
 fn cmd_recon(args: &[String]) -> Result<(), String> {
     let repo = PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?);
     let out = PathBuf::from(flag(args, "--out").unwrap_or_else(|| "recon".into()));
@@ -782,6 +976,8 @@ fn cmd_optimize(args: &[String]) -> Result<(), String> {
         run_id: flag(args, "--run-id").unwrap_or_else(|| "m5".into()),
         max_rounds: flag(args, "--max-rounds").unwrap_or_else(|| "6".into()).parse().map_err(|e| format!("{e}"))?,
         orig: PathBuf::from(flag(args, "--orig").ok_or("missing --orig")?),
+        gain_threshold_pct: flag(args, "--gain-threshold").unwrap_or_else(|| "3.0".into()).parse().map_err(|e| format!("{e}"))?,
+        config_json: flag(args, "--config-json").unwrap_or_else(|| "{}".into()),
     };
     let store = Store::open(&a.store_path).map_err(|e| e.to_string())?;
     let report = optimize::run_optimize(&a, &store)?;
@@ -945,11 +1141,103 @@ fn maturin_cli() -> PathBuf {
     PathBuf::from("maturin")
 }
 fn cmd_learn(args: &[String]) -> Result<(), String> {
+    match args.first().map(|s| s.as_str()) {
+        Some("propose") => cmd_learn_propose(&args[1..]),
+        Some("apply") => cmd_learn_apply(&args[1..]),
+        _ => {
+            let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+            let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+            let stats = store.learn_stats().map_err(|e| e.to_string())?;
+            // Pinning check: every attempt row carries a guidance_version.
+            println!("{}", serde_json::to_string_pretty(&stats).unwrap());
+            Ok(())
+        }
+    }
+}
+/// `learn propose`: guidance-diff proposal file from store stats (M9 slice-10).
+/// Deterministic over `store.db`; reviews never see held-out magnitudes
+/// (aggregations reuse `learn_stats`, which carries no held-out numbers).
+fn cmd_learn_propose(args: &[String]) -> Result<(), String> {
     let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let out = PathBuf::from(flag(args, "--out").ok_or("missing --out")?);
+    let evidence_query = flag(args, "--evidence-sql").unwrap_or_else(|| "learn_stats yield_by_technique/gate_kills".into());
     let store = Store::open(&store_path).map_err(|e| e.to_string())?;
     let stats = store.learn_stats().map_err(|e| e.to_string())?;
-    // Pinning check: every attempt row carries a guidance_version.
-    println!("{}", serde_json::to_string_pretty(&stats).unwrap());
+    let runs = store.list_run_ids().map_err(|e| e.to_string())?;
+    // Next version: one past the max pinned/proposed version seen.
+    let current = store
+        .latest_guidance_version()
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(optimize::read_guidance_version_cli);
+    let n: i64 = current
+        .split('v')
+        .last()
+        .and_then(|s| s.split_whitespace().next())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let version = format!("opt-guidance v{}", n + 1);
+    // Summary + rules derived from the stats (top gate-kill, top technique).
+    let mut summary = vec![];
+    if let Some(k) = stats["gate_kills"].as_array().and_then(|k| k.first()) {
+        summary.push(format!("gate {} killed {} attempt(s)", k["gate"].as_str().unwrap_or("?"), k["n"].as_i64().unwrap_or(0)));
+    }
+    if let Some(t) = stats["yield_by_technique"].as_array().and_then(|t| t.first()) {
+        summary.push(format!("technique {} n={} avg_gain={:?}", t["technique"].as_str().unwrap_or("?"), t["n"].as_i64().unwrap_or(0), t["avg_gain"]));
+    }
+    if summary.is_empty() {
+        summary.push("no attempts recorded yet; keep Tier order, change nothing structural".into());
+    }
+    let change_summary = summary.join("; ");
+    let append = format!("- [{version}] {change_summary}.\n");
+    let prompt_diff = format!("--- guidance/optimize.md\n+++ guidance/optimize.md\n+# optimize guidance v{}\n+{append}", n + 1);
+    let proposal = serde_json::json!({
+        "guidance_version": version,
+        "change_summary": change_summary,
+        "evidence_query": evidence_query,
+        "stats_json": stats.to_string(),
+        "runs_included_json": serde_json::to_string(&runs).unwrap(),
+        "prompt_diff": prompt_diff,
+        "guidance_append": append,
+    });
+    std::fs::write(&out, serde_json::to_string_pretty(&proposal).unwrap()).map_err(|e| e.to_string())?;
+    println!("learn propose: {version} runs={} out={}", runs.len(), out.display());
+    Ok(())
+}
+/// `learn apply`: human-approved proposal → `guidance_revisions` row + pinned
+/// `guidance_version` on subsequent rows (file update). Mid-run edits stay
+/// impossible: `run_optimize` reads the version once at start and pins it
+/// per row; there is no re-read path.
+fn cmd_learn_apply(args: &[String]) -> Result<(), String> {
+    let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
+    let human = flag(args, "--human").ok_or("missing --human (approval identity)")?;
+    let proposal_path = PathBuf::from(flag(args, "--proposal").ok_or("missing --proposal")?);
+    let guidance_path = PathBuf::from(flag(args, "--guidance").unwrap_or_else(|| "guidance/optimize.md".into()));
+    let store = Store::open(&store_path).map_err(|e| e.to_string())?;
+    let proposal: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&proposal_path).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let version = proposal["guidance_version"].as_str().ok_or("proposal lacks guidance_version")?.to_string();
+    let change_summary = proposal["change_summary"].as_str().unwrap_or("").to_string();
+    let evidence_query = proposal["evidence_query"].as_str().unwrap_or("").to_string();
+    let stats_json = proposal["stats_json"].as_str().unwrap_or("{}").to_string();
+    let runs_included = proposal["runs_included_json"].as_str().unwrap_or("[]").to_string();
+    let prompt_diff = proposal["prompt_diff"].as_str().unwrap_or("").to_string();
+    let append = proposal["guidance_append"].as_str().unwrap_or("").to_string();
+    store
+        .insert_guidance_revision(&version, &change_summary, &evidence_query, &stats_json, &runs_included, &format!("human:{human}"), &prompt_diff)
+        .map_err(|e| e.to_string())?;
+    // Pin: rewrite the file header to the new version + append the rule.
+    let mut text = std::fs::read_to_string(&guidance_path).map_err(|e| format!("guidance file: {e}"))?;
+    let mut lines: Vec<String> = text.lines().map(|l| l.to_string()).collect();
+    if lines.is_empty() {
+        lines.push(format!("# optimize guidance v{}", version.rsplit('v').next().unwrap_or("?")));
+    } else {
+        lines[0] = format!("# optimize guidance {}", version.rsplit_once(' ').map(|(_, v)| v).unwrap_or(&version));
+    }
+    text = lines.join("\n") + "\n" + &append;
+    std::fs::write(&guidance_path, text).map_err(|e| e.to_string())?;
+    println!("learn apply: {version} by human:{human}");
     Ok(())
 }
 

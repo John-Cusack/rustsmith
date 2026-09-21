@@ -61,6 +61,13 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     for (name, content) in &heldout_tests {
         std::fs::write(heldout_out.join(name), content).map_err(|e| e.to_string())?;
     }
+    // 9b. Generated held-outs (M9 slice-11): control-plane generator seeded
+    // from the frozen manifest, disjoint inputs per fixture. Values pinned
+    // against the pristine original on the host (never in containers).
+    let manifest_json = std::fs::read_to_string(out.join("manifest.json")).map_err(|e| e.to_string())?;
+    for (name, content) in crate::heldout::generate_from_manifest(&manifest_json, kind.name(), repo)? {
+        std::fs::write(heldout_out.join(name), content).map_err(|e| e.to_string())?;
+    }
     let heldout_workloads = heldout_workload_descriptors_for(&kind);
     std::fs::write(
         heldout_out.join("heldout_workloads.json"),

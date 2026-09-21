@@ -11,6 +11,8 @@ pub enum CouncilError {
     Privacy(String),
     #[error("no driver for seat {0:?}")]
     NoDriver(Seat),
+    #[error("seat worker failed: {0}")]
+    Worker(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -106,6 +108,98 @@ impl SeatDriver for StubDriver {
             reasoning: self.reasoning.clone(),
         })
     }
+}
+
+/// Live seat driver: shells a worker command with the seat prompt on stdin,
+/// parses `{"stance":"approve"|"reject","reasoning":"..."}` from stdout.
+/// The prompt carries ONLY (question, artifact_ref, proposer reasoning) —
+/// never other seats' positions (blind critique is structural, as with Stub).
+/// `model` is a config-supplied identity string, never hardcoded.
+pub struct WorkerSeatDriver {
+    pub seat: Seat,
+    pub command: String,
+    pub model: String,
+}
+
+impl SeatDriver for WorkerSeatDriver {
+    fn critique(&self, seat: Seat, proposal: &Proposal, _artifact: &[u8]) -> Result<Position, CouncilError> {
+        use std::io::Write;
+        use std::process::Stdio;
+        let prompt = format!(
+            "# rustsmith council seat\nseat: {}\nmodel: {}\nquestion: {}\nartifact: {}\nproposer_reasoning: {}\n",
+            seat.as_str(), self.model, proposal.question, proposal.artifact_ref, proposal.reasoning
+        );
+        let mut child = std::process::Command::new("sh");
+        child.arg("-c").arg(&self.command);
+        child.env_remove("GIT_DIR");
+        child.env_remove("GIT_WORK_TREE");
+        child.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = child.spawn().map_err(|e| CouncilError::Worker(e.to_string()))?;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| CouncilError::Worker("no stdin".into()))?
+            .write_all(prompt.as_bytes())
+            .map_err(|e| CouncilError::Worker(e.to_string()))?;
+        let out = child.wait_with_output().map_err(|e| CouncilError::Worker(e.to_string()))?;
+        if !out.status.success() {
+            return Err(CouncilError::Worker(format!("exit {}", out.status.code().unwrap_or(-1))));
+        }
+        let v: serde_json::Value =
+            serde_json::from_slice(&out.stdout).map_err(|e| CouncilError::Worker(format!("seat stdout not JSON: {e}")))?;
+        let stance = match v["stance"].as_str() {
+            Some("approve") => Stance::Approve,
+            Some("reject") => Stance::Reject,
+            other => return Err(CouncilError::Worker(format!("bad stance: {other:?}"))),
+        };
+        let reasoning = v["reasoning"]
+            .as_str()
+            .ok_or_else(|| CouncilError::Worker("reasoning missing".into()))?
+            .to_string();
+        Ok(Position { seat, stance, reasoning })
+    }
+}
+
+/// Seat commands from config surface (`RUSTSMITH_SEAT_CMD_<SEAT>`).
+/// Missing entries fall back to stub drivers at the call site.
+pub fn seat_commands_from_env() -> HashMap<Seat, String> {
+    let mut m = HashMap::new();
+    for (seat, var) in [
+        (Seat::Architect, "RUSTSMITH_SEAT_CMD_ARCHITECT"),
+        (Seat::Verifier, "RUSTSMITH_SEAT_CMD_VERIFIER"),
+        (Seat::Performance, "RUSTSMITH_SEAT_CMD_PERFORMANCE"),
+        (Seat::Scope, "RUSTSMITH_SEAT_CMD_SCOPE"),
+    ] {
+        if let Ok(cmd) = std::env::var(var) {
+            if !cmd.trim().is_empty() {
+                m.insert(seat, cmd);
+            }
+        }
+    }
+    m
+}
+
+/// Model identity for a seat from config only (`config/default.toml`
+/// `[models]`, overridable via `RUSTSMITH_MODELS_CONFIG`). Never hardcoded:
+/// unknown/missing entries yield a `config:` placeholder the probe surfaces.
+pub fn model_for_seat(seat: Seat) -> String {
+    let path = std::env::var("RUSTSMITH_MODELS_CONFIG").unwrap_or_else(|_| "config/default.toml".into());
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let key = seat.as_str();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with(key) {
+            if let Some(m) = t.split("model").nth(1) {
+                let q1 = m.find('"').map(|i| i + 1);
+                if let Some(s) = q1 {
+                    if let Some(e) = m[s..].find('"') {
+                        return m[s..s + e].to_string();
+                    }
+                }
+            }
+        }
+    }
+    format!("config:models.{key}")
 }
 
 pub struct Council {

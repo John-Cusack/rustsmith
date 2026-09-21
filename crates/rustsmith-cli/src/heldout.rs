@@ -276,3 +276,159 @@ def test_pinned_misc():
         ),
     ]
 }
+
+/// Control-plane GENERATED held-outs (M9 slice-11). Seeded deterministically
+/// from the frozen manifest (FNV-1a over the manifest JSON); disjoint inputs
+/// per fixture across classes: empty / singleton / max / unicode-or-high-bytes
+/// / shifted sizes / seeded random. Expected values are pinned against the
+/// PRISTINE ORIGINAL on the host at recon time (never in a container, never
+/// shown to any worker/council seat). Catches visible-input-only hardcodes:
+/// every catching-class input has len > 1 and avoids the visible vectors.
+pub fn generate_from_manifest(
+    manifest_json: &str,
+    fixture: &str,
+    orig_repo: &std::path::Path,
+) -> Result<Vec<(String, String)>, String> {
+    let seed = fnv1a64(manifest_json.as_bytes());
+    match fixture {
+        "strsimpy" => generate_strsimpy(seed, orig_repo),
+        _ => generate_crc(seed, orig_repo),
+    }
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Deterministic xorshift64 stream (std-only; stable across runs/hosts).
+struct Rng(u64);
+impl Rng {
+    fn next(&mut self) -> u64 {
+        let mut x = self.0 | 1;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+    fn bytes(&mut self, n: usize) -> Vec<u8> {
+        (0..n).map(|_| (self.next() & 0xFF) as u8).collect()
+    }
+}
+
+fn generate_crc(seed: u64, orig: &std::path::Path) -> Result<Vec<(String, String)>, String> {
+    let mut rng = Rng(seed);
+    // Disjoint classes (none equal to the visible vectors; catching classes
+    // have len > 1 so a visible-only hardcode fails them).
+    let mut datas: Vec<Vec<u8>> = vec![
+        vec![],                                            // empty
+        vec![(rng.next() & 0xFF) as u8],                   // singleton
+        rng.bytes(8192),                                   // max (off the 4096 tuned size)
+        ["上海市".as_bytes(), &rng.bytes(16)].concat(),    // unicode + seeded
+        rng.bytes(511),                                    // shifted sizes
+        rng.bytes(4097),
+        rng.bytes(63),
+        { let n = 16 + (rng.next() % 240) as usize; rng.bytes(n) }, // seeded random
+        { let n = 16 + (rng.next() % 240) as usize; rng.bytes(n) },
+    ];
+    // Belt-and-braces: never collide with the visible plant set.
+    let visible: Vec<Vec<u8>> = vec![b"".to_vec(), b"123456789".to_vec(), b"0123456789".to_vec(),
+        b"9876543210".to_vec(), b"987654321".to_vec(), b"a".to_vec(), b"\x00".to_vec(), b"Hello World!".to_vec()];
+    for d in datas.iter_mut().skip(2) {
+        if visible.contains(d) {
+            d.push(0x7E);
+        }
+    }
+    // Pin against the pristine original on the host.
+    let args: Vec<String> = datas.iter().map(|d| hex::encode(d)).collect();
+    let probe = r#"import json,sys
+from crc import Calculator, Crc8, Crc16, Crc32
+out=[[Calculator(Crc8.CCITT).checksum(bytes.fromhex(h)),Calculator(Crc16.XMODEM).checksum(bytes.fromhex(h)),Calculator(Crc32.CRC32).checksum(bytes.fromhex(h))] for h in sys.argv[1:]]
+print(json.dumps(out))"#;
+    let o = std::process::Command::new("python3")
+        .arg("-c")
+        .arg(probe)
+        .args(&args)
+        .current_dir(orig)
+        .env("PYTHONPATH", orig.join("src"))
+        .output()
+        .map_err(|e| format!("heldout-gen crc probe: {e}"))?;
+    if !o.status.success() {
+        return Err(format!("heldout-gen crc probe failed: {}", String::from_utf8_lossy(&o.stderr)));
+    }
+    let vals: Vec<[u64; 3]> = serde_json::from_slice(&o.stdout).map_err(|e| format!("heldout-gen crc parse: {e}"))?;
+    if vals.len() != datas.len() {
+        return Err(format!("heldout-gen crc count {} != {}", vals.len(), datas.len()));
+    }
+    let mut body = String::from(
+        "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom crc import Calculator, Crc8, Crc16, Crc32\n\n\ndef test_generated_pins():\n",
+    );
+    for (d, v) in datas.iter().zip(vals.iter()) {
+        let lit = format!("bytes([{}])", d.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", "));
+        body.push_str(&format!(
+            "    assert Calculator(Crc8.CCITT).checksum({lit}) == {:#X}\n    assert Calculator(Crc16.XMODEM).checksum({lit}) == {:#X}\n    assert Calculator(Crc32.CRC32).checksum({lit}) == {:#X}\n",
+            v[0], v[1], v[2]
+        ));
+    }
+    Ok(vec![("test_heldout_generated.py".into(), body)])
+}
+
+fn generate_strsimpy(seed: u64, orig: &std::path::Path) -> Result<Vec<(String, String)>, String> {
+    let mut rng = Rng(seed);
+    let rstr = |r: &mut Rng, n: usize| -> String {
+        (0..n).map(|_| (b'a' + (r.next() % 26) as u8) as char).collect()
+    };
+    // Disjoint pairs: empty / singleton / max / unicode / shifted sizes / seeded.
+    let pairs: Vec<(String, String)> = vec![
+        ("".into(), "a".into()),
+        ("a".into(), "".into()),
+        ("a".into(), "a".into()),
+        (rstr(&mut rng, 512), rstr(&mut rng, 512)),
+        ("上海市".to_string() + &rstr(&mut rng, 8), "上海".to_string() + &rstr(&mut rng, 8)),
+        (rstr(&mut rng, 511), rstr(&mut rng, 509)),
+        (rstr(&mut rng, 63), rstr(&mut rng, 65)),
+        (rstr(&mut rng, 24), rstr(&mut rng, 24)),
+        (rstr(&mut rng, 130), rstr(&mut rng, 128)),
+    ];
+    // Hex-of-utf8 argv (quoting-proof); probe pins three metrics per pair.
+    let args: Vec<String> = pairs.iter().flat_map(|(a, b)| [hex::encode(a.as_bytes()), hex::encode(b.as_bytes())]).collect();
+    let probe = r#"import json,sys
+from strsimpy.levenshtein import Levenshtein
+from strsimpy.jaro_winkler import JaroWinkler
+from strsimpy.normalized_levenshtein import NormalizedLevenshtein
+hs=sys.argv[1:]; ss=[bytes.fromhex(h).decode('utf-8') for h in hs]
+out=[]
+for i in range(0,len(ss),2):
+    a,b=ss[i],ss[i+1]
+    out.append([Levenshtein().distance(a,b),JaroWinkler().similarity(a,b),NormalizedLevenshtein().distance(a,b)])
+print(json.dumps(out))"#;
+    let o = std::process::Command::new("python3")
+        .arg("-c")
+        .arg(probe)
+        .args(&args)
+        .current_dir(orig)
+        .output()
+        .map_err(|e| format!("heldout-gen strsimpy probe: {e}"))?;
+    if !o.status.success() {
+        return Err(format!("heldout-gen strsimpy probe failed: {}", String::from_utf8_lossy(&o.stderr)));
+    }
+    let vals: Vec<[serde_json::Value; 3]> = serde_json::from_slice(&o.stdout).map_err(|e| format!("heldout-gen strsimpy parse: {e}"))?;
+    if vals.len() != pairs.len() {
+        return Err(format!("heldout-gen strsimpy count {} != {}", vals.len(), pairs.len()));
+    }
+    let mut body = String::from(
+        "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom strsimpy.levenshtein import Levenshtein\nfrom strsimpy.jaro_winkler import JaroWinkler\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\n\n\ndef test_generated_pins():\n",
+    );
+    for ((a, b), v) in pairs.iter().zip(vals.iter()) {
+        body.push_str(&format!(
+            "    assert Levenshtein().distance({a:?}, {b:?}) == {lev}\n    assert JaroWinkler().similarity({a:?}, {b:?}) == {jw}\n    assert NormalizedLevenshtein().distance({a:?}, {b:?}) == {nl}\n",
+            lev = v[0], jw = v[1], nl = v[2]
+        ));
+    }
+    Ok(vec![("test_heldout_generated.py".into(), body)])
+}

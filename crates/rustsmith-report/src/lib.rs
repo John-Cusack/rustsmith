@@ -40,6 +40,7 @@ pub struct Report {
     pub divergence: String,
     pub unsafe_list: Vec<String>,
     pub rounds: Vec<RoundEntry>,
+    pub units: Vec<DagUnit>,
     pub e2e_speedup_vs_original: f64,
     pub e2e_basis: String,
     pub unported_modules: Vec<Unported>,
@@ -86,6 +87,14 @@ pub struct NegativeResult {
     pub technique: String,
     pub outcome: String,
     pub gate: String,
+}
+
+/// One unit + its scheduler status + dependency list (existing store rows).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DagUnit {
+    pub unit: String,
+    pub status: String,
+    pub depends_on: Vec<String>,
 }
 
 /// Compounded end-to-end gain from merged per-optimization gains, in order.
@@ -171,6 +180,16 @@ pub fn render(
                 stop: r.stop_reason.clone(),
             })
             .collect(),
+        units: store
+            .list_units(run_id)
+            .map_err(|e| ReportError::Store(e.to_string()))?
+            .into_iter()
+            .map(|(unit, status, depends)| DagUnit {
+                unit,
+                status,
+                depends_on: serde_json::from_str(&depends).unwrap_or_default(),
+            })
+            .collect(),
         e2e_speedup_vs_original: compound_gains(&opts),
         e2e_basis: "compounded merged per-optimization gains (deterministic estimate from graded rows)".into(),
         unported_modules,
@@ -208,6 +227,27 @@ pub fn render(
         attribution: attribution.into(),
         license: license.into(),
     })
+}
+
+/// Static inline SVG per-round-gain chart (no new data collection: plots the
+/// graded `gain` already on each round entry; same `num` formatting so the
+/// chart text agrees with md/html/json).
+/// The outer tag is exactly `<svg id="round-gains">`: tests/m9_acceptance.sh
+/// greps that literal (normative slice-2 gate). Dimensions live on a nested
+/// viewport svg so bars never clip against the default 300x150 viewport.
+fn gain_chart_svg(rounds: &[RoundEntry]) -> String {
+    let max = rounds.iter().map(|e| e.gain.abs()).fold(0.0f64, f64::max).max(1e-9);
+    let mut s = format!("<svg id=\"round-gains\"><svg width=\"400\" height=\"{}\">", 20 + rounds.len() * 22);
+    for (i, e) in rounds.iter().enumerate() {
+        let w = (e.gain.abs() / max * 300.0) as usize;
+        let y = 20 + i * 22;
+        s.push_str(&format!(
+            "<text x=\"0\" y=\"{y}\">round {}</text><rect x=\"70\" y=\"{}\" width=\"{w}\" height=\"14\"/><text x=\"{}\" y=\"{y}\">{}</text>",
+            e.round, y - 12, 74 + w, num(e.gain)
+        ));
+    }
+    s.push_str("</svg></svg>");
+    s
 }
 
 /// Round gain: compounded merged gains through this round (matches the round
@@ -302,7 +342,13 @@ pub fn emit_html(r: &Report) -> String {
     for e in &r.rounds {
         s.push_str(&format!("<li>round {}: merged={} gain={} stop={}</li>", e.round, e.merged, num(e.gain), e.stop));
     }
-    s.push_str("</ul><h2>Suggestions</h2>");
+    s.push_str("</ul>");
+    s.push_str(&gain_chart_svg(&r.rounds));
+    s.push_str("<h2>Unit DAG</h2><table id=\"unit-dag\"><tr><th>unit</th><th>status</th><th>depends_on</th></tr>");
+    for u in &r.units {
+        s.push_str(&format!("<tr><td>{}</td><td>{}</td><td>{}</td></tr>", u.unit, u.status, u.depends_on.join(",")));
+    }
+    s.push_str("</table><h2>Suggestions</h2>");
     for g in &r.suggestions {
         s.push_str(&format!(
             "<h3>{} [{}]</h3><p>expected gain: {} | review burden: {}</p>{}<p>{}</p>",
@@ -360,6 +406,7 @@ mod tests {
             run_id: "t".into(), repo_url: "u".into(), status: "done".into(),
             parity: "80/80".into(), divergence: "0.0000".into(), unsafe_list: vec![],
             rounds: vec![RoundEntry { round: 1, merged: 1, gain: 0.5521, stop: "s".into() }],
+            units: vec![DagUnit { unit: "u1".into(), status: "passed".into(), depends_on: vec![] }],
             e2e_speedup_vs_original: 0.5521, e2e_basis: "b".into(), unported_modules: vec![],
             decisions: vec![], tokens: TokenSpend { spent: 0, cache_hit_rate: None },
             suggestions: vec![ReportSuggestion {
@@ -376,6 +423,9 @@ mod tests {
             assert!(md.contains(&s), "md missing {s}");
             assert!(html.contains(&s), "html missing {s}");
         }
+        // Slice-7 gate greps these literals verbatim (m9 step 3).
+        assert!(html.contains("<svg id=\"round-gains\">"), "gain chart id tag");
+        assert!(html.contains("<table id=\"unit-dag\">"), "unit DAG table");
         let v: serde_json::Value = serde_json::from_str(&js).unwrap();
         assert!((v["e2e_speedup_vs_original"].as_f64().unwrap() - 0.5521).abs() < 1e-12);
         assert!((v["floor"].as_f64().unwrap() - 0.0042).abs() < 1e-12);

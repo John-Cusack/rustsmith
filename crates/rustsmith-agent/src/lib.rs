@@ -13,6 +13,8 @@ pub enum AgentError {
     Timeout(Duration),
     #[error("json: {0}")]
     Json(String),
+    #[error("worker failed: {0}")]
+    Worker(String),
 }
 
 #[derive(Debug, Clone)]
@@ -116,6 +118,79 @@ impl Agent {
                 let _ = writeln!(f, "{line}");
             }
         }
+    }
+}
+
+/// Prompt version stamped on every worker-command turn (never `m1-stub-v1`).
+pub const WORKER_PROMPT_VERSION: &str = "worker-cmd-v1";
+
+/// Worker shell command from config surface (`RUSTSMITH_WORKER_CMD`).
+/// None = current stub path (offline green); no model/network involved.
+pub fn worker_cmd_from_env() -> Option<String> {
+    std::env::var("RUSTSMITH_WORKER_CMD").ok().filter(|s| !s.trim().is_empty())
+}
+
+/// Stable prompt: fixed prefix + PORTING.md + unit bundle. Contains a
+/// `unit <id>` line so plumbing tests can assert the worker saw the unit.
+pub fn build_worker_prompt(unit_id: &str, porting_md: &str, unit_bundle: &str) -> String {
+    format!(
+        "# rustsmith worker task\nunit {unit_id}\n\n## PORTING.md\n{porting_md}\n\n## unit bundle\n{unit_bundle}\n"
+    )
+}
+
+/// Structured worker usage (tokens only — never evidence of correctness).
+#[derive(Debug, Clone)]
+pub struct WorkerOutput {
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub note: String,
+}
+
+impl Agent {
+    /// Shell a configurable worker command with the prompt on stdin.
+    /// Parses `{"tokens_in":N,"tokens_out":M}` (+ optional `note`) from
+    /// stdout. Nonzero exit / non-JSON stdout => Err. Env scrubbed as `spawn`.
+    pub fn spawn_worker(
+        &self,
+        spec: &UnitSpec,
+        prompt: &str,
+        cmd: &str,
+    ) -> Result<WorkerOutput, AgentError> {
+        use std::io::Write;
+        let mut child = std::process::Command::new("sh");
+        child.arg("-c").arg(cmd);
+        child.current_dir(spec.worktree.as_std_path());
+        child.env_remove("GIT_DIR");
+        child.env_remove("GIT_WORK_TREE");
+        child.env_remove("CARGO_TARGET_DIR");
+        child.env("UNIT_WORKTREE", spec.worktree.as_str());
+        child.env("UNIT_ID", &spec.unit_id);
+        if let Some(ev) = &self.events_path {
+            child.env("RUN_EVENTS", ev);
+        }
+        child.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = child.spawn()?;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| AgentError::Worker("no stdin".into()))?
+            .write_all(prompt.as_bytes())?;
+        let out = child.wait_with_output()?;
+        self.log("worker_exit", &spec.unit_id, serde_json::json!({"exit": out.status.code()}));
+        if !out.status.success() {
+            return Err(AgentError::Worker(format!(
+                "exit {}: {}",
+                out.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| AgentError::Json(format!("worker stdout not JSON: {e}")))?;
+        Ok(WorkerOutput {
+            tokens_in: v["tokens_in"].as_u64().ok_or_else(|| AgentError::Json("tokens_in missing".into()))?,
+            tokens_out: v["tokens_out"].as_u64().ok_or_else(|| AgentError::Json("tokens_out missing".into()))?,
+            note: v["note"].as_str().unwrap_or("").to_string(),
+        })
     }
 }
 

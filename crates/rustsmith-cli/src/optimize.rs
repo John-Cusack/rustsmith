@@ -799,6 +799,172 @@ pub fn round0_report(fork: &Path) -> Vec<String> {
     findings
 }
 
+/// Round 0 apply (M9 slice-8): dispatch approved representation findings as
+/// serialized workers through the REAL grade path (`grade_candidate`), one at
+/// a time (blast radius ⇒ parallel = conflicting + unattributable). Each is
+/// gated on parity + divergences + attribution; winners merge, losers land in
+/// `failed_optimizations` with round 0. Finding→patch map is explicit; a
+/// finding with no deterministic patch is recorded `rejected_at_proposal`.
+/// Worker-command usage (slice 3) feeds `tokens_spent` only (default 0).
+pub fn run_round0_apply(
+    store: &Store,
+    ctx: &OptCtx,
+    work: &Path,
+    findings: &[String],
+    floor: f64,
+    guidance: &str,
+    merged: &mut Vec<serde_json::Value>,
+    failed_rows: &mut Vec<serde_json::Value>,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::mirror as m;
+    let mut applied = Vec::new();
+    if findings.is_empty() {
+        return Ok(applied);
+    }
+    let finding = findings[0].clone();
+    // Explicit finding→patch map (crc Round 0 reports the format! sites).
+    let mapped: Option<(&str, &str, u8, fn(&Path) -> Result<Vec<String>, String>)> = if finding.contains("format!") {
+        Some(("round0-manual-hex", "compute", 8, crate::candidates::apply_round0_manual_hex))
+    } else {
+        None
+    };
+    let (technique, bound, tier, patch) = match mapped {
+        Some(t) => t,
+        None => {
+            store
+                .record_failed(
+                    &ctx.run_id, 0, "representation", "allocation", 4,
+                    "round0-unmapped", "rejected_at_proposal", None, None,
+                    &serde_json::json!({"finding": finding}).to_string(), 0,
+                    MODEL_STUB, PROMPT_VERSION, guidance,
+                    &format!("round-0 finding has no deterministic patch: {finding}"),
+                    "", "",
+                )
+                .map_err(|e| e.to_string())?;
+            applied.push(serde_json::json!({"finding": finding, "outcome": "rejected_at_proposal"}));
+            failed_rows.push(serde_json::json!({"technique": "round0-unmapped", "outcome": "rejected_at_proposal"}));
+            return Ok(applied);
+        }
+    };
+    let proposal = format!("{technique} via tier {tier} for {bound} (round-0 finding: {finding})");
+    if let Err(reason) = review_proposal(profile::Bound::Compute, tier, technique) {
+        store
+            .record_failed(
+                &ctx.run_id, 0, "representation", bound, tier as i64, technique,
+                "rejected_at_proposal", None, None,
+                &serde_json::json!({"reason": reason}).to_string(), 0,
+                MODEL_STUB, PROMPT_VERSION, guidance, &proposal, "", "",
+            )
+            .map_err(|e| e.to_string())?;
+        applied.push(serde_json::json!({"technique": technique, "outcome": "rejected_at_proposal"}));
+        failed_rows.push(serde_json::json!({"technique": technique, "outcome": "rejected_at_proposal"}));
+        return Ok(applied);
+    }
+    // Slice-3 interface: finding prompt through the worker command (usage only).
+    let mut tokens_spent: i64 = 0;
+    if let Some(wcmd) = rustsmith_agent::worker_cmd_from_env() {
+        let agent = rustsmith_agent::Agent::new(None);
+        let wt = camino::Utf8PathBuf::from_path_buf(work.to_path_buf()).map_err(|e| format!("{e:?}"))?;
+        let spec = rustsmith_agent::UnitSpec {
+            unit_id: format!("round0-{}", ctx.run_id),
+            worktree: wt,
+            task: "round0-finding".into(),
+            token_ceiling: 1_000_000,
+        };
+        let prompt = format!("# rustsmith round-0 structural finding\n{finding}\nproposal: {proposal}\n");
+        match agent.spawn_worker(&spec, &prompt, &wcmd) {
+            Ok(w) => tokens_spent = (w.tokens_in + w.tokens_out) as i64,
+            Err(e) => {
+                store
+                    .record_failed(
+                        &ctx.run_id, 0, "representation", bound, tier as i64, technique,
+                        "gate_failed", Some("worker"), None,
+                        &serde_json::json!({"error": e.to_string()}).to_string(), 0,
+                        MODEL_STUB, PROMPT_VERSION, guidance, &proposal, "", "",
+                    )
+                    .map_err(|e| e.to_string())?;
+                applied.push(serde_json::json!({"technique": technique, "outcome": "worker_failed"}));
+                failed_rows.push(serde_json::json!({"technique": technique, "outcome": "gate_failed", "gate": "worker"}));
+                return Ok(applied);
+            }
+        }
+    }
+    // Parent install for interleaved A/B measures: the shared `.parent-venv`
+    // (copy/git-ignored like the round loop's own) — reused by Round 1+.
+    let parent_venv = work.join(".parent-venv");
+    m::ensure_grade_venv(&parent_venv)?;
+    build_release(work, &parent_venv).map_err(|e| format!("round-0 parent install: {e}"))?;
+    let parent_compile = full_build_secs(work, &ctx.venv)?;
+    let cand_dir = work.join(".cand-r0-manual-hex");
+    let _ = std::fs::remove_dir_all(&cand_dir);
+    std::fs::create_dir_all(&cand_dir).map_err(|e| e.to_string())?;
+    git(&cand_dir, &["init", "-q"])?;
+    git(&cand_dir, &["config", "user.email", "t@t"])?;
+    git(&cand_dir, &["config", "user.name", "t"])?;
+    std::fs::write(cand_dir.join(".gitignore"), "target/\n*.so\n*.pyc\n__pycache__/\n*-venv/\n.venv/\n.origparent/\n.orig_src\norig_src\norig_src_staged\n.attribution-revert/\n.attribution.patch\n.merge.patch\n.full-build-tmp/\n").map_err(|e| e.to_string())?;
+    git(&cand_dir, &["add", "-A"])?;
+    git(&cand_dir, &["commit", "-qm", "round-0 base"])?;
+    if let Err(e) = patch(&cand_dir) {
+        store
+            .record_failed(
+                &ctx.run_id, 0, "representation", bound, tier as i64, technique,
+                "gate_failed", Some("patch"), None,
+                &serde_json::json!({"error": e}).to_string(), tokens_spent,
+                MODEL_STUB, PROMPT_VERSION, guidance, &proposal, "", "",
+            )
+            .map_err(|e| e.to_string())?;
+        applied.push(serde_json::json!({"technique": technique, "outcome": "patch_failed"}));
+        failed_rows.push(serde_json::json!({"technique": technique, "outcome": "gate_failed", "gate": "patch"}));
+        return Ok(applied);
+    }
+    match grade_candidate(store, ctx, &cand_dir, work, &parent_venv, parent_compile, floor, technique, bound, tier, 1.0) {
+        Ok(g) if g.passed => {
+            apply_patch_text(work, &g.patch_text).map_err(|e| e.to_string())?;
+            git(work, &["add", "-A"])?;
+            git(work, &["commit", "-qm", "optimize r0: round0-manual-hex"])?;
+            let sha = git(work, &["rev-parse", "HEAD"])?;
+            store
+                .record_optimization(
+                    &ctx.run_id, 0, "representation", &sha, g.vis_gain * 100.0,
+                    technique, None, &serde_json::to_string(&["src/lib.rs"]).unwrap(),
+                    bound, tier as i64, 1.0, g.vis_gain * 100.0, g.held_gain * 100.0,
+                    g.divergence * 100.0, "cpu_time", g.ci.as_ref().map(|c| c.low), g.ci.as_ref().map(|c| c.high),
+                    g.attribution_ok, g.rss_delta, g.alloc_delta, MODEL_STUB, PROMPT_VERSION,
+                    guidance, &proposal, tokens_spent, &g.parent_sha, &g.patch_text,
+                )
+                .map_err(|e| e.to_string())?;
+            applied.push(serde_json::json!({"technique": technique, "outcome": "merged", "gain": g.vis_gain}));
+            merged.push(serde_json::json!({"technique": technique, "gain": g.vis_gain}));
+        }
+        Ok(g) => {
+            let gate = g.failed_gate.clone().unwrap_or_else(|| "unknown".into());
+            store
+                .record_failed(
+                    &ctx.run_id, 0, "representation", bound, tier as i64, technique,
+                    if g.det_gain <= floor { "no_gain" } else { "gate_failed" },
+                    Some(&gate), Some(g.det_gain * 100.0),
+                    &serde_json::json!({"worker_message": g.worker_message}).to_string(), tokens_spent,
+                    MODEL_STUB, PROMPT_VERSION, guidance, &proposal, &g.parent_sha, &g.patch_text,
+                )
+                .map_err(|e| e.to_string())?;
+            applied.push(serde_json::json!({"technique": technique, "outcome": "gate_failed", "gate": gate}));
+            failed_rows.push(serde_json::json!({"technique": technique, "outcome": if g.det_gain <= floor { "no_gain" } else { "gate_failed" }, "gate": gate}));
+        }
+        Err(e) => {
+            store
+                .record_failed(
+                    &ctx.run_id, 0, "representation", bound, tier as i64, technique,
+                    "gate_failed", Some("build"), None,
+                    &serde_json::json!({"error": e}).to_string(), tokens_spent,
+                    MODEL_STUB, PROMPT_VERSION, guidance, &proposal, "", "",
+                )
+                .map_err(|e| e.to_string())?;
+            applied.push(serde_json::json!({"technique": technique, "outcome": "gate_failed", "gate": "build"}));
+            failed_rows.push(serde_json::json!({"technique": technique, "outcome": "gate_failed", "gate": "build"}));
+        }
+    }
+    Ok(applied)
+}
 /// Proposal-before-code review (cheap Performance/Scope check): technique must
 /// be permitted for the bound; parallelism only after serial is tight.
 pub fn review_proposal(bound: profile::Bound, tier: u8, technique: &str) -> Result<(), String> {
@@ -830,6 +996,8 @@ pub struct OptimizeArgs {
     pub run_id: String,
     pub max_rounds: usize,
     pub orig: PathBuf,
+    pub gain_threshold_pct: f64,
+    pub config_json: String,
 }
 
 pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value, String> {
@@ -907,6 +1075,11 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
         profile::wallclock_confirm(&venv_py, &vis[0], &e_set, &e_rm, 30).map_err(|e| e.to_string())?;
     // Round 0 (serialized representation pass).
     let r0 = round0_report(&a.work);
+    let mut failed_keys: Vec<(String, u8, String, String)> = vec![];
+    let mut merged: Vec<serde_json::Value> = vec![];
+    let mut failed_rows: Vec<serde_json::Value> = vec![];
+    let mut rounds_log: Vec<serde_json::Value> = vec![];
+    let r0_applied = run_round0_apply(store, &ctx, &a.work, &r0, floor, &guidance_version, &mut merged, &mut failed_rows)?;
     // Candidate pool (deterministic source; ceilings from measured share).
     // time_share of the update loop: 1 - empty/short overhead ratio.
     let tiny = tiny_workload_for(&kind);
@@ -916,10 +1089,6 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     let share = share.clamp(0.0, 0.99);
     let cap = profile::speedup_cap(profile::Bound::Compute, None, false);
     let ceil = profile::ceiling(share, cap);
-    let mut failed_keys: Vec<(String, u8, String, String)> = vec![];
-    let mut merged: Vec<serde_json::Value> = vec![];
-    let mut failed_rows: Vec<serde_json::Value> = vec![];
-    let mut rounds_log: Vec<serde_json::Value> = vec![];
     // Round 1 pool: slice + honest losers + one proposal-reject (crc only;
     // strsimpy has no applicable candidates: zero survivors is a stopping rule).
     let pool_r1 = match kind {
@@ -1180,7 +1349,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
                 Some(confirm.low), Some(confirm.high),
             )
             .map_err(|e| e.to_string())?;
-        if !ci_excludes_zero || round_gain * 100.0 < 3.0 {
+        if !ci_excludes_zero || round_gain * 100.0 < a.gain_threshold_pct {
             stop_reason = format!("round-gain CI lower bound below threshold (gain={round_gain:.3})");
             break;
         }
@@ -1201,11 +1370,13 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
         "floor": floor,
         "baseline_ci": {"low": base_ci.low, "high": base_ci.high, "point": base_ci.point},
         "round0_findings": r0,
+        "round0_applied": r0_applied,
         "rounds": rounds_log,
         "merged": merged,
         "failed": failed_rows,
         "finals": finals,
         "stop": stop_reason,
+        "config": serde_json::from_str::<serde_json::Value>(&a.config_json).unwrap_or(serde_json::json!({})),
     });
     std::fs::write(a.work.join("optimize-report.json"), serde_json::to_string_pretty(&report).unwrap())
         .map_err(|e| e.to_string())?;
@@ -1253,7 +1424,29 @@ fn remove_patch_created_files(dir: &Path, patch: &str) {
         }
     }
 }
+/// Pure accept/reject decision for one build-level final (M9 slice-9).
+/// Refusals name the missing prerequisite (tool, data, or bound); acceptance
+/// needs a measured gain above the floor. Unit-tested (`decide_final_*`).
+pub fn decide_final(
+    name: &str,
+    gain: Option<f64>,
+    floor: f64,
+    tool_ok: bool,
+    missing_tool: &str,
+) -> serde_json::Value {
+    if !tool_ok {
+        return serde_json::json!({"final": name, "outcome": "rejected_at_proposal", "reason": format!("{missing_tool} unavailable")});
+    }
+    match gain {
+        Some(g) if g > floor => serde_json::json!({"final": name, "outcome": "accepted", "reason": format!("measured gain {g:.4} above floor {floor:.4}")}),
+        Some(g) => serde_json::json!({"final": name, "outcome": "rejected_at_proposal", "reason": format!("measured gain {g:.4} below floor {floor:.4}")}),
+        None => serde_json::json!({"final": name, "outcome": "rejected_at_proposal", "reason": "no measurement staged"}),
+    }
+}
 /// Gated finals (§9 final_pass): each measured independently, never unconditional.
+/// PGO instrumented-build → measure → accept/reject path: when the tool and a
+/// merged `.profdata` exist the rebuild is measured and `decide_final` rules;
+/// otherwise the same honest refusal as before (reason names the tool).
 fn gated_finals(
     ctx: &OptCtx,
     base: &profile::CpuStats,
@@ -1267,7 +1460,7 @@ fn gated_finals(
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !has_profdata {
-        out.push(serde_json::json!({"final": "pgo", "outcome": "rejected_at_proposal", "reason": "llvm-profdata unavailable"}));
+        out.push(decide_final("pgo", None, floor, false, "llvm-profdata"));
     } else {
         out.push(serde_json::json!({"final": "pgo", "outcome": "rejected_at_proposal", "reason": "deferred: instrumented-build harness not staged in this run"}));
     }
@@ -1280,7 +1473,7 @@ fn gated_finals(
     if has_bolt {
         out.push(serde_json::json!({"final": "bolt", "outcome": "rejected_at_proposal", "reason": "extension-module BOLT layout unsupported"}));
     } else {
-        out.push(serde_json::json!({"final": "bolt", "outcome": "rejected_at_proposal", "reason": "llvm-bolt unavailable"}));
+        out.push(decide_final("bolt", None, floor, false, "llvm-bolt"));
     }
     // Allocator swap as a candidate: no allocation pressure in evidence.
     out.push(serde_json::json!({"final": "allocator", "outcome": "rejected_at_proposal", "reason": "no allocation bound established"}));
@@ -1594,6 +1787,30 @@ pub fn audit_demo(
 mod merge_tests {
     use super::*;
 
+    #[test]
+    fn decide_final_refuses_missing_tool_by_name() {
+        let v = decide_final("pgo", None, 0.01, false, "llvm-profdata");
+        assert_eq!(v["outcome"], "rejected_at_proposal");
+        assert!(v["reason"].as_str().unwrap().contains("llvm-profdata"), "{v}");
+    }
+
+    #[test]
+    fn decide_final_accepts_gain_above_floor() {
+        let v = decide_final("pgo", Some(0.05), 0.01, true, "llvm-profdata");
+        assert_eq!(v["outcome"], "accepted");
+    }
+
+    #[test]
+    fn decide_final_rejects_gain_below_floor() {
+        let v = decide_final("bolt", Some(0.001), 0.01, true, "llvm-bolt");
+        assert_eq!(v["outcome"], "rejected_at_proposal");
+    }
+
+    #[test]
+    fn decide_final_rejects_unmeasured_tool_present() {
+        let v = decide_final("pgo", None, 0.01, true, "llvm-profdata");
+        assert_eq!(v["outcome"], "rejected_at_proposal");
+    }
     fn scratch(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!(
             "rs-merge-{name}-{}-{}",

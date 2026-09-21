@@ -385,11 +385,65 @@ CREATE TABLE IF NOT EXISTS guidance_revisions (
         conn.execute("UPDATE units SET commit_sha=?1 WHERE id=?2", params![sha, id])?;
         Ok(())
     }
+    /// Worker-reported usage (tokens only — never evidence of correctness).
+    pub fn set_unit_tokens(&self, id: &str, tokens_in: i64, tokens_out: i64) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute("UPDATE units SET tokens_in=?1, tokens_out=?2 WHERE id=?3", params![tokens_in, tokens_out, id])?;
+        Ok(())
+    }
+    /// One guidance revision (learn apply, human-approved). Append-only.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_guidance_revision(
+        &self,
+        version: &str,
+        summary: &str,
+        evidence_query: &str,
+        stats_json: &str,
+        runs_included_json: &str,
+        decided_by: &str,
+        prompt_diff: &str,
+    ) -> Result<(), StoreError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO guidance_revisions (created_at, guidance_version, change_summary, evidence_query, stats_json, runs_included_json, decided_by, prompt_diff) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![now, version, summary, evidence_query, stats_json, runs_included_json, decided_by, prompt_diff],
+        )?;
+        Ok(())
+    }
+    pub fn latest_guidance_version(&self) -> Result<Option<String>, StoreError> {
+        let conn = self.conn.lock();
+        let v: Option<String> = conn
+            .query_row("SELECT guidance_version FROM guidance_revisions ORDER BY id DESC LIMIT 1", [], |r| r.get(0))
+            .unwrap_or(None);
+        Ok(v)
+    }
+    pub fn unit_tokens(&self, id: &str) -> Result<Option<(i64, i64)>, StoreError> {
+        let conn = self.conn.lock();
+        let v: Option<(i64, i64)> = conn
+            .query_row("SELECT tokens_in, tokens_out FROM units WHERE id=?1", params![id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .ok();
+        Ok(v)
+    }
     /// Increment attempts, returning the new count (escalation at N=3).
     pub fn bump_attempts(&self, id: &str) -> Result<i64, StoreError> {
         let conn = self.conn.lock();
         conn.execute("UPDATE units SET attempts=attempts+1 WHERE id=?1", params![id])?;
         Ok(conn.query_row("SELECT attempts FROM units WHERE id=?1", params![id], |r| r.get(0))?)
+    }
+    /// All run ids (learn review window).
+    pub fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT id FROM runs ORDER BY id")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
     pub fn unit_status(&self, id: &str) -> Result<Option<String>, StoreError> {
         let conn = self.conn.lock();

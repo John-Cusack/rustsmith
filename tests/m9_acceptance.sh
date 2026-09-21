@@ -90,7 +90,9 @@ cargo test -q -p rustsmith-cli decide_final 2>&1 | tail -n 3
 echo "-- step 6: learn propose -> apply round-trips on a scratch store"
 cargo run -q -p rustsmith-cli -- learn propose --store "$WORK/batch/store.db" --out "$WORK/proposal.json"
 test -f "$WORK/proposal.json"
-cargo run -q -p rustsmith-cli -- learn apply --store "$WORK/batch/store.db" --human "m9-test" --proposal "$WORK/proposal.json"
+cp "$ROOT/guidance/optimize.md" "$WORK/guide.md"
+cargo run -q -p rustsmith-cli -- learn apply --store "$WORK/batch/store.db" --human "m9-test" --proposal "$WORK/proposal.json" --guidance "$WORK/guide.md"
+echo "guidance pin OK"
 python3 - "$WORK/batch/store.db" <<'EOF'
 import sqlite3, sys
 c = sqlite3.connect(sys.argv[1])
@@ -103,6 +105,13 @@ EOF
 echo "-- step 7: generated held-outs green on pristine + catch the hardcode plant"
 cargo run -q -p rustsmith-cli -- run --repo "$WORK/orig" --fork "$WORK/p7/fork" --work "$WORK/p7/work" --store "$WORK/p7/store.db" --run-id m9p7
 test -f "$WORK/p7/work/heldout/test_heldout_generated.py"
+cd "$WORK/orig" && PYTHONPATH=src python3 -m pytest "$WORK/p7/work/heldout/test_heldout_generated.py" -q -p no:cacheprovider 2>&1 | tail -n 2 | tee "$WORK/gen-pristine.txt"
+cd "$ROOT"
+grep -q "passed" "$WORK/gen-pristine.txt" || (echo "FAIL: generated not green on pristine"; exit 1)
+cd "$WORK/strorig" && python3 -m pytest "$WORK/batch/work-1/heldout/test_heldout_generated.py" -q -p no:cacheprovider 2>&1 | tail -n 2 | tee "$WORK/gen-str-pristine.txt"
+cd "$ROOT"
+grep -q "passed" "$WORK/gen-str-pristine.txt" || (echo "FAIL: strsimpy generated not green on pristine"; exit 1)
+echo "pristine green OK"
 if cargo run -q -p rustsmith-cli -- run --repo "$WORK/orig" --fork "$WORK/p7h/fork" --work "$WORK/p7h/work" --store "$WORK/p7h/store.db" --run-id m9p7h --plant-live hardcode; then
   echo "FAIL: hardcode plant should halt the run"; exit 1
 fi

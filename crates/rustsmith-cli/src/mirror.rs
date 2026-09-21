@@ -610,10 +610,23 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             &orig_source,
             "frozen-oracle(read-only)",
         )?;
-        // Canary: bundle must never reference held-out material.
-        let bundle_text = format!("{}{}{}", id, porting_md.len(), orig_source.len());
-        if bundle_text.contains("heldout_tests_never_here") {
-            return Err("heldout leak into bundle".into());
+        // M8 slice-3: live worker-command turn (additive). Prompt = stable
+        // prefix + PORTING.md + unit bundle, written to prompt.txt; worker
+        // stdout usage recorded as tokens (never evidence). Files still come
+        // from the stub task below, so grading is unchanged offline or live.
+        let mut prompt_version = agent.prompt_version.clone();
+        if let Some(wcmd) = rustsmith_agent::worker_cmd_from_env() {
+            let prompt = rustsmith_agent::build_worker_prompt(id, &porting_md, &orig_source);
+            std::fs::write(bundle_dir.join("prompt.txt"), &prompt).map_err(|e| e.to_string())?;
+            let wspec = UnitSpec {
+                unit_id: id.clone(),
+                worktree: wt.clone(),
+                task: "worker-command".into(),
+                token_ceiling: 1_000_000,
+            };
+            let w = agent.spawn_worker(&wspec, &prompt, &wcmd).map_err(|e| e.to_string())?;
+            store.set_unit_tokens(id, w.tokens_in as i64, w.tokens_out as i64).map_err(|e| e.to_string())?;
+            prompt_version = rustsmith_agent::WORKER_PROMPT_VERSION.into();
         }
         // Worker stub task (real subprocess via Agent): materialize the unit,
         // then commit on its branch so the merge carries the files.
@@ -686,8 +699,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             (Gate::HeldoutDivergence, &div),
             (Gate::Differential, &diff),
         ] {
+            let mut detail = v.detail.clone();
+            detail["prompt_version"] = serde_json::json!(prompt_version);
             store
-                .record_gate(id, g, v.passed, &v.detail)
+                .record_gate(id, g, v.passed, &detail)
                 .map_err(|e| e.to_string())?;
         }
         ev(

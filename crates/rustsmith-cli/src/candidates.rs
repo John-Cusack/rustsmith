@@ -339,6 +339,23 @@ pub fn apply_dead_path(work: &Path) -> Result<Vec<String>, String> {
     Ok(vec!["src/lib.rs".into()])
 }
 
+/// Round-0 representation attempt (M9 slice-8): manual uppercase-hex writer
+/// replacing the cold `format!` in `format_value`. Output byte-identical for
+/// every `v` (minimum-width semantics preserved: values wider than
+/// `template_digits` still print fully). Graded like any candidate; a cold
+/// path is expected to land `no_gain`, which still dispositions the finding.
+pub fn apply_round0_manual_hex(work: &Path) -> Result<Vec<String>, String> {
+    let lib_path = work.join("src/lib.rs");
+    let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
+    replace_once(
+        &mut lib,
+        "fn format_value(template_digits: usize, v: u64) -> String {\n    format!(\"0x{v:0width$X}\", width = template_digits)\n}",
+        "fn format_value(template_digits: usize, v: u64) -> String {\n    let mut nibbles: Vec<u32> = Vec::new();\n    let mut tmp = v;\n    loop {\n        nibbles.push((tmp & 0xF) as u32);\n        if tmp < 16 {\n            break;\n        }\n        tmp >>= 4;\n    }\n    while nibbles.len() < template_digits {\n        nibbles.push(0);\n    }\n    let mut s = String::with_capacity(2 + nibbles.len());\n    s.push_str(\"0x\");\n    for d in nibbles.iter().rev() {\n        s.push(char::from_digit(*d, 16).unwrap().to_ascii_uppercase());\n    }\n    s\n}",
+    )?;
+    std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
+    Ok(vec!["src/lib.rs".into()])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
