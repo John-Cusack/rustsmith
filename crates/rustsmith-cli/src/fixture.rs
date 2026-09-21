@@ -219,8 +219,11 @@ pub fn unit_task(spec: &TemplateSpec, template: &Path, unit: &str) -> Result<Str
     for (src, dst) in &copies {
         cmd.push_str(&format!("&& cp {t}/{src} ./{dst} "));
     }
+    // The commit may be empty when a sibling unit already materialized the
+    // same template files (single-ext ports); that is not a worker failure.
+    // Copy failures still exit nonzero via the && chain above.
     cmd.push_str(&format!(
-        "&& git add -A && git -c user.email=t@t -c user.name=t commit -qm 'unit {unit}' && echo {unit} > unit_done.txt"
+        "&& git add -A && (git -c user.email=t@t -c user.name=t commit -qm 'unit {unit}' || true) && echo {unit} > unit_done.txt"
     ));
     Ok(cmd)
 }
