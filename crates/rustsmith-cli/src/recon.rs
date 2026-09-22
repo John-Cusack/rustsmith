@@ -17,8 +17,8 @@ use rustsmith_adapters::{
     dag_from_call_graph, select_composite, Adapter, Attribution, CompositeAdapter, DepClass,
     ProbeReport, UnitDag, UNCLAIMED_HALT_THRESHOLD,
 };
-use rustsmith_core::{BuildCtx, FileHash, Manifest, ObservableSpec, Workload};
-use rustsmith_oracle::{sha256_hex, Oracle};
+use rustsmith_core::{Baseline, BuildCtx, Cwd, FileHash, Manifest, ObservableSpec, TestCommand, Workload};
+use rustsmith_oracle::{execute_all, sha256_hex, Oracle};
 use rustsmith_profile::{capture_hotspot_baseline, WorkloadContract};
 use std::path::Path;
 #[allow(dead_code)]
@@ -122,7 +122,20 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     // 8. Manifest v2 freeze (baseline comes from runner.grade outcomes inside
     // the freeze; the old collect-only counter and its parser are deleted).
     let observables = probe_observables();
-    let manifest = frozen_manifest_with_benchmarks(&cx, &composite, &observables)?;
+    let mut manifest = frozen_manifest_with_benchmarks(&cx, &composite, &observables)?;
+    // 8b. CTest spine: configure-only recon build for a discovered baseline.
+    // `ctest -N` lists tests without building or running them; the executed
+    // freeze above always sees zero (unbuilt tree). Configure failure
+    // degrades to that empty baseline, never a recon halt: the toolchain may
+    // be absent while source analysis still completes.
+    if !python_spine && composite.runner_id() == rustsmith_adapters::CtestRunner::RUNNER_ID {
+        if let Some(build_dir) = out.parent().map(|p| p.join("recon-build")) {
+            if let Ok((baseline, prepare)) = discover_ctest_baseline(repo, &build_dir, &composite) {
+                manifest.baseline = baseline;
+                manifest.prepare = prepare;
+            }
+        }
+    }
     std::fs::write(
         out.join("manifest.json"),
         serde_json::to_string_pretty(&manifest).unwrap(),
@@ -547,6 +560,64 @@ fn probe_facts(
 }
 
 
+/// Configure-only CTest baseline discovery: configure `repo` out-of-source
+/// into `build_dir` (wiped first for determinism), then `ctest -N` lists
+/// tests without building or running them. Returns the discovered baseline
+/// plus the executed prepare commands (audit truth for the manifest).
+/// Any failure (missing toolchain, configure error, unparsable listing)
+/// is an `Err` the caller degrades from, never a halt.
+fn discover_ctest_baseline(
+    repo: &Path,
+    build_dir: &Path,
+    composite: &CompositeAdapter,
+) -> Result<(Baseline, Vec<TestCommand>), String> {
+    if build_dir.exists() {
+        std::fs::remove_dir_all(build_dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::create_dir_all(build_dir).map_err(|e| e.to_string())?;
+    let cx = BuildCtx { tree: repo, build_dir, release: false };
+    let prepare = composite.bridge.prepare(&cx);
+    let runs = execute_all(repo, build_dir, &prepare).map_err(|e| e.to_string())?;
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err("ctest recon configure failed".to_string());
+    }
+    let list = TestCommand {
+        program: rustsmith_adapters::CtestRunner::ctest_program(),
+        args: vec!["-N".to_string()],
+        cwd: Cwd::BuildDir,
+        env_set: Vec::new(),
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: Some(300),
+        collect: Vec::new(),
+    };
+    let runs = execute_all(repo, build_dir, &[list]).map_err(|e| e.to_string())?;
+    let run = runs.first().ok_or("ctest -N produced no output")?;
+    if run.exit_code != 0 {
+        return Err("ctest -N failed".to_string());
+    }
+    let text = format!("{}\n{}", run.stdout, run.stderr);
+    let count = parse_ctest_total(&text).ok_or("ctest -N listing unparsable")?;
+    Ok((
+        Baseline {
+            test_count: count,
+            skipped: Vec::new(),
+            xfailed: Vec::new(),
+            deselected: Vec::new(),
+        },
+        prepare,
+    ))
+}
+
+/// `Total Tests: N` from `ctest -N` output (list mode never runs tests).
+fn parse_ctest_total(text: &str) -> Option<u32> {
+    text.lines().filter_map(|line| {
+        line.trim()
+            .strip_prefix("Total Tests:")
+            .and_then(|n| n.trim().parse::<u32>().ok())
+    }).next()
+}
+
 fn frozen_manifest_with_benchmarks(
     cx: &BuildCtx,
     composite: &CompositeAdapter,
@@ -864,6 +935,15 @@ mod recon_regression_tests {
         assert!(crate::porting::porting_rules_for(package).is_err());
         assert!(crate::porting::porting_rules_for(package).unwrap_or_default().is_empty());
     }
+    #[test]
+    fn ctest_total_parses_list_mode_output() {
+        let out = "Test project /b\n  Test #1: mini_add\n\nTotal Tests: 1\n";
+        assert_eq!(parse_ctest_total(out), Some(1));
+        assert_eq!(parse_ctest_total("Total Tests: 42\n"), Some(42));
+        assert_eq!(parse_ctest_total("No tests were found!!!\n"), None);
+        assert_eq!(parse_ctest_total(""), None);
+    }
+
 
     /// Forgiving order breaks cycles deterministically for large compiled
     /// trees while the strict order (Python spine) still refuses them.

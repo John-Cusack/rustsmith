@@ -1314,6 +1314,24 @@
         "avoid_hex": []
       },
       "candidate_pool": []
+    },
+    "Mini": {
+      "porting_rules": [
+        {
+          "title": "BIND(C) boundary is the only per-procedure port granularity",
+          "original": "Original: Fortran module procedures without BIND(C) (mangled __MOD names, array descriptors for assumed-shape dummies)",
+          "rust": "Port whole files behind an ABI shim; only BIND(C) procedures substitute one at a time",
+          "example": "mini_add with bind(C, name=\"mini_add\") becomes #[export_name = \"mini_add\"] pub extern \"C\" fn port_mini_add"
+        }
+      ],
+      "differential": {
+        "probes": [
+          {"program": "mini_probe", "args": ["2", "3"]},
+          {"program": "mini_probe", "args": ["0", "0"]},
+          {"program": "mini_probe", "args": ["-1", "5"]},
+          {"program": "mini_probe", "args": ["100", "200"]}
+        ]
+      }
     }
   }
 }

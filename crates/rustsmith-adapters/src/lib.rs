@@ -1762,6 +1762,41 @@ fn assemble_call_graph(
     Ok(stems_to_call_graph(&units, &edges, diagnostics))
 }
 
+/// Re-derive one source file's exports by fragmenting it with the same
+/// frontends recon used (deterministic: same parser, same file). Grade-time
+/// use: the frozen DAG carries stems only, but the scaffold audit and the
+/// substitute ABI gate need true linkage. Unclaimed extensions yield no
+/// exports (the caller falls back to the stem); multi-unit files merge
+/// every scope's exports.
+pub fn fragment_unit_exports(repo: &Path, rel: &str) -> Result<Vec<Symbol>, AdapterError> {
+    let ext = Path::new(rel)
+        .extension()
+        .and_then(|x| x.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let frontend: &dyn Frontend = if FORTRAN_EXTS.contains(&ext.as_str()) {
+        &FortranFrontend
+    } else if cxx_ext_kind(Path::new(rel)).is_some() {
+        &CxxFrontend
+    } else if ext == "py" {
+        &PythonFrontend
+    } else {
+        return Ok(Vec::new());
+    };
+    let abs = repo.join(rel);
+    let files = vec![abs];
+    let compiler_ids = BTreeMap::new();
+    let cx = FragmentCtx { repo, files: &files, compile_db: None, compiler_ids: &compiler_ids };
+    let fragment = frontend.fragment(&cx)?;
+    let mut exports = Vec::new();
+    for unit in &fragment.units {
+        if unit.files.first().map(String::as_str) == Some(rel) {
+            exports.extend(unit.exports.iter().cloned());
+        }
+    }
+    Ok(exports)
+}
+
 /// Per-repo assembly: the only adapter stages ever touch. Holds the selected
 /// frontends plus the single spine (runner + bridge + profiler).
 pub struct CompositeAdapter {
@@ -3895,13 +3930,37 @@ impl TestRunner for CtestRunner {
         // source-tree cmake files hash, and only whitespace-normalized
         // (line endings, trailing space) so configure noise never perturbs
         // the frozen hash.
-        let is_cmake = rel == "CMakeLists.txt"
+        let is_cmake = Path::new(rel).file_name().and_then(|n| n.to_str()) == Some("CMakeLists.txt")
             || rel.starts_with("CTestTestfile")
             || rel.ends_with(".cmake");
         if !is_cmake {
             return None;
         }
         let text = String::from_utf8_lossy(bytes);
+        // `CMakeLists.txt` (any dir) hashes test-defining lines only
+        // (ADR-002, same rule as pyproject test sections): merges legitimately
+        // rewrite target sources and link lines, so only the test set can
+        // trip tamper.
+        if Path::new(rel).file_name().and_then(|n| n.to_str()) == Some("CMakeLists.txt") {
+            let kept: Vec<&str> = text
+                .lines()
+                .filter(|line| {
+                    let t = line.trim_start().to_ascii_lowercase();
+                    [
+                        "add_test(",
+                        "enable_testing(",
+                        "add_subdirectory(",
+                        "set_tests_properties(",
+                        "set_property(",
+                        "include(ctest",
+                        "ctest_",
+                    ]
+                    .iter()
+                    .any(|prefix| t.starts_with(prefix))
+                })
+                .collect();
+            return Some(kept.join("\n").into_bytes());
+        }
         let normalized =
             text.lines().map(|line| line.trim_end()).collect::<Vec<_>>().join("\n");
         Some(normalized.into_bytes())
@@ -5233,9 +5292,27 @@ mod track_i_tests {
         let mock = mock_tree();
         let cx =
             BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        // `CMakeLists.txt` hashes test-defining lines only (ADR-002): target
+        // sources and link lines never perturb the frozen hash.
         assert_eq!(
-            CtestRunner.normalize_for_hash("CMakeLists.txt", b"a  \r\nb\r\n"),
-            Some(b"a\nb".to_vec())
+            CtestRunner.normalize_for_hash(
+                "CMakeLists.txt",
+                b"add_library(add STATIC src/a.F90)  \r\nadd_test(NAME t COMMAND t)\r\n"
+            ),
+            Some(b"add_test(NAME t COMMAND t)".to_vec())
+        );
+        // A merge (source removal + port link lines) keeps the hash stable;
+        // a changed test registration does not.
+        let before = b"add_library(add STATIC src/mini_add.F90)\nadd_test(NAME mini_add COMMAND mini_check)\n";
+        let after = b"add_library(add STATIC )\n# rustsmith: port of src/mini_add.F90 (merged unit)\ntarget_sources(add PRIVATE rustsmith_empty.c)\ntarget_link_libraries(add PRIVATE /b/rust/libmini_add.a)\nadd_test(NAME mini_add COMMAND mini_check)\n";
+        assert_eq!(
+            CtestRunner.normalize_for_hash("CMakeLists.txt", before),
+            CtestRunner.normalize_for_hash("CMakeLists.txt", after)
+        );
+        let tampered = b"add_library(add STATIC src/mini_add.F90)\nadd_test(NAME renamed COMMAND mini_check)\n";
+        assert_ne!(
+            CtestRunner.normalize_for_hash("CMakeLists.txt", before),
+            CtestRunner.normalize_for_hash("CMakeLists.txt", tampered)
         );
         assert_eq!(CtestRunner.normalize_for_hash("tools/helper.py", b"a"), None);
         let first = CtestRunner.config_hash(&cx).unwrap();
@@ -5485,6 +5562,27 @@ mod track_i_tests {
         );
         assert_eq!(graph.module_langs.get("util").map(String::as_str), Some("c"));
         assert!(diagnostics.is_empty(), "unexpected: {diagnostics:?}");
+    }
+
+    #[test]
+    fn fragment_unit_exports_finds_bind_c_linkage() {
+        let dir = tempfile::tempdir().unwrap();
+        let rel = "src/add.F90";
+        let path = dir.path().join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "module mini_mod\n  use iso_c_binding\ncontains\n  function mini_add(a, b) bind(C, name=\"mini_add\") result(c)\n    integer(c_int), value :: a, b\n    integer(c_int) :: c\n    c = a + b\n  end function mini_add\nend module mini_mod\n",
+        )
+        .unwrap();
+        let exports = fragment_unit_exports(dir.path(), rel).unwrap();
+        assert!(
+            exports.iter().any(|e| e.linkage == "mini_add"
+                && matches!(e.abi, Abi::Fortran { bind_c: true })),
+            "BIND(C) linkage missing: {exports:?}"
+        );
+        // Unclaimed extensions fall back to no exports, never an error.
+        assert!(fragment_unit_exports(dir.path(), "notes.md").unwrap().is_empty());
     }
 
     #[test]

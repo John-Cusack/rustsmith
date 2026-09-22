@@ -361,12 +361,27 @@ mod tests {
     use super::*;
 
     fn template_under_test() -> std::path::PathBuf {
-        // Templates under mirror/ are data; the first package in the content
-        // table (sorted) owns the deterministic-transform conformance tree.
+        // Templates under mirror/ are data; the conformance tree is the
+        // first package (sorted) whose template carries the maturin spine
+        // marker (`extension_module`). CMake templates own no pyo3 anchors;
+        // no package is named.
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let mut pkgs = crate::repo_content::packages();
         pkgs.sort();
-        root.join("../../mirror").join(&pkgs[0])
+        let found = pkgs
+            .into_iter()
+            .find(|p| {
+                let manifest =
+                    root.join("../../mirror").join(p).join("template.json");
+                std::fs::read_to_string(manifest)
+                    .ok()
+                    .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                    .and_then(|v| v["extension_module"].as_str().map(str::to_string))
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false)
+            })
+            .expect("no maturin template under mirror/");
+        root.join("../../mirror").join(found)
     }
 
     fn copy_template_files(tpl: &std::path::Path, dst: &std::path::Path) {
