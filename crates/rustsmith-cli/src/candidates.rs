@@ -361,12 +361,22 @@ mod tests {
     use super::*;
 
     fn template_under_test() -> std::path::PathBuf {
-        // Templates under mirror/ are data; the first package in the content
-        // table (sorted) owns the deterministic-transform conformance tree.
+        // Templates under mirror/ are data; the conformance tree belongs to
+        // whichever template the slice-8 transform applies to (identified by
+        // the technique's own domain marker, never a package name).
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let mut pkgs = crate::repo_content::packages();
         pkgs.sort();
-        root.join("../../mirror").join(&pkgs[0])
+        for pkg in pkgs {
+            let tpl = root.join("../../mirror").join(&pkg);
+            if std::fs::read_to_string(tpl.join("src/lib.rs"))
+                .map(|text| text.contains("TableBasedRegister"))
+                .unwrap_or(false)
+            {
+                return tpl;
+            }
+        }
+        panic!("no template carries the slice-8 transform anchors");
     }
 
     fn copy_template_files(tpl: &std::path::Path, dst: &std::path::Path) {
