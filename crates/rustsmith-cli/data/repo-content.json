@@ -1850,40 +1850,7 @@
         ],
         "probe": "from charset_normalizer import from_bytes; print(len(from_bytes(bytes([65])*4096).best().encoding))"
       },
-      "candidate_pool": [
-        {
-          "hotspot": "api.from_bytes decode-all loop",
-          "bound": "compute",
-          "tier": 2,
-          "technique": "encoding_rs-batch-decode",
-          "ceil_frac": 1.0,
-          "est_cost": 3.0
-        },
-        {
-          "hotspot": "md.mess_ratio per-char scoring",
-          "bound": "compute",
-          "tier": 2,
-          "technique": "char-table-prefilter",
-          "ceil_frac": 1.0,
-          "est_cost": 2.0
-        },
-        {
-          "hotspot": "cd.coherence_ratio frequency lookup",
-          "bound": "compute",
-          "tier": 8,
-          "technique": "inline-hint",
-          "ceil_frac": 0.2,
-          "est_cost": 1.0
-        },
-        {
-          "hotspot": "api.from_bytes decode-all loop",
-          "bound": "compute",
-          "tier": 7,
-          "technique": "rayon-parallel",
-          "ceil_frac": 1.0,
-          "est_cost": 5.0
-        }
-      ]
+      "candidate_pool": []
     }
   }
 }
