@@ -9,7 +9,7 @@
 //! and review are identical. The PROOF is in the gates, not the task.
 
 use crate::units;
-use rustsmith_adapters::{BuildBridge, MaturinBridge, PytestRunner, UnitDag};
+use rustsmith_adapters::{BuildBridge, CmakeBridge, CtestRunner, MaturinBridge, PytestRunner, UnitDag};
 use rustsmith_agent::{Agent, UnitSpec};
 use rustsmith_council::{Council, Proposal, Seat, SeatDriver, Stance, StubDriver};
 use rustsmith_core::{BuildCtx, Cwd, Event, Gate, TestCommand, TestRunner};
@@ -194,6 +194,82 @@ pub(crate) fn build_ext(worktree: &Path, venv: &Path) -> Result<String, String> 
         return Err(format!("maturin develop failed:\n{log}"));
     }
     Ok(log)
+}
+
+/// Spine predicate on frozen `build.languages`: single-Python (or a missing
+/// list, the pre-rollout shape) keeps the exact HEAD grade path; anything
+/// else grades through the CMake/CTest spine. Same rule as recon's
+/// `is_python_spine` and the `select_composite` spine choice.
+fn is_python_spine_langs(languages: &[String]) -> bool {
+    languages.is_empty() || *languages == vec!["python".to_string()]
+}
+
+/// Out-of-source build dir for a CMake worktree: configure/build outputs
+/// never pollute the git tree (the fork `.gitignore` does not exclude them).
+pub(crate) fn cmake_build_dir(tree: &Path) -> PathBuf {
+    tree.join("build")
+}
+
+/// Worker-contract path for the unit's built Rust staticlib: the worker
+/// builds the scaffold crate and places the archive here; `substitute`
+/// splices it in place of the unit objects. A missing archive halts honestly
+/// (the stub path stops here; nothing merges).
+pub(crate) fn expected_rust_lib(build_dir: &Path, unit: &str) -> PathBuf {
+    build_dir
+        .join("rust")
+        .join(format!("lib{}.a", crate::units::unit_stem(unit)))
+}
+
+/// Configure a CMake worktree out-of-source (fail-fast with the log).
+/// Argv comes from `CmakeBridge::prepare` with a worktree-anchored context;
+/// the frozen manifest `prepare` stays the audit record.
+pub(crate) fn cmake_configure(tree: &Path) -> Result<String, String> {
+    let build_dir = cmake_build_dir(tree);
+    let cx = BuildCtx { tree, build_dir: &build_dir, release: false };
+    let cmds = CmakeBridge.prepare(&cx);
+    let runs = execute_all(tree, &build_dir, &cmds).map_err(|e| e.to_string())?;
+    let mut log = String::new();
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err(format!("cmake configure failed:\n{log}"));
+    }
+    Ok(log)
+}
+
+/// Run the frozen oracle invocation against a CMake build dir and grade it
+/// with the runner. No venv: `ctest` runs the built tree in place.
+pub(crate) fn run_ctest_oracle(
+    tree: &Path,
+    build_dir: &Path,
+    manifest: &rustsmith_core::Manifest,
+) -> Result<rustsmith_core::GradedResult, String> {
+    let runner = CtestRunner;
+    let cx = BuildCtx { tree, build_dir, release: false };
+    let base: Vec<TestCommand> = if manifest.version == 2 && !manifest.invocation.is_empty() {
+        manifest.invocation.clone()
+    } else {
+        runner.invocation(&cx)
+    };
+    let runs = execute_all(tree, build_dir, &base).map_err(|e| e.to_string())?;
+    runner.grade(&runs).map_err(|e| e.to_string())
+}
+
+/// Held-out rate through `ctest -R`: the runner's held-out shape run in the
+/// build dir, parsed by the runner grade. An empty held-out set matches no
+/// tests and fails honestly here (never a silent pass).
+pub(crate) fn run_ctest_heldout(
+    tree: &Path,
+    build_dir: &Path,
+    suite: &Path,
+) -> Result<f64, String> {
+    let runner = CtestRunner;
+    let cx = BuildCtx { tree, build_dir, release: false };
+    let cmds = runner.heldout(suite, &cx);
+    let runs = execute_all(tree, build_dir, &cmds).map_err(|e| e.to_string())?;
+    Ok(runner.grade(&runs).map_err(|e| e.to_string())?.pass_rate())
 }
 
 /// Run the frozen oracle invocation inside the venv with the installed Rust
@@ -391,6 +467,19 @@ pub struct MirrorArgs {
     pub template: PathBuf,
 }
 
+/// Scaffold-audit bridge follows the frozen recon spine: the single-Python
+/// case keeps `MaturinBridge`; any non-Python language ports through the
+/// CMake/CTest spine (`CmakeBridge`). Same rule as `select_composite` spine
+/// choice; grading (`build_ext`/venv/`PytestRunner` below) stays Python until
+/// the CTest grade spine lands in a later track.
+fn scaffold_bridge(languages: &[String]) -> Box<dyn BuildBridge> {
+    if languages.iter().any(|l| l != "python") {
+        Box::new(CmakeBridge)
+    } else {
+        Box::new(MaturinBridge)
+    }
+}
+
 pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     let run_id = &a.run_id;
     // Load recon artifacts. Unit keys are UnitIds
@@ -483,12 +572,16 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     std::fs::write(a.fork.join(".gitignore"), "worktree-*\n.bundles/\n.grade-venv/\norig_src/\n__pycache__/\ntarget/\n*.so\n").map_err(|e| e.to_string())?;
     git(&a.fork, &["add", "-A"])?;
     git(&a.fork, &["commit", "-qm", "seed from original"])?;
-    // Run language comes from the frozen recon (`build.languages`, new) with
-    // `build.language` (pre-rollout) as compat fallback — never a literal.
     let mirror_lang = crate::units::read_recon_build_languages(&a.recon_out)
         .first()
         .cloned()
         .unwrap_or_else(|| "unknown".to_string());
+    // Full frozen language list drives the scaffold-audit bridge (single
+    // Python keeps MaturinBridge; any other language selects CmakeBridge).
+    let build_languages = crate::units::read_recon_build_languages(&a.recon_out);
+    // Grade spine: single-Python keeps the exact HEAD venv/maturin/pytest
+    // path below; anything else configures + grades through CMake/CTest.
+    let python_spine = is_python_spine_langs(&build_languages);
     store
         .create_run(run_id, &a.repo.display().to_string(), &mirror_lang, "mirror")
         .map_err(|e| e.to_string())?;
@@ -511,7 +604,11 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     let sandbox = Sandbox::new("containers".into());
     let agent = Agent::new(Some(store.events_path.clone()));
     let venv = a.fork.join(".grade-venv");
-    ensure_grade_venv(&venv)?;
+    // The grade venv is a Python-spine stage concern; the CTest spine
+    // configures each worktree out-of-source at grade time instead.
+    if python_spine {
+        ensure_grade_venv(&venv)?;
+    }
 
     // Scheduler: leaf-first over the DAG; ready = all deps passed.
     // Parallel cap MAX_PARALLEL bounds independent units (runs serialize here).
@@ -553,12 +650,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             &orig_source,
             "frozen-oracle(read-only)",
         )?;
-        // Canonical scaffold audit: the bridge is the authority on port
-        // scaffolds, so resolve this unit through `bridge.scaffold()` and
+        // Canonical scaffold audit: the spine-selected bridge is the authority
+        // on port scaffolds (MaturinBridge for single-Python, CmakeBridge
+        // otherwise), so resolve this unit through `bridge.scaffold()` and
         // freeze the resulting file list next to the bundle. Units the bridge
         // cannot scaffold fall back to the template compat mapping recorded
         // here; materialization below still follows the template task.
-        let bridge = MaturinBridge;
+        let bridge = scaffold_bridge(&build_languages);
         let decl = crate::units::unit_decl_for_scaffold(id, &orig_rel);
         let scaffold_note = match bridge.scaffold(&decl) {
             Ok(files) => serde_json::json!({
@@ -613,41 +711,83 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             return Err(format!("worker for {id} exited {}", res.exit_code));
         }
         store.set_unit_status(id, "gated").map_err(|e| e.to_string())?;
-        // Grade in the worktree: build + oracle + heldout + differential.
-        // Configure (bridge.prepare) is empty for maturin; build installs the
-        // extension into the grade venv; grading/parsing is runner-owned.
+        // Grade in the worktree. Python spine: build the extension into the
+        // grade venv, then oracle + heldout + differential through pytest.
+        // (Configure via bridge.prepare is empty for maturin.)
+        // CTest spine: configure out-of-source, splice the worker's Rust
+        // archive in place of the unit objects, rebuild, and grade through
+        // ctest. `substitute` refuses a missing archive honestly, so the
+        // stub path stops before anything merges.
         let wt_path = wt.as_std_path();
-        build_ext(wt_path, &venv)?;
-        let got = run_oracle_in_venv(&venv, wt_path, &manifest)?;
-        // Gates.
-        let runner = PytestRunner;
-        let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
-        // NOTE: worktree pyproject was replaced (maturin) — section-hash covers
-        // test config only (ADR-002), so packaging change does not trip tamper.
-        let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
-        let parity = gates::oracle_parity(&got);
-        let rate = rate_of(&got);
-        // Held-out suite against the worktree build via the venv runner.
-        let held_rate = run_heldout_in_venv(&venv, wt_path, &a.heldout)?;
-        let div = gates::heldout_divergence(rate, held_rate, 0.05);
-        // Stage orig_src for the differential probes (resolved via cwd).
-        std::fs::create_dir_all(wt_path.join("orig_src")).map_err(|e| e.to_string())?;
-        copy_tree(&orig_src, &wt_path.join("orig_src"))?;
-        let diff_pairs = differential_pairs_for(
-            &package,
-            &PathBuf::from(PytestRunner::python_program()),
-            &grade_venv_python(&venv),
-            wt_path,
-        )?;
-        let _ = std::fs::remove_dir_all(wt_path.join("orig_src"));
-        // Exact-equality behind the per-observable tolerance: the default path
-        // passes 0.0/None, preserving legacy math byte-for-byte.
-        let diff = gates::differential(&diff_pairs, 0.0, None);
+        let (integrity, parity, div, diff_result) = if python_spine {
+            build_ext(wt_path, &venv)?;
+            let got = run_oracle_in_venv(&venv, wt_path, &manifest)?;
+            // Gates.
+            let runner = PytestRunner;
+            let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
+            // NOTE: worktree pyproject was replaced (maturin) — section-hash covers
+            // test config only (ADR-002), so packaging change does not trip tamper.
+            let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+            let parity = gates::oracle_parity(&got);
+            let rate = rate_of(&got);
+            // Held-out suite against the worktree build via the venv runner.
+            let held_rate = run_heldout_in_venv(&venv, wt_path, &a.heldout)?;
+            let div = gates::heldout_divergence(rate, held_rate, 0.05);
+            // Stage orig_src for the differential probes (resolved via cwd).
+            std::fs::create_dir_all(wt_path.join("orig_src")).map_err(|e| e.to_string())?;
+            copy_tree(&orig_src, &wt_path.join("orig_src"))?;
+            let diff_pairs = differential_pairs_for(
+                &package,
+                &PathBuf::from(PytestRunner::python_program()),
+                &grade_venv_python(&venv),
+                wt_path,
+            )?;
+            let _ = std::fs::remove_dir_all(wt_path.join("orig_src"));
+            // Exact-equality behind the per-observable tolerance: the default path
+            // passes 0.0/None, preserving legacy math byte-for-byte.
+            let diff = gates::differential(&diff_pairs, 0.0, None);
+            (integrity, parity, div, Ok(diff))
+        } else {
+            cmake_configure(wt_path)?;
+            let build_dir = cmake_build_dir(wt_path);
+            let cx = BuildCtx { tree: wt_path, build_dir: &build_dir, release: false };
+            // Splice the worker's Rust archive in place of the unit objects
+            // and rebuild. A missing archive halts honestly here (the stub
+            // path stops; nothing merges).
+            let sub_cmds = CmakeBridge
+                .substitute(&cx, &decl, &expected_rust_lib(&build_dir, id))
+                .map_err(|e| e.to_string())?;
+            let runs = execute_all(wt_path, &build_dir, &sub_cmds).map_err(|e| e.to_string())?;
+            let mut log = String::new();
+            for r in &runs {
+                log.push_str(&r.stdout);
+                log.push_str(&r.stderr);
+            }
+            if runs.iter().any(|r| r.exit_code != 0) {
+                return Err(format!("substitute failed for unit {id}:\n{log}"));
+            }
+            let got = run_ctest_oracle(wt_path, &build_dir, &manifest)?;
+            let runner = CtestRunner;
+            let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
+            let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+            let parity = gates::oracle_parity(&got);
+            let rate = rate_of(&got);
+            let held_rate = run_ctest_heldout(wt_path, &build_dir, &a.heldout)?;
+            let div = gates::heldout_divergence(rate, held_rate, 0.05);
+            // No frozen workload probes exist on the CTest spine (generic
+            // recon degrades heldout/workload content to none), so
+            // differential grading resolves to an honest halt until the
+            // workload track freezes probes. Recorded below with the other
+            // gates first — never a silent pass.
+            let diff_result: Result<_, String> = Err(format!(
+                "no differential probes for CTest spine unit {id} (frozen manifest carries no workload probes)"
+            ));
+            (integrity, parity, div, diff_result)
+        };
         for (g, v) in [
             (Gate::OracleIntegrity, &integrity),
             (Gate::OracleParity, &parity),
             (Gate::HeldoutDivergence, &div),
-            (Gate::Differential, &diff),
         ] {
             let mut detail = v.detail.clone();
             detail["prompt_version"] = serde_json::json!(prompt_version);
@@ -655,6 +795,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
                 .record_gate(id, g, v.passed, &detail)
                 .map_err(|e| e.to_string())?;
         }
+        // Differential resolves last: the CTest spine halts here honestly
+        // (recorded gates above stay as evidence). Python missing probes
+        // already halted inside its arm, as before.
+        let diff = diff_result?;
         ev(
             store,
             run_id,
@@ -690,11 +834,37 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     }
 
     // Whole-repo grade on the run branch (rebuild from merged sources first).
-    build_ext(&a.fork, &venv)?;
-    let got = run_oracle_in_venv(&venv, &a.fork, &manifest)?;
-    let hashes = Oracle::current_hashes(&manifest, &a.fork, &PytestRunner);
-    let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
-    let parity = gates::oracle_parity(&got);
+    // Python spine: venv build + pytest oracle. CTest spine: configure +
+    // full build out-of-source, then the ctest oracle. Integrity/parity and
+    // the held-out divergence halt below are spine-agnostic.
+    let (got, integrity, parity) = if python_spine {
+        build_ext(&a.fork, &venv)?;
+        let got = run_oracle_in_venv(&venv, &a.fork, &manifest)?;
+        let hashes = Oracle::current_hashes(&manifest, &a.fork, &PytestRunner);
+        let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+        let parity = gates::oracle_parity(&got);
+        (got, integrity, parity)
+    } else {
+        cmake_configure(&a.fork)?;
+        let build_dir = cmake_build_dir(&a.fork);
+        let cx = BuildCtx { tree: a.fork.as_path(), build_dir: &build_dir, release: false };
+        let cmds = CmakeBridge.build(&cx);
+        let runs = execute_all(&a.fork, &build_dir, &cmds).map_err(|e| e.to_string())?;
+        let mut log = String::new();
+        for r in &runs {
+            log.push_str(&r.stdout);
+            log.push_str(&r.stderr);
+        }
+        if runs.iter().any(|r| r.exit_code != 0) {
+            return Err(format!("cmake build failed:\n{log}"));
+        }
+        let got = run_ctest_oracle(&a.fork, &build_dir, &manifest)?;
+        let runner = CtestRunner;
+        let hashes = Oracle::current_hashes(&manifest, &a.fork, &runner);
+        let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+        let parity = gates::oracle_parity(&got);
+        (got, integrity, parity)
+    };
     if !integrity.passed {
         let reason = format!("oracle_tamper whole-repo: {}", integrity.detail);
         store.set_halt(run_id, &reason).map_err(|e| e.to_string())?;
@@ -704,7 +874,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     if !parity.passed {
         return Err("whole-repo grade failed".into());
     }
-    let held_rate_all = run_heldout_in_venv(&venv, &a.fork, &a.heldout)?;
+    // Held-out suite through the spine runner (ctest `-R` on the CTest
+    // spine; an empty held-out set matches nothing and fails honestly).
+    let held_rate_all = if python_spine {
+        run_heldout_in_venv(&venv, &a.fork, &a.heldout)?
+    } else {
+        run_ctest_heldout(&a.fork, &cmake_build_dir(&a.fork), &a.heldout)?
+    };
     let whole_div = rate_of(&got) - held_rate_all;
     // Held-out divergence over threshold halts the run (SPEC 10.3).
     let wdiv = gates::heldout_divergence(rate_of(&got), held_rate_all, 0.05);
@@ -1057,5 +1233,47 @@ mod tests {
         );
         let identical = vec![("1.000".to_string(), "1.000".to_string())];
         assert!(gates::differential(&identical, 0.0, None).passed);
+    }
+
+    #[test]
+    fn scaffold_bridge_follows_frozen_spine() {
+        // Single-Python keeps the maturin audit shape (pyo3/cdylib).
+        let py = scaffold_bridge(&["python".to_string()]);
+        let decl = crate::units::unit_decl_for_scaffold("python:src/pkg/mod.py", "src/pkg/mod.py");
+        let files = py.scaffold(&decl).unwrap();
+        let lib = files.iter().find(|(p, _)| p == "src/lib.rs").unwrap().1.clone();
+        assert!(lib.contains("#[pymodule]"), "python spine lost maturin shape: {lib}");
+        // Any non-Python language selects the CMake audit shape
+        // (staticlib + port_ fns), e.g. Elmer's frozen languages.
+        let cmake = scaffold_bridge(&["cxx".to_string(), "fortran".to_string(), "python".to_string()]);
+        let decl = crate::units::unit_decl_for_scaffold("fortran:fem/src/foo.F90", "fem/src/foo.F90");
+        let files = cmake.scaffold(&decl).unwrap();
+        let lib = files.iter().find(|(p, _)| p == "src/lib.rs").unwrap().1.clone();
+        assert!(lib.contains("staticlib") || lib.contains("port_"), "cmake spine lost staticlib shape: {lib}");
+        assert!(!lib.contains("#[pymodule]"), "cmake spine must not emit pyo3: {lib}");
+    }
+
+    #[test]
+    fn grade_spine_predicate_matches_recon_rule() {
+        assert!(is_python_spine_langs(&["python".to_string()]));
+        // Pre-rollout shape (missing list) keeps HEAD behavior.
+        assert!(is_python_spine_langs(&[]));
+        assert!(!is_python_spine_langs(&[
+            "cxx".to_string(),
+            "fortran".to_string(),
+            "python".to_string()
+        ]));
+        assert!(!is_python_spine_langs(&["fortran".to_string()]));
+    }
+
+    #[test]
+    fn cmake_worktree_paths_are_out_of_source() {
+        let tree = Path::new("/wt");
+        assert_eq!(cmake_build_dir(tree), PathBuf::from("/wt/build"));
+        // Worker-contract archive path is deterministic per unit.
+        assert_eq!(
+            expected_rust_lib(&cmake_build_dir(tree), "fortran:fem/src/solver.F90"),
+            PathBuf::from("/wt/build/rust/libsolver.a")
+        );
     }
 }

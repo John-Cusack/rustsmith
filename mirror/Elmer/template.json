@@ -1,0 +1,12 @@
+{
+  "package": "Elmer",
+  "cmake_target": "elmersolver",
+  "src_layout": false,
+  "files": [
+    ["Cargo.toml", "Cargo.toml"],
+    ["src/lib.rs", "src/lib.rs"]
+  ],
+  "extra_files": {},
+  "delete_on_merge": {},
+  "orig_source": {}
+}
