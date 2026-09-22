@@ -4048,6 +4048,12 @@ impl CmakeBridge {
         "cmake".to_string()
     }
 
+    /// The one `ld` literal the CMake spine owns (partial-link splice);
+    /// GNU `ld` only, matching the Linux grade image.
+    pub fn ld_program() -> String {
+        "ld".to_string()
+    }
+
     /// Build a scaffold crate dir into its staticlib archive. The worker and
     /// the mirror's stub-validation path share this exact invocation; run it
     /// with the crate dir as the executor tree (`cwd: Tree`). The archive
@@ -4146,7 +4152,7 @@ impl BuildBridge for CmakeBridge {
 
     fn substitute(
         &self,
-        _cx: &BuildCtx,
+        cx: &BuildCtx,
         unit: &UnitDecl,
         rust_lib: &Path,
     ) -> Result<Vec<TestCommand>, AdapterError> {
@@ -4159,16 +4165,60 @@ impl BuildBridge for CmakeBridge {
         if let Err(why) = Self::check_substitutable(unit) {
             return Err(AdapterError::Parse(format!("substitute: {why}")));
         }
-        // Archive splice, target rebuild, unit-test verify. Ordered, fail-fast.
+        // Archive splice, tree rebuild, unit-test verify. Ordered, fail-fast.
+        // The splice overwrites the unit's BUILT OBJECTS in place
+        // (`CMakeFiles/<target>.dir/<rel>.o`): `ld -r` partial-links the
+        // Rust archive into one relocatable object, so the next build
+        // relinks every consumer (static and shared alike) with no
+        // link-line surgery. The previous `ar`-into-a-side-archive step
+        // linked nothing (fixture proof: pristine code ran, panic stub
+        // never fired) and is deleted. GNU `ld` only; the grade image is
+        // Linux (`gcc:14`).
         let stem = Self::target_for_unit(unit);
-        let archive = format!("lib{stem}_rs.a");
-        Ok(vec![
-            TestCommand {
-                program: "ar".to_string(),
+        let rel = unit.files.first().map(String::as_str).unwrap_or("");
+        if rel.is_empty() {
+            return Err(AdapterError::Parse(format!(
+                "substitute: unit '{}' has no source file",
+                unit.id
+            )));
+        }
+        // Built-object discovery: every `<target>.dir/<rel>.o` under the
+        // build dir (a source shared by several targets ports in all of
+        // them). Zero matches means the target never built: halt, never an
+        // empty splice.
+        let mut objects: Vec<String> = Vec::new();
+        let cmake_files = cx.build_dir.join("CMakeFiles");
+        if cmake_files.is_dir() {
+            let want = format!(".dir/{rel}.o");
+            for entry in walkdir::WalkDir::new(&cmake_files).into_iter().filter_map(Result::ok) {
+                let p = entry.path();
+                if p.is_file()
+                    && p.to_string_lossy().replace('\\', "/").ends_with(want.as_str())
+                {
+                    objects.push(p.to_string_lossy().into_owned());
+                }
+            }
+        }
+        objects.sort();
+        objects.dedup();
+        if objects.is_empty() {
+            return Err(AdapterError::Parse(format!(
+                "substitute: no built object for '{}' under '{}' (target not built?)",
+                unit.id,
+                cx.build_dir.display()
+            )));
+        }
+        let mut cmds = Vec::new();
+        for obj in &objects {
+            cmds.push(TestCommand {
+                program: Self::ld_program(),
                 args: vec![
-                    "rcs".to_string(),
-                    archive,
+                    "-r".to_string(),
+                    "-o".to_string(),
+                    obj.clone(),
+                    "--whole-archive".to_string(),
                     rust_lib.to_string_lossy().into_owned(),
+                    "--no-whole-archive".to_string(),
                 ],
                 cwd: Cwd::BuildDir,
                 env_set: Vec::new(),
@@ -4176,16 +4226,16 @@ impl BuildBridge for CmakeBridge {
                 launcher: None,
                 timeout_secs: Some(600),
                 collect: Vec::new(),
-            },
-            TestCommand {
+            });
+        }
+        cmds.push(TestCommand {
             program: Self::cmake_program(),
             // Whole-tree rebuild, not `--target <stem>`: test executables
             // are separate targets, and only a full build guarantees the
             // unit's test binary exists for the verify step below.
             // Per-target rebuild is a later optimization (it needs the
             // unit -> test-target mapping); `-R <stem>` still limits which
-            // tests RUN. Proven by the fixture proof (target-only rebuild
-            // left the test exe unbuilt: ctest `Not Run`).
+            // tests RUN.
             args: vec![
                 "--build".to_string(),
                 ".".to_string(),
@@ -4197,22 +4247,22 @@ impl BuildBridge for CmakeBridge {
             launcher: None,
             timeout_secs: Some(3600),
             collect: Vec::new(),
-        },
-            TestCommand {
-                program: CtestRunner::ctest_program(),
-                args: vec![
-                    "--output-on-failure".to_string(),
-                    "-R".to_string(),
-                    stem,
-                ],
-                cwd: Cwd::BuildDir,
-                env_set: vec![("CTEST_OUTPUT_ON_FAILURE".to_string(), "1".to_string())],
-                env_remove: Vec::new(),
-                launcher: None,
-                timeout_secs: Some(600),
-                collect: vec!["Testing/Temporary/LastTest.log".to_string()],
-            },
-        ])
+        });
+        cmds.push(TestCommand {
+            program: CtestRunner::ctest_program(),
+            args: vec![
+                "--output-on-failure".to_string(),
+                "-R".to_string(),
+                stem,
+            ],
+            cwd: Cwd::BuildDir,
+            env_set: vec![("CTEST_OUTPUT_ON_FAILURE".to_string(), "1".to_string())],
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: Some(600),
+            collect: vec!["Testing/Temporary/LastTest.log".to_string()],
+        });
+        Ok(cmds)
     }
 
     fn scaffold(&self, unit: &UnitDecl) -> Result<Vec<(String, String)>, AdapterError> {
@@ -5246,10 +5296,19 @@ mod track_i_tests {
         };
         let rust_lib = mock.build.join("librs_gen.a");
         std::fs::write(&rust_lib, b"mock archive").unwrap();
+        // Built object the splice overwrites (any target dir qualifies).
+        let obj = mock.build.join("CMakeFiles/gen.dir/src/gen.src.o");
+        write_file(&obj, "mock object");
         let cmds = composite.bridge.substitute(&cx, &bind_c_unit, &rust_lib).unwrap();
         assert_eq!(cmds.len(), 3);
-        assert_eq!(cmds[0].program, "ar");
-        assert!(cmds[0].args.contains(&"libgen_rs.a".to_string()));
+        assert_eq!(cmds[0].program, "ld");
+        assert!(cmds[0].args.contains(&"-r".to_string()));
+        assert!(cmds[0].args.contains(&"--whole-archive".to_string()));
+        assert!(
+            cmds[0].args.iter().any(|a| a.ends_with("gen.dir/src/gen.src.o")),
+            "splice must overwrite the built object: {:?}",
+            cmds[0].args
+        );
         assert_eq!(cmds[1].args, vec!["--build".to_string(), ".".to_string(), "--parallel".to_string()]);
         assert_eq!(cmds[1].cwd, Cwd::BuildDir);
         assert_eq!(cmds[2].program, "ctest");
@@ -5273,6 +5332,18 @@ mod track_i_tests {
             .substitute(&cx, &bind_c_unit, &mock.build.join("missing.a"))
             .unwrap_err();
         assert!(err.to_string().contains("does not exist"));
+        // No built object under the build dir: halt, never an empty splice.
+        let empty_build = tempfile::tempdir().unwrap();
+        let cx_empty = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &empty_build.path(),
+            release: false,
+        };
+        let err = composite
+            .bridge
+            .substitute(&cx_empty, &bind_c_unit, &rust_lib)
+            .unwrap_err();
+        assert!(err.to_string().contains("no built object"), "unexpected: {err}");
     }
 
     #[test]

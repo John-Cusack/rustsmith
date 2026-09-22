@@ -240,6 +240,24 @@ pub(crate) fn cmake_configure(tree: &Path) -> Result<String, String> {
     Ok(log)
 }
 
+/// Full build of a configured CMake tree (fail-fast with the log). Per-unit
+/// grading builds pristine objects first so the splice overwrites real
+/// outputs; the post-splice rebuild inside `substitute` is then incremental.
+pub(crate) fn cmake_build(tree: &Path, build_dir: &Path) -> Result<String, String> {
+    let cx = BuildCtx { tree, build_dir, release: false };
+    let cmds = CmakeBridge.build(&cx);
+    let runs = execute_all(tree, build_dir, &cmds).map_err(|e| e.to_string())?;
+    let mut log = String::new();
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err(format!("cmake build failed:\n{log}"));
+    }
+    Ok(log)
+}
+
 /// Run the frozen oracle invocation against a CMake build dir and grade it
 /// with the runner. No venv: `ctest` runs the built tree in place.
 pub(crate) fn run_ctest_oracle(
@@ -804,6 +822,9 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         } else {
             cmake_configure(wt_path)?;
             let build_dir = cmake_build_dir(wt_path);
+            // Pristine build first: the splice below overwrites real built
+            // objects, and the post-splice rebuild is then incremental.
+            cmake_build(wt_path, &build_dir)?;
             let cx = BuildCtx { tree: wt_path, build_dir: &build_dir, release: false };
             // Port archive: the worker's build output when present; without
             // a worker, build the bridge scaffold itself so the splice /
@@ -907,17 +928,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     } else {
         cmake_configure(&a.fork)?;
         let build_dir = cmake_build_dir(&a.fork);
-        let cx = BuildCtx { tree: a.fork.as_path(), build_dir: &build_dir, release: false };
-        let cmds = CmakeBridge.build(&cx);
-        let runs = execute_all(&a.fork, &build_dir, &cmds).map_err(|e| e.to_string())?;
-        let mut log = String::new();
-        for r in &runs {
-            log.push_str(&r.stdout);
-            log.push_str(&r.stderr);
-        }
-        if runs.iter().any(|r| r.exit_code != 0) {
-            return Err(format!("cmake build failed:\n{log}"));
-        }
+        cmake_build(&a.fork, &build_dir)?;
         let got = run_ctest_oracle(&a.fork, &build_dir, &manifest)?;
         let runner = CtestRunner;
         let hashes = Oracle::current_hashes(&manifest, &a.fork, &runner);
