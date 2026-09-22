@@ -1333,5 +1333,67 @@
         ]
       }
     }
+    ,
+    "matc": {
+      "porting_rules": [
+        {
+          "title": "setjmp/longjmp error unwinding becomes Result returns",
+          "original": "Original (C): error.c raises evaluation failures with longjmp(*jmpbuf, 2) after mem_free_all, unwinding across evaluator frames",
+          "rust": "Rust: fallible evaluator functions return Result<T, MatcError>; the top-level loop renders Err as the MATC ERROR: line, never unwinding",
+          "example": "Example: divide-by-zero path calling error() becomes return Err(MatcError::DivByZero), printed as MATC ERROR: Division by zero."
+        },
+        {
+          "title": "file-static interpreter globals become an explicit context struct",
+          "original": "Original (C): interpreter state lives in file-static globals (files.c fil_fps[MAXFILES], eval.c defind, c3d.c c3d_clevels)",
+          "rust": "Rust: all interpreter state moves into pub struct MatcCtx threaded as &mut through every evaluator entry point",
+          "example": "Example: fil_fps[i] in files.c becomes ctx.files[i] with bounds checked against MAXFILES."
+        },
+        {
+          "title": "mtc_domath string-in/string-out embedding boundary stays C-ABI",
+          "original": "Original (C): ElmerSolver embeds the evaluator through char *mtc_domath(char *) plus mtc_init(stdin, stdout, stderr)",
+          "rust": "Rust: the boundary stays pub extern \"C\" with CString in and out; only the internals are ported, never the signature",
+          "example": "Example: mtc_domath(\"1+2\") returning \"         3\" becomes a CString-in/CString-out extern \"C\" fn with identical bytes."
+        },
+        {
+          "title": "stdin-line REPL protocol is the differential surface, not argv",
+          "original": "Original (C): main.c ignores argv and runs a fgets REPL where only the exit and quit lines terminate with status 0",
+          "rust": "Rust: any port keeps the byte-identical line protocol so piped stdin scripts compare equal across trees",
+          "example": "Example: stdin 1+2 then exit prints \"         3\" on both sides; bare argv runs never terminate."
+        }
+      ],
+      "differential": {
+        "probes": [
+          {"program": "matc/src/matc", "args": []}
+        ]
+      }
+    },
+    "fhutiter": {
+      "porting_rules": [
+        {
+          "title": "non-BIND(C) module procedures port whole-file behind an ABI shim",
+          "original": "Original (Fortran): MODULE procedures such as huti_dcgsolv in huti_cg.F90 carry no BIND(C), so names are gfortran-mangled with underscore suffixes",
+          "rust": "Rust: port whole files at once and re-export the original linkage names from the shim; per-procedure substitution stays refused",
+          "example": "Example: huti_dcgsolv in huti_cg.F90 becomes a whole-file port exposing #[export_name = \"huti_dcgsolv_\"] with gfortran mangling."
+        },
+        {
+          "title": "explicit-shape workspace dummies become sized slices",
+          "original": "Original (Fortran): solver dummies are explicit-shape workspaces like REAL, DIMENSION(HUTI_WRKDIM,HUTI_NDIM) :: work with HUTI_*_WORKSIZE contracts (HUTI_TFQMR_WORKSIZE is 10)",
+          "rust": "Rust: workspaces arrive as &mut [f64] with debug_assert_eq on the workdim-by-ndim length before iteration starts",
+          "example": "Example: work(ndim, workdim) in huti-ex.F90 becomes a slice of exactly workdim * ndim f64 values."
+        },
+        {
+          "title": "caller-supplied matvec external becomes a C-ABI fn pointer boundary",
+          "original": "Original (Fortran): callers pass external matvec routines such as own_matvec into HUTI_D_TFQMR(x, b, ipar, dpar, work, own_matvec, ...)",
+          "rust": "Rust: the matvec callback stays an extern \"C\" fn pointer with the identical argument sequence, never a capturing closure",
+          "example": "Example: own_matvec in huti-ex.F90 becomes an extern \"C\" fn pointer argument to the ported HUTI_D_TFQMR."
+        },
+        {
+          "title": "four-precision solver families port once generically",
+          "original": "Original (Fortran): every method ships four near-identical module procedures for single, double, single-complex, and double-complex (huti_scgsolv, huti_dcgsolv, huti_ccgsolv, huti_zcgsolv)",
+          "rust": "Rust: port one generic implementation over a Num trait (f32, f64, Complex<f32>, Complex<f64>) and monomorphize per family member",
+          "example": "Example: the huti_scgsolv and huti_dcgsolv pair in huti_cg.F90 becomes a single generic cg_solv<T> instantiated for f32 and f64."
+        }
+      ]
+    }
   }
 }
