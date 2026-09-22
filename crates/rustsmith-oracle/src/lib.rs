@@ -350,7 +350,9 @@ pub fn execute_one(
     // The `$` invocation line is recorded here (absolute program) because
     // `grade(&[RunOutput])` never sees the commands; the runner parses what
     // follows and appends stderr itself.
-    let mut stdout = format!("$ {}\n", argv.join(" "));
+    // The record stays a single line: argv text (e.g. multi-line `-c`
+    // scripts) must not leak newlines, or data parsing reads it as body.
+    let mut stdout = format!("$ {}\n", argv.join(" ").replace('\n', " "));
     stdout.push_str(&String::from_utf8_lossy(&so));
     Ok(RunOutput {
         exit_code,
@@ -781,6 +783,35 @@ mod polyglot_regression_tests {
             run.artifacts.get("out.txt").map(Vec::as_slice),
             Some(b"artifact-bytes".as_slice())
         );
+        rm(&tree);
+        rm(&build);
+    }
+    #[test]
+    fn executor_record_line_stays_single_line_with_multiline_argv() {
+        let tree = tmpdir("exec-multiline");
+        let build = tmpdir("exec-multiline-build");
+        let cmd = TestCommand {
+            program: "sh".to_string(),
+            args: vec!["-c".to_string(), "echo one\necho two".to_string()],
+            cwd: Cwd::Tree,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        };
+        let run = execute_one(&cmd, &tree, &build).unwrap();
+        assert_eq!(run.exit_code, 0);
+        // Exactly one transcript line: embedded newlines flatten, so
+        // first-line-skip parsing sees the real body, not script text.
+        assert_eq!(
+            run.stdout.lines().filter(|l| l.starts_with("$ ")).count(),
+            1,
+            "record must be single-line, got {:?}",
+            run.stdout
+        );
+        let body = run.stdout.lines().skip(1).collect::<Vec<_>>().join("\n");
+        assert_eq!(body, "one\ntwo");
         rm(&tree);
         rm(&build);
     }
