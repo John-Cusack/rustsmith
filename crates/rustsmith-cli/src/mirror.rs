@@ -220,24 +220,9 @@ pub(crate) fn expected_rust_lib(build_dir: &Path, unit: &str) -> PathBuf {
     ))
 }
 
-/// CONTRACT (FileApiSlice, `rustsmith-adapters::write_file_api_query`):
-/// create the CMake File API query for the `client-rustsmith` client — a
-/// `codemodel-v2` request at `<build>/.cmake/api/v1/query/client-rustsmith/`
-/// `query.json` — so CMake answers at configure time under
-/// `.cmake/api/v1/reply/`. This private fallback keeps the identical on-disk
-/// behavior until this worktree sees that helper; the integrator swaps the
-/// body below for `rustsmith_adapters::write_file_api_query(build_dir)` 1:1
-/// (same path, same JSON, same `Result<PathBuf, String>`). Zero adapter
-/// edits by design (sibling-owned file).
-fn request_cmake_file_api(build_dir: &Path) -> Result<PathBuf, String> {
-    let dir = build_dir.join(".cmake/api/v1/query/client-rustsmith");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join("query.json");
-    let body = serde_json::json!({"requests": [{"kind": "codemodel", "version": 2}]});
-    let text = serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?;
-    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
-    Ok(path)
-}
+/// File API query before configure: `rustsmith-adapters::write_file_api_query`
+/// (single owner of the on-disk shape) so every configured build carries a
+/// codemodel reply for merge-time target resolution.
 
 /// Configure a CMake worktree out-of-source (fail-fast with the log).
 /// Argv comes from `CmakeBridge::prepare` with a worktree-anchored context;
@@ -247,7 +232,7 @@ fn request_cmake_file_api(build_dir: &Path) -> Result<PathBuf, String> {
 /// unconfigured reply).
 pub(crate) fn cmake_configure(tree: &Path) -> Result<String, String> {
     let build_dir = cmake_build_dir(tree);
-    request_cmake_file_api(&build_dir)?;
+    rustsmith_adapters::write_file_api_query(&build_dir)?;
     let cx = BuildCtx { tree, build_dir: &build_dir, release: false };
     let cmds = CmakeBridge.prepare(&cx);
     let runs = execute_all(tree, &build_dir, &cmds).map_err(|e| e.to_string())?;
@@ -495,6 +480,31 @@ pub(crate) fn build_port_crate(crate_dir: &Path, dest: &Path) -> Result<(), Stri
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     std::fs::copy(&built, dest).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Ensure every previously-merged unit's archive exists at the fork
+/// worker-contract path. Merged CMakeLists links those absolute paths, so
+/// any configure+build of the fork or its worktrees fails without them.
+/// Rebuilt from tracked `rust/<stem>/` sources (cargo-incremental after the
+/// first); skipped units never merged, so only `passed` rows land here.
+/// Used before each worktree build and before the whole-repo configure.
+pub(crate) fn ensure_merged_archives(
+    fork: &Path,
+    store: &Store,
+    run_id: &str,
+) -> Result<(), String> {
+    let build_dir = cmake_build_dir(fork);
+    let merged = store.list_units(run_id).map_err(|e| e.to_string())?;
+    for (uid, status, _) in &merged {
+        if status != "passed" {
+            continue;
+        }
+        let stem = crate::units::unit_stem(uid);
+        let crate_dir =
+            fork.join("rust").join(rustsmith_adapters::scaffold_crate_name(stem));
+        build_port_crate(&crate_dir, &expected_rust_lib(&build_dir, uid))?;
+    }
     Ok(())
 }
 
@@ -1005,6 +1015,11 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             let diff = gates::differential(&diff_pairs, 0.0, None);
             (integrity, parity, div, Ok(diff))
         } else {
+            // Previously-merged archives first: the worktree inherits merged
+            // CMakeLists linking their absolute fork paths, and make fails
+            // the pristine build when any is missing (`No rule to make
+            // target`). Rebuilt from tracked sources (cargo-incremental).
+            ensure_merged_archives(&a.fork, store, run_id)?;
             cmake_configure(wt_path)?;
             let build_dir = cmake_build_dir(wt_path);
             // Pristine build first: the splice below overwrites real built
@@ -1115,22 +1130,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         let parity = gates::oracle_parity(&got);
         (got, integrity, parity)
     } else {
-        // Port archives first: the merged CMakeLists links them by
-        // worker-contract path, so they must exist before configuring.
-        // Then configure + full build (links archives in), then the oracle.
-        // No object splice here: merged sources are gone from their targets,
-        // so there are no unit objects to overwrite (per-unit worktrees keep
-        // the ld -r path, where sources still exist).
+        // Port archives first via the shared helper (merged CMakeLists links
+        // them by worker-contract path), then configure + full build (links
+        // archives in), then the oracle. No object splice here: merged
+        // sources are gone from their targets, so there are no unit objects
+        // to overwrite (per-unit worktrees keep the ld -r path).
+        ensure_merged_archives(&a.fork, store, run_id)?;
         let build_dir = cmake_build_dir(&a.fork);
-        let merged = store.list_units(run_id).map_err(|e| e.to_string())?;
-        for (uid, status, _) in &merged {
-            if status != "passed" {
-                continue;
-            }
-            let stem = crate::units::unit_stem(uid);
-            let crate_dir = a.fork.join("rust").join(rustsmith_adapters::scaffold_crate_name(stem));
-            build_port_crate(&crate_dir, &expected_rust_lib(&build_dir, uid))?;
-        }
         cmake_configure(&a.fork)?;
         cmake_build(&a.fork, &build_dir)?;
         let got = run_ctest_oracle(&a.fork, &build_dir, &manifest)?;
@@ -1273,45 +1279,16 @@ fn record_review(
     Ok(())
 }
 
-/// CONTRACT (FileApiSlice,
-/// `rustsmith-adapters::file_api_target_for_source`): owning File API target
-/// for a repo-rel source — exact repo-rel match over target sources first,
-/// then a basename fallback (same file name, different directory); first
-/// sorted target wins each pass; `None` when no target lists the source.
-/// Identical semantics (never stems, extensions, or fuzzy matching); the
-/// integrator swaps the body for that helper 1:1. Zero adapter edits by
-/// design (sibling-owned file).
-fn lookup_file_api_target(targets: &[rustsmith_adapters::FileApiTarget], rel: &str) -> Option<String> {
-    let mut exact: Vec<&str> = targets
-        .iter()
-        .filter(|t| t.sources.iter().any(|s| s.path == rel))
-        .map(|t| t.name.as_str())
-        .collect();
-    exact.sort();
-    if let Some(first) = exact.into_iter().next() {
-        return Some(first.to_string());
-    }
-    let base = rel.rsplit('/').next().unwrap_or(rel);
-    let mut fallback: Vec<&str> = targets
-        .iter()
-        .filter(|t| {
-            t.sources.iter().any(|s| s.path.rsplit('/').next().unwrap_or(&s.path) == base)
-        })
-        .map(|t| t.name.as_str())
-        .collect();
-    fallback.sort();
-    fallback.into_iter().next().map(String::from)
-}
-
 /// File API owner for `rel` from this tree's own configure reply
 /// (`<tree>/build/.cmake/api/v1/reply`, present because `cmake_configure`
 /// drops the query first). `None` when the tree was never configured, the
 /// reply is unparsable, or no target lists the source — all three fall back
-/// to the token heuristic, never a halt.
+/// to the token heuristic, never a halt. Resolution semantics are owned by
+/// `rustsmith-adapters::file_api_target_for_source`.
 fn file_api_owner(tree: &Path, rel: &str) -> Option<String> {
     let reply = cmake_build_dir(tree).join(".cmake/api/v1/reply");
     let targets = rustsmith_adapters::parse_cmake_file_api_reply(&reply, tree).ok()?;
-    lookup_file_api_target(&targets, rel)
+    rustsmith_adapters::file_api_target_for_source(&targets, rel)
 }
 
 /// Remove merged-away sources from CMake target lists so the fork stays
@@ -1519,7 +1496,7 @@ fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -
             text.push('\n');
         }
         text.push_str(&format!("# rustsmith: port of {rel} (merged unit)\n"));
-        if !text.contains("rustsmith_empty.c") {
+        if !text.contains(&format!("target_sources({target} PRIVATE rustsmith_empty.c)")) {
             text.push_str(&format!(
                 "target_sources({target} PRIVATE rustsmith_empty.c)\n"
             ));
@@ -1941,16 +1918,16 @@ mod tests {
         ];
         // Exact repo-rel match wins over the basename fallback, first sorted.
         assert_eq!(
-            lookup_file_api_target(&targets, "src/var.c"),
+            rustsmith_adapters::file_api_target_for_source(&targets, "src/var.c"),
             Some("alpha".to_string()),
         );
         // No exact match: basename fallback, first sorted target wins.
         assert_eq!(
-            lookup_file_api_target(&targets, "elsewhere/var.c"),
+            rustsmith_adapters::file_api_target_for_source(&targets, "elsewhere/var.c"),
             Some("alpha".to_string()),
         );
-        assert_eq!(lookup_file_api_target(&targets, "src/gone.c"), None);
-        assert_eq!(lookup_file_api_target(&[], "src/var.c"), None);
+        assert_eq!(rustsmith_adapters::file_api_target_for_source(&targets, "src/gone.c"), None);
+        assert_eq!(rustsmith_adapters::file_api_target_for_source(&[], "src/var.c"), None);
     }
 
     fn write_reply(dir: &std::path::Path, target: &str, abs_source: &str) {

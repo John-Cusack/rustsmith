@@ -229,17 +229,34 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
             None => stem.to_string(),
         }
     };
-    let mut dag_units: Vec<(String, String, Vec<String>)> = dag
+    let mut dag_units: Vec<(String, String, Vec<String>, Vec<serde_json::Value>)> = dag
         .units
         .iter()
         .map(|u| {
             let mut deps: Vec<String> = u.depends_on.iter().map(|d| unit_of(d)).collect();
             deps.sort();
             deps.dedup();
-            (unit_of(&u.id), u.module.clone(), deps)
+            // Frozen exports (non-Python spine only, additive): linkage plus
+            // the BIND(C) flag per stem, for ABI auditing and the coming
+            // file-granularity coarsening. Grade-time decls still re-derive
+            // the same data live; Python output stays byte-identical.
+            let exports: Vec<serde_json::Value> = if python_spine {
+                Vec::new()
+            } else {
+                graph
+                    .module_exports
+                    .get(&u.module)
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|(linkage, bind_c)| {
+                        serde_json::json!({"linkage": linkage, "bind_c": bind_c})
+                    })
+                    .collect()
+            };
+            (unit_of(&u.id), u.module.clone(), deps, exports)
         })
         .collect();
-    dag_units.sort_by(|a, b| a.0.cmp(&b.0));
     let mut dag_edges: Vec<(String, String)> = dag
         .edges
         .iter()
@@ -248,18 +265,21 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     dag_edges.sort();
     dag_edges.dedup();
     let dag_order: Vec<String> = order.iter().map(|s| unit_of(s)).collect();
-    // CONTRACT (FileApiSlice): when `CallGraph` carries `module_exports`
-    // (stem -> Vec<(linkage, bind_c)>, opaque pairs: Fortran flag as-is,
-    // C/Cxx true, Python false), freeze it here as an ADDITIVE per-unit
-    // `"exports": [{"linkage": ..., "bind_c": ...}]` key alongside
-    // `id`/`module`/`depends_on` — looked up by the `module` audit stem,
-    // serialized in stored order (each stem's vec is already deterministic).
-    // No other frozen-shape change; every other byte stays identical. (This
-    // worktree's `CallGraph` has no such field yet, so nothing freezes today.)
+    // CONTRACT (FileApiSlice): `CallGraph.module_exports` frozen as an
+    // ADDITIVE per-unit `"exports": [{"linkage": ..., "bind_c": ...}]` key
+    // (non-Python spine only; Python output byte-identical). Looked up by
+    // the `module` audit stem; each stem's vec is already deterministic.
+    // No other frozen-shape change; every other byte stays identical.
     std::fs::write(
         out.join("dag.json"),
         serde_json::to_string_pretty(&serde_json::json!({
-            "units": dag_units.iter().map(|(id, module, depends_on)| serde_json::json!({"id": id, "module": module, "depends_on": depends_on})).collect::<Vec<_>>(),
+            "units": dag_units.iter().map(|(id, module, depends_on, exports)| {
+                let mut o = serde_json::json!({"id": id, "module": module, "depends_on": depends_on});
+                if !python_spine {
+                    o["exports"] = serde_json::Value::Array(exports.clone());
+                }
+                o
+            }).collect::<Vec<_>>(),
             "edges": dag_edges,
             "leaf_first_order": dag_order,
         }))
@@ -591,7 +611,7 @@ fn discover_ctest_baseline(
     }
     let list = TestCommand {
         program: rustsmith_adapters::CtestRunner::ctest_program(),
-        args: vec!["-N".to_string()],
+        args: ctest_list_args(&composite.runner.invocation(&cx)),
         cwd: Cwd::BuildDir,
         env_set: Vec::new(),
         env_remove: Vec::new(),
@@ -624,6 +644,28 @@ fn parse_ctest_total(text: &str) -> Option<u32> {
             .strip_prefix("Total Tests:")
             .and_then(|n| n.trim().parse::<u32>().ok())
     }).next()
+}
+
+/// `ctest -N` args scoping the listing to the graded subset: the runner's
+/// own `-L <label>` selection when its invocation carries one, else the
+/// whole suite. The frozen baseline must count exactly what grading runs,
+/// or every grade trips `count_mismatch` against a differently-sized
+/// denominator (1100 total vs 482 `quick` on Elmer).
+fn ctest_list_args(invocation: &[TestCommand]) -> Vec<String> {
+    let mut args = vec!["-N".to_string()];
+    if let Some(cmd) = invocation.first() {
+        let mut it = cmd.args.iter();
+        while let Some(a) = it.next() {
+            if a == "-L" {
+                if let Some(v) = it.next() {
+                    args.push("-L".to_string());
+                    args.push(v.clone());
+                }
+                break;
+            }
+        }
+    }
+    args
 }
 
 fn frozen_manifest_with_benchmarks(
@@ -929,6 +971,7 @@ mod recon_regression_tests {
         let package = "no-such-package-for-fallback-probe";
         assert!(crate::repo_content::entry(package).is_err());
         let empty = crate::repo_content::entry_or_empty(package);
+
         assert_eq!(empty["hotspot_descriptors"], serde_json::json!([]));
         // Workload contract degrades to empty strings via `unwrap_or("")`.
         let wc = &empty["workload_contract"];
@@ -942,6 +985,37 @@ mod recon_regression_tests {
         assert!(crate::heldout::generate_suites_for(package).unwrap_or_default().is_empty());
         assert!(crate::porting::porting_rules_for(package).is_err());
         assert!(crate::porting::porting_rules_for(package).unwrap_or_default().is_empty());
+    }
+    #[test]
+    fn ctest_list_args_mirrors_invocation_labels() {
+        use rustsmith_core::Cwd;
+        let labeled = vec![TestCommand {
+            program: "ctest".to_string(),
+            args: vec!["--output-on-failure".to_string(), "-L".to_string(), "quick".to_string()],
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        }];
+        assert_eq!(
+            ctest_list_args(&labeled),
+            vec!["-N".to_string(), "-L".to_string(), "quick".to_string()]
+        );
+        let plain = vec![TestCommand {
+            program: "ctest".to_string(),
+            args: vec!["--output-on-failure".to_string()],
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        }];
+        assert_eq!(ctest_list_args(&plain), vec!["-N".to_string()]);
+        let empty: Vec<TestCommand> = Vec::new();
+        assert_eq!(ctest_list_args(&empty), vec!["-N".to_string()]);
     }
     #[test]
     fn ctest_total_parses_list_mode_output() {

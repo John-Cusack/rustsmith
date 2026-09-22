@@ -1326,10 +1326,10 @@
       ],
       "differential": {
         "probes": [
-          {"program": "mini_probe", "args": ["2", "3"]},
-          {"program": "mini_probe", "args": ["0", "0"]},
-          {"program": "mini_probe", "args": ["-1", "5"]},
-          {"program": "mini_probe", "args": ["100", "200"]}
+          {"program": "mini_probe", "args": ["add", "2", "3"]},
+          {"program": "mini_probe", "args": ["add", "0", "0"]},
+          {"program": "mini_probe", "args": ["mul", "3", "4"]},
+          {"program": "mini_probe", "args": ["mul", "-1", "5"]}
         ]
       }
     }
