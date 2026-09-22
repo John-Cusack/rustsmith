@@ -220,11 +220,34 @@ pub(crate) fn expected_rust_lib(build_dir: &Path, unit: &str) -> PathBuf {
     ))
 }
 
+/// CONTRACT (FileApiSlice, `rustsmith-adapters::write_file_api_query`):
+/// create the CMake File API query for the `client-rustsmith` client — a
+/// `codemodel-v2` request at `<build>/.cmake/api/v1/query/client-rustsmith/`
+/// `query.json` — so CMake answers at configure time under
+/// `.cmake/api/v1/reply/`. This private fallback keeps the identical on-disk
+/// behavior until this worktree sees that helper; the integrator swaps the
+/// body below for `rustsmith_adapters::write_file_api_query(build_dir)` 1:1
+/// (same path, same JSON, same `Result<PathBuf, String>`). Zero adapter
+/// edits by design (sibling-owned file).
+fn request_cmake_file_api(build_dir: &Path) -> Result<PathBuf, String> {
+    let dir = build_dir.join(".cmake/api/v1/query/client-rustsmith");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("query.json");
+    let body = serde_json::json!({"requests": [{"kind": "codemodel", "version": 2}]});
+    let text = serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?;
+    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 /// Configure a CMake worktree out-of-source (fail-fast with the log).
 /// Argv comes from `CmakeBridge::prepare` with a worktree-anchored context;
-/// the frozen manifest `prepare` stays the audit record.
+/// the frozen manifest `prepare` stays the audit record. The File API query
+/// goes down first so every configured build carries a codemodel reply for
+/// merge-time target resolution; a query failure propagates (never a silent
+/// unconfigured reply).
 pub(crate) fn cmake_configure(tree: &Path) -> Result<String, String> {
     let build_dir = cmake_build_dir(tree);
+    request_cmake_file_api(&build_dir)?;
     let cx = BuildCtx { tree, build_dir: &build_dir, release: false };
     let cmds = CmakeBridge.prepare(&cx);
     let runs = execute_all(tree, &build_dir, &cmds).map_err(|e| e.to_string())?;
@@ -242,6 +265,8 @@ pub(crate) fn cmake_configure(tree: &Path) -> Result<String, String> {
 /// Full build of a configured CMake tree (fail-fast with the log). Per-unit
 /// grading builds pristine objects first so the splice overwrites real
 /// outputs; the post-splice rebuild inside `substitute` is then incremental.
+/// The pristine side of the differential is the shared per-run build (see
+/// `build_shared_pristine`); per-unit orig builds are gone.
 pub(crate) fn cmake_build(tree: &Path, build_dir: &Path) -> Result<String, String> {
     let cx = BuildCtx { tree, build_dir, release: false };
     let cmds = CmakeBridge.build(&cx);
@@ -255,6 +280,40 @@ pub(crate) fn cmake_build(tree: &Path, build_dir: &Path) -> Result<String, Strin
         return Err(format!("cmake build failed:\n{log}"));
     }
     Ok(log)
+}
+
+/// Shared pristine build: stage the original ONCE per mirror run at the
+/// deterministic ignored path `<fork>/orig_src` and configure + build it
+/// there, returning its build dir for every unit's differential to reuse.
+/// Per-unit orig builds (configure + build per unit) are gone: at Elmer
+/// scale two full builds per unit is prohibitive, while one shared build is
+/// O(1) per run. The stage path is git-ignored by the fork `.gitignore`
+/// (`orig_src/`) and skipped by the target-list scan like the old per-unit
+/// stage, so it never enters a merge commit; the caller removes it after the
+/// unit loop (early-error exits leave it behind, ignored and documented).
+/// Emits one `pristine_build` store event per run — the audit proof that the
+/// build ran once (the fixture run log asserts exactly one).
+fn build_shared_pristine(
+    fork: &Path,
+    orig_src: &Path,
+    store: &Store,
+    run_id: &str,
+) -> Result<PathBuf, String> {
+    let stage = fork.join("orig_src");
+    if stage.exists() {
+        std::fs::remove_dir_all(&stage).map_err(|e| e.to_string())?;
+    }
+    copy_tree(orig_src, &stage)?;
+    cmake_configure(&stage)?;
+    let build = cmake_build_dir(&stage);
+    cmake_build(&stage, &build)?;
+    ev(
+        store,
+        run_id,
+        "pristine_build",
+        serde_json::json!({"build": build.display().to_string()}),
+    );
+    Ok(build)
 }
 
 /// Run the frozen oracle invocation against a CMake build dir and grade it
@@ -295,8 +354,9 @@ pub(crate) fn run_ctest_heldout(
 /// (`differential.probes`: program + argv, programs resolved against each
 /// build dir); no toolchain literal lives here. Missing probes halt honestly
 /// (never a vacuous pass); a nonzero probe run halts with its location.
-/// Per-unit original builds are correct but slow at scale (two full builds
-/// per unit); a shared pristine build per run is the later optimization.
+/// The original side is the shared per-run pristine build (see
+/// `build_shared_pristine`): one configure + build per mirror run, reused
+/// across units. Per-unit orig builds are gone.
 pub fn differential_ctest_pairs(
     package: &str,
     orig_build: &Path,
@@ -795,6 +855,15 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     if python_spine {
         ensure_grade_venv(&venv)?;
     }
+    // Shared pristine build (CTest spine only): the staged original builds
+    // ONCE per run and every unit's differential reuses it (see
+    // `build_shared_pristine`). Python keeps its per-worktree `orig_src`
+    // staging below; an empty DAG needs no pristine side at all.
+    let shared_orig_build: Option<PathBuf> = if python_spine || order.is_empty() {
+        None
+    } else {
+        Some(build_shared_pristine(&a.fork, &orig_src, store, run_id)?)
+    };
 
     // Scheduler: leaf-first over the DAG; ready = all deps passed.
     // Parallel cap MAX_PARALLEL bounds independent units (runs serialize here).
@@ -971,19 +1040,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             let rate = rate_of(&got);
             let held_rate = run_ctest_heldout(wt_path, &build_dir, &a.heldout)?;
             let div = gates::heldout_divergence(rate, held_rate, 0.05);
-            // Differential against a pristine original build staged in the
-            // worktree (configured + built here, removed after). Probes are
+            // Differential against the shared pristine build (configured +
+            // built once per run above, reused across units). Probes are
             // package-keyed data; missing probes halt honestly above.
-            let orig_stage = wt_path.join("orig_src");
-            if orig_stage.exists() {
-                std::fs::remove_dir_all(&orig_stage).map_err(|e| e.to_string())?;
-            }
-            copy_tree(&orig_src, &orig_stage)?;
-            cmake_configure(&orig_stage)?;
-            let orig_build = cmake_build_dir(&orig_stage);
-            cmake_build(&orig_stage, &orig_build)?;
-            let diff_pairs = differential_ctest_pairs(&package, &orig_build, &build_dir)?;
-            let _ = std::fs::remove_dir_all(&orig_stage);
+            let orig_build = shared_orig_build.as_deref().ok_or(
+                "non-Python spine needs the shared pristine build",
+            )?;
+            let diff_pairs = differential_ctest_pairs(&package, orig_build, &build_dir)?;
             let diff = gates::differential(&diff_pairs, 0.0, None);
             (integrity, parity, div, Ok(diff))
         };
@@ -1035,6 +1098,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         ev(store, run_id, "merge", serde_json::json!({"unit": id, "sha": sha}));
         let _ = sandbox.drop_worktree(&a.fork, wt.as_std_path());
     }
+    // The shared pristine stage served every differential above; remove it
+    // before the whole-repo grade so the fork holds only merged sources
+    // (it was git-ignored throughout, never committed).
+    let _ = std::fs::remove_dir_all(a.fork.join("orig_src"));
 
     // Whole-repo grade on the run branch (rebuild from merged sources first).
     // Python spine: venv build + pytest oracle. CTest spine: configure +
@@ -1206,14 +1273,60 @@ fn record_review(
     Ok(())
 }
 
+/// CONTRACT (FileApiSlice,
+/// `rustsmith-adapters::file_api_target_for_source`): owning File API target
+/// for a repo-rel source — exact repo-rel match over target sources first,
+/// then a basename fallback (same file name, different directory); first
+/// sorted target wins each pass; `None` when no target lists the source.
+/// Identical semantics (never stems, extensions, or fuzzy matching); the
+/// integrator swaps the body for that helper 1:1. Zero adapter edits by
+/// design (sibling-owned file).
+fn lookup_file_api_target(targets: &[rustsmith_adapters::FileApiTarget], rel: &str) -> Option<String> {
+    let mut exact: Vec<&str> = targets
+        .iter()
+        .filter(|t| t.sources.iter().any(|s| s.path == rel))
+        .map(|t| t.name.as_str())
+        .collect();
+    exact.sort();
+    if let Some(first) = exact.into_iter().next() {
+        return Some(first.to_string());
+    }
+    let base = rel.rsplit('/').next().unwrap_or(rel);
+    let mut fallback: Vec<&str> = targets
+        .iter()
+        .filter(|t| {
+            t.sources.iter().any(|s| s.path.rsplit('/').next().unwrap_or(&s.path) == base)
+        })
+        .map(|t| t.name.as_str())
+        .collect();
+    fallback.sort();
+    fallback.into_iter().next().map(String::from)
+}
+
+/// File API owner for `rel` from this tree's own configure reply
+/// (`<tree>/build/.cmake/api/v1/reply`, present because `cmake_configure`
+/// drops the query first). `None` when the tree was never configured, the
+/// reply is unparsable, or no target lists the source — all three fall back
+/// to the token heuristic, never a halt.
+fn file_api_owner(tree: &Path, rel: &str) -> Option<String> {
+    let reply = cmake_build_dir(tree).join(".cmake/api/v1/reply");
+    let targets = rustsmith_adapters::parse_cmake_file_api_reply(&reply, tree).ok()?;
+    lookup_file_api_target(&targets, rel)
+}
+
 /// Remove merged-away sources from CMake target lists so the fork stays
 /// buildable after every merge commit. Returns one `(deleted rel, list
-/// file, owning target)` per removal for link splicing. Scans
+/// file, owning target)` per removal for link splicing. The owning target
+/// resolves File-API-first: the tree's own codemodel reply (see
+/// `file_api_owner`) knows the owner even when the source reaches its target
+/// through a variable (`set()`/`list()`) with no `add_*` opener above the
+/// token — that unblocks exactly the variable-list halt below. Absent or
+/// unmapped replies fall back to the token heuristic. Scans
 /// `**/CMakeLists.txt` for the deleted file (exact repo-rel token, else
 /// basename) and removes the token (identifier boundaries, quotes
 /// tolerated). No CMakeLists anywhere = not a CMake tree (Python-spine
-/// no-op). Zero or several matches, or no owning `add_*` opener above the
-/// token (variable source lists), halt honestly.
+/// no-op). Zero or several matches, or no owning target from either path,
+/// halt honestly.
 /// `target_link_libraries` is untouched here; the caller splices it.
 pub(crate) fn cmake_remove_sources(
     tree: &Path,
@@ -1243,6 +1356,10 @@ pub(crate) fn cmake_remove_sources(
     }
     let mut edits = Vec::new();
     for rel in deleted {
+        // File API first (see `file_api_owner`): authoritative even for
+        // variable-fed targets. The token edit below stays form-exact either
+        // way; only the owner source changes.
+        let file_api_target = file_api_owner(tree, rel);
         let base = rel.rsplit('/').next().unwrap_or(rel);
         let mut done: Option<(PathBuf, String)> = None;
         // Exact repo-rel token first, then basename (subdir-relative lists).
@@ -1259,9 +1376,12 @@ pub(crate) fn cmake_remove_sources(
             }
             if total == 1 {
                 let (path, text) = site.unwrap_or_default();
-                let target = owning_target(&text, form).ok_or_else(|| {
-                    format!("cannot resolve owning target for deleted '{rel}' (source lists in variables need File API resolution)")
-                })?;
+                let target = match file_api_target.clone() {
+                    Some(t) => t,
+                    None => owning_target(&text, form).ok_or_else(|| {
+                        format!("cannot resolve owning target for deleted '{rel}' (source lists in variables need File API resolution)")
+                    })?,
+                };
                 std::fs::write(&path, remove_token(&text, form)).map_err(|e| e.to_string())?;
                 done = Some((path, target));
                 break;
@@ -1275,9 +1395,14 @@ pub(crate) fn cmake_remove_sources(
         match done {
             Some((path, target)) => edits.push((rel.clone(), path, target)),
             None => {
-                return Err(format!(
-                    "deleted '{rel}' matches no CMakeLists source entry"
-                ))
+                return Err(match file_api_target {
+                    Some(t) => format!(
+                        "deleted '{rel}' (File API owner '{t}') matches no CMakeLists source entry"
+                    ),
+                    None => format!(
+                        "deleted '{rel}' matches no CMakeLists source entry"
+                    ),
+                })
             }
         }
     }
@@ -1761,5 +1886,157 @@ mod tests {
         let nested =
             std::fs::read_to_string(dir.path().join("worktree-u1/CMakeLists.txt")).unwrap();
         assert!(nested.contains("mini_add"), "nested copy touched: {nested}");
+    }
+
+    #[test]
+    fn cmake_configure_requests_file_api() {
+        // The query goes down before prepare so the reply exists for merge
+        // time: minimal C project, real configure, then the query + reply.
+        let dir = tempfile::tempdir().unwrap();
+        write_lists(
+            dir.path(),
+            "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.16)\nproject(qtest C)\n",
+        );
+        cmake_configure(dir.path()).unwrap();
+        let query = dir
+            .path()
+            .join("build/.cmake/api/v1/query/client-rustsmith/query.json");
+        assert!(query.is_file(), "query not written: {}", query.display());
+        let body: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&query).unwrap()).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"requests": [{"kind": "codemodel", "version": 2}]}),
+        );
+        let replies: Vec<_> = std::fs::read_dir(dir.path().join("build/.cmake/api/v1/reply"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name().to_string_lossy().starts_with("index-")
+            })
+            .collect();
+        assert!(!replies.is_empty(), "configure answered no File API reply");
+    }
+
+    fn file_api_target(name: &str, paths: &[&str]) -> rustsmith_adapters::FileApiTarget {
+        rustsmith_adapters::FileApiTarget {
+            name: name.to_string(),
+            sources: paths
+                .iter()
+                .map(|p| rustsmith_adapters::FileApiSource {
+                    language: "c".to_string(),
+                    path: p.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn file_api_lookup_exact_then_basename_sorted_first() {
+        let targets = vec![
+            file_api_target("zeta", &["src/var.c"]),
+            file_api_target("alpha", &["src/var.c", "src/other.c"]),
+            file_api_target("mid", &["other/var.c"]),
+        ];
+        // Exact repo-rel match wins over the basename fallback, first sorted.
+        assert_eq!(
+            lookup_file_api_target(&targets, "src/var.c"),
+            Some("alpha".to_string()),
+        );
+        // No exact match: basename fallback, first sorted target wins.
+        assert_eq!(
+            lookup_file_api_target(&targets, "elsewhere/var.c"),
+            Some("alpha".to_string()),
+        );
+        assert_eq!(lookup_file_api_target(&targets, "src/gone.c"), None);
+        assert_eq!(lookup_file_api_target(&[], "src/var.c"), None);
+    }
+
+    fn write_reply(dir: &std::path::Path, target: &str, abs_source: &str) {
+        let reply = dir.join("build/.cmake/api/v1/reply");
+        std::fs::create_dir_all(&reply).unwrap();
+        std::fs::write(
+            reply.join("index-0.json"),
+            r#"{"objects": [{"kind": "target", "jsonFile": "target-0.json"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            reply.join("target-0.json"),
+            serde_json::json!({
+                "name": target,
+                "sources": [{"path": abs_source}],
+                "compileGroups": [{"language": "C", "sourceIndexes": [0]}],
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn cmake_remove_sources_prefers_file_api_for_variable_lists() {
+        // Variable-fed target (`set()` + `${VAR}`, no `add_*` opener above
+        // the token): the token heuristic halts, the File API reply resolves.
+        let dir = tempfile::tempdir().unwrap();
+        write_lists(
+            dir.path(),
+            "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.16)\nproject(vartest C)\nset(SRCS src/var.c)\nadd_library(var_owner STATIC ${SRCS})\n",
+        );
+        write_lists(dir.path(), "src/var.c", "int var_fn(void) { return 1; }\n");
+        let abs = dir.path().join("src/var.c").display().to_string();
+        write_reply(dir.path(), "var_owner", &abs);
+        let edits = cmake_remove_sources(dir.path(), &["src/var.c".to_string()]).unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].0, "src/var.c");
+        assert_eq!(edits[0].2, "var_owner");
+        let text = std::fs::read_to_string(dir.path().join("CMakeLists.txt")).unwrap();
+        assert!(!text.contains("var.c"), "token not removed: {text}");
+        assert!(text.contains("add_library(var_owner"), "owner damaged: {text}");
+        // Same tree without the reply: the heuristic halt survives (fallback,
+        // never a guess).
+        std::fs::remove_dir_all(dir.path().join("build")).unwrap();
+        write_lists(
+            dir.path(),
+            "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.16)\nproject(vartest C)\nset(SRCS src/var.c)\nadd_library(var_owner STATIC ${SRCS})\n",
+        );
+        let err = cmake_remove_sources(dir.path(), &["src/var.c".to_string()]).unwrap_err();
+        assert!(err.contains("cannot resolve owning target"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn shared_pristine_build_stages_once_per_call() {
+        // One helper call = one staged original + one configured + built
+        // tree at the deterministic ignored path, with the audit event.
+        let repo = tempfile::tempdir().unwrap();
+        write_lists(
+            repo.path(),
+            "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.16)\nproject(sharedtest C)\nadd_library(sharedtest STATIC src/a.c)\n",
+        );
+        write_lists(repo.path(), "src/a.c", "int a_fn(void) { return 41; }\n");
+        let fork = tempfile::tempdir().unwrap();
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&store_dir.path().join("store.db")).unwrap();
+        let build = build_shared_pristine(fork.path(), repo.path(), &store, "r1").unwrap();
+        assert_eq!(build, fork.path().join("orig_src/build"));
+        assert!(
+            build.join("CMakeCache.txt").is_file(),
+            "shared build never configured"
+        );
+        assert!(
+            fork.path().join("orig_src/src/a.c").is_file(),
+            "original not staged"
+        );
+        let events = std::fs::read_to_string(&store.events_path).unwrap();
+        assert_eq!(
+            events.lines().filter(|l| l.contains("pristine_build")).count(),
+            1,
+            "one call must emit exactly one pristine_build event:\n{events}"
+        );
+        // Deterministic restage: a second call rebuilds the same path.
+        let build2 = build_shared_pristine(fork.path(), repo.path(), &store, "r1").unwrap();
+        assert_eq!(build, build2);
     }
 }

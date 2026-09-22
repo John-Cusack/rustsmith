@@ -248,6 +248,14 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     dag_edges.sort();
     dag_edges.dedup();
     let dag_order: Vec<String> = order.iter().map(|s| unit_of(s)).collect();
+    // CONTRACT (FileApiSlice): when `CallGraph` carries `module_exports`
+    // (stem -> Vec<(linkage, bind_c)>, opaque pairs: Fortran flag as-is,
+    // C/Cxx true, Python false), freeze it here as an ADDITIVE per-unit
+    // `"exports": [{"linkage": ..., "bind_c": ...}]` key alongside
+    // `id`/`module`/`depends_on` — looked up by the `module` audit stem,
+    // serialized in stored order (each stem's vec is already deterministic).
+    // No other frozen-shape change; every other byte stays identical. (This
+    // worktree's `CallGraph` has no such field yet, so nothing freezes today.)
     std::fs::write(
         out.join("dag.json"),
         serde_json::to_string_pretty(&serde_json::json!({
