@@ -1262,7 +1262,7 @@ fn bad_skip(data: &[u8], i: usize) -> usize {
 fn iso_trigger(x: u8) -> bool {
     !matches!(
         x,
-        b'$' | b'(' | b'.' | 0x26 | 0x29 | 0x40..=0x5A | 0x58
+        b'$' | b'(' | b'.' | 0x26 | 0x29 | 0x40..=0x5A
     )
 }
 fn iso_esc(cfg: &IsoCfg, data: &[u8], i: usize) -> EscAction {

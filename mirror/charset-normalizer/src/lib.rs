@@ -249,27 +249,25 @@ fn is_binary(
         steps, chunk_size, threshold, cp_isolation, cp_exclusion,
         preemptive_behaviour, language_threshold, enable_fallback,
     )?;
-    let logger = PyLogger::get(py)?;
-    let out = if obj.extract::<String>().is_ok() || obj.hasattr("__fspath__")? {
+    let data: Vec<u8> = if obj.extract::<String>().is_ok() || obj.hasattr("__fspath__")? {
         let p: std::path::PathBuf = if let Ok(s) = obj.extract::<String>() {
             s.into()
         } else {
             obj.call_method0("__fspath__")?.extract::<String>()?.into()
         };
-        let data = std::fs::read(&p).map_err(|e| {
+        std::fs::read(&p).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 PyFileNotFoundError::new_err(e.to_string())
             } else {
                 PyOSError::new_err(e.to_string())
             }
-        })?;
-        api::from_bytes(&data, &opts, &logger)
+        })?
     } else if let Ok(data) = obj.extract::<Vec<u8>>() {
-        api::from_bytes(&data, &opts, &logger)
+        data
     } else {
-        let data: Vec<u8> = obj.call_method0("read")?.extract()?;
-        api::from_bytes(&data, &opts, &logger)
+        obj.call_method0("read")?.extract()?
     };
+    let out = run_detection(py, &data, &opts, explain)?;
     Ok(out.is_empty())
 }
 
@@ -623,6 +621,11 @@ fn mess_ratio(decoded_sequence: &str, maximum_threshold: f64, debug: bool) -> f6
     md::mess_ratio(decoded_sequence, maximum_threshold)
 }
 #[pyfunction]
+#[pyo3(signature = (a = None, b = None))]
+fn is_suspiciously_successive_range(a: Option<String>, b: Option<String>) -> bool {
+    md::is_suspiciously_successive_range(a.as_deref(), b.as_deref())
+}
+#[pyfunction]
 fn char_info(s: &str) -> PyResult<PyCharInfo> {
     let c = s
         .chars()
@@ -631,11 +634,6 @@ fn char_info(s: &str) -> PyResult<PyCharInfo> {
     Ok(PyCharInfo {
         inner: md::char_info(c),
     })
-}
-
-#[pyfunction]
-fn is_suspiciously_successive_range(a: Option<String>, b: Option<String>) -> bool {
-    md::is_suspiciously_successive_range(a.as_deref(), b.as_deref())
 }
 
 #[pyfunction]

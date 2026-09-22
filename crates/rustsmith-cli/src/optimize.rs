@@ -813,7 +813,9 @@ fn crate_package(worktree: &Path) -> Result<(String, String), String> {
         }
     }
     match (pkg, lib) {
-        (Some(p), Some(l)) => Ok((p, l)),
+        // Import dirs use underscores while dist names use dashes: the glob
+        // and the in-place copy both address the installed package dir.
+        (Some(p), Some(l)) => Ok((p.replace('-', "_"), l)),
         _ => Err("Cargo.toml missing [package] name or [lib] name".into()),
     }
 }
