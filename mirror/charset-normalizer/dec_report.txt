@@ -1,0 +1,419 @@
+big5: singles=128 doubles1=13710 doubles2=0
+big5hkscs: singles=128 doubles1=18398 doubles2=4
+cp932: singles=196 doubles1=9604 doubles2=0
+cp949: singles=128 doubles1=17048 doubles2=0
+cp950: singles=128 doubles1=13752 doubles2=0
+euc_jis_2004: singles=128 doubles1=8835 doubles2=25
+euc_jisx0213: singles=128 doubles1=8825 doubles2=25
+euc_jp: singles=128 doubles1=6942 doubles2=0
+euc_kr: singles=128 doubles1=8225 doubles2=0
+gb18030: singles=128 doubles1=23940 doubles2=0
+gb2312: singles=128 doubles1=7445 doubles2=0
+gbk: singles=128 doubles1=21791 doubles2=0
+johab: singles=128 doubles1=17065 doubles2=0
+shift_jis: singles=191 doubles1=6879 doubles2=0
+shift_jis_2004: singles=191 doubles1=11208 doubles2=25
+shift_jisx0213: singles=191 doubles1=11198 doubles2=25
+  multi big5hkscs 0x8862 -> U+00CA+U+0304
+  multi big5hkscs 0x8864 -> U+00CA+U+030C
+  multi big5hkscs 0x88A3 -> U+00EA+U+0304
+  multi big5hkscs 0x88A5 -> U+00EA+U+030C
+  multi euc_jis_2004 0xA4F7 -> U+304B+U+309A
+  multi euc_jis_2004 0xA4F8 -> U+304D+U+309A
+  multi euc_jis_2004 0xA4F9 -> U+304F+U+309A
+  multi euc_jis_2004 0xA4FA -> U+3051+U+309A
+  multi euc_jis_2004 0xA4FB -> U+3053+U+309A
+  multi euc_jis_2004 0xA5F7 -> U+30AB+U+309A
+  multi euc_jis_2004 0xA5F8 -> U+30AD+U+309A
+  multi euc_jis_2004 0xA5F9 -> U+30AF+U+309A
+  multi euc_jis_2004 0xA5FA -> U+30B1+U+309A
+  multi euc_jis_2004 0xA5FB -> U+30B3+U+309A
+  multi euc_jis_2004 0xA5FC -> U+30BB+U+309A
+  multi euc_jis_2004 0xA5FD -> U+30C4+U+309A
+  multi euc_jis_2004 0xA5FE -> U+30C8+U+309A
+  multi euc_jis_2004 0xA6F8 -> U+31F7+U+309A
+  multi euc_jis_2004 0xABC4 -> U+00E6+U+0300
+  multi euc_jis_2004 0xABC8 -> U+0254+U+0300
+  multi euc_jis_2004 0xABC9 -> U+0254+U+0301
+  multi euc_jis_2004 0xABCA -> U+028C+U+0300
+  multi euc_jis_2004 0xABCB -> U+028C+U+0301
+  multi euc_jis_2004 0xABCC -> U+0259+U+0300
+  multi euc_jis_2004 0xABCD -> U+0259+U+0301
+  multi euc_jis_2004 0xABCE -> U+025A+U+0300
+  multi euc_jis_2004 0xABCF -> U+025A+U+0301
+  multi euc_jis_2004 0xABE5 -> U+02E9+U+02E5
+  multi euc_jis_2004 0xABE6 -> U+02E5+U+02E9
+  multi euc_jisx0213 0xA4F7 -> U+304B+U+309A
+  multi euc_jisx0213 0xA4F8 -> U+304D+U+309A
+  multi euc_jisx0213 0xA4F9 -> U+304F+U+309A
+  multi euc_jisx0213 0xA4FA -> U+3051+U+309A
+  multi euc_jisx0213 0xA4FB -> U+3053+U+309A
+  multi euc_jisx0213 0xA5F7 -> U+30AB+U+309A
+  multi euc_jisx0213 0xA5F8 -> U+30AD+U+309A
+  multi euc_jisx0213 0xA5F9 -> U+30AF+U+309A
+  multi euc_jisx0213 0xA5FA -> U+30B1+U+309A
+  multi euc_jisx0213 0xA5FB -> U+30B3+U+309A
+  multi euc_jisx0213 0xA5FC -> U+30BB+U+309A
+  multi euc_jisx0213 0xA5FD -> U+30C4+U+309A
+  multi euc_jisx0213 0xA5FE -> U+30C8+U+309A
+  multi euc_jisx0213 0xA6F8 -> U+31F7+U+309A
+  multi euc_jisx0213 0xABC4 -> U+00E6+U+0300
+  multi euc_jisx0213 0xABC8 -> U+0254+U+0300
+  multi euc_jisx0213 0xABC9 -> U+0254+U+0301
+  multi euc_jisx0213 0xABCA -> U+028C+U+0300
+  multi euc_jisx0213 0xABCB -> U+028C+U+0301
+  multi euc_jisx0213 0xABCC -> U+0259+U+0300
+  multi euc_jisx0213 0xABCD -> U+0259+U+0301
+  multi euc_jisx0213 0xABCE -> U+025A+U+0300
+  multi euc_jisx0213 0xABCF -> U+025A+U+0301
+  multi euc_jisx0213 0xABE5 -> U+02E9+U+02E5
+  multi euc_jisx0213 0xABE6 -> U+02E5+U+02E9
+  multi shift_jis_2004 0x82F5 -> U+304B+U+309A
+  multi shift_jis_2004 0x82F6 -> U+304D+U+309A
+  multi shift_jis_2004 0x82F7 -> U+304F+U+309A
+  multi shift_jis_2004 0x82F8 -> U+3051+U+309A
+  multi shift_jis_2004 0x82F9 -> U+3053+U+309A
+  multi shift_jis_2004 0x8397 -> U+30AB+U+309A
+  multi shift_jis_2004 0x8398 -> U+30AD+U+309A
+  multi shift_jis_2004 0x8399 -> U+30AF+U+309A
+  multi shift_jis_2004 0x839A -> U+30B1+U+309A
+  multi shift_jis_2004 0x839B -> U+30B3+U+309A
+  multi shift_jis_2004 0x839C -> U+30BB+U+309A
+  multi shift_jis_2004 0x839D -> U+30C4+U+309A
+  multi shift_jis_2004 0x839E -> U+30C8+U+309A
+  multi shift_jis_2004 0x83F6 -> U+31F7+U+309A
+  multi shift_jis_2004 0x8663 -> U+00E6+U+0300
+  multi shift_jis_2004 0x8667 -> U+0254+U+0300
+  multi shift_jis_2004 0x8668 -> U+0254+U+0301
+  multi shift_jis_2004 0x8669 -> U+028C+U+0300
+  multi shift_jis_2004 0x866A -> U+028C+U+0301
+  multi shift_jis_2004 0x866B -> U+0259+U+0300
+  multi shift_jis_2004 0x866C -> U+0259+U+0301
+  multi shift_jis_2004 0x866D -> U+025A+U+0300
+  multi shift_jis_2004 0x866E -> U+025A+U+0301
+  multi shift_jis_2004 0x8685 -> U+02E9+U+02E5
+  multi shift_jis_2004 0x8686 -> U+02E5+U+02E9
+  multi shift_jisx0213 0x82F5 -> U+304B+U+309A
+  multi shift_jisx0213 0x82F6 -> U+304D+U+309A
+  multi shift_jisx0213 0x82F7 -> U+304F+U+309A
+  multi shift_jisx0213 0x82F8 -> U+3051+U+309A
+  multi shift_jisx0213 0x82F9 -> U+3053+U+309A
+  multi shift_jisx0213 0x8397 -> U+30AB+U+309A
+  multi shift_jisx0213 0x8398 -> U+30AD+U+309A
+  multi shift_jisx0213 0x8399 -> U+30AF+U+309A
+  multi shift_jisx0213 0x839A -> U+30B1+U+309A
+  multi shift_jisx0213 0x839B -> U+30B3+U+309A
+  multi shift_jisx0213 0x839C -> U+30BB+U+309A
+  multi shift_jisx0213 0x839D -> U+30C4+U+309A
+  multi shift_jisx0213 0x839E -> U+30C8+U+309A
+  multi shift_jisx0213 0x83F6 -> U+31F7+U+309A
+  multi shift_jisx0213 0x8663 -> U+00E6+U+0300
+  multi shift_jisx0213 0x8667 -> U+0254+U+0300
+  multi shift_jisx0213 0x8668 -> U+0254+U+0301
+  multi shift_jisx0213 0x8669 -> U+028C+U+0300
+  multi shift_jisx0213 0x866A -> U+028C+U+0301
+  multi shift_jisx0213 0x866B -> U+0259+U+0300
+  multi shift_jisx0213 0x866C -> U+0259+U+0301
+  multi shift_jisx0213 0x866D -> U+025A+U+0300
+  multi shift_jisx0213 0x866E -> U+025A+U+0301
+  multi shift_jisx0213 0x8685 -> U+02E9+U+02E5
+  multi shift_jisx0213 0x8686 -> U+02E5+U+02E9
+euc_jp 8E-trails: 0xa1..0xdf n=63
+euc_jis_2004 8E-trails: 0xa1..0xdf n=63
+euc_jisx0213 8E-trails: 0xa1..0xdf n=63
+triples: EJ_T=6067 E4_T=8503 E3_T=8503
+E4_T-vs-E3_T diffs=1 [('0xfdbb', '鬜', '鬝')]
+subset big5<= big5hkscs: False only_a=6 only_b=4694 same=False
+subset euc_kr<= cp949: True only_a=0 only_b=8823 same=True
+subset shift_jis<= cp932: True only_a=0 only_b=2725 same=False
+subset big5<= cp950: True only_a=0 only_b=42 same=False
+subset shift_jis<= shift_jis_2004: True only_a=0 only_b=4329 same=False
+subset euc_jp<= euc_jis_2004: True only_a=0 only_b=1893 same=True
+subset gb2312<= gbk: True only_a=0 only_b=14346 same=False
+subset gbk<= gb18030: True only_a=0 only_b=2149 same=True
+jp3_O: n=8787 multi=25
+  multi jp3_O 0x2477 -> U+304B+U+309A
+  multi jp3_O 0x2478 -> U+304D+U+309A
+  multi jp3_O 0x2479 -> U+304F+U+309A
+  multi jp3_O 0x247A -> U+3051+U+309A
+  multi jp3_O 0x247B -> U+3053+U+309A
+  multi jp3_O 0x2577 -> U+30AB+U+309A
+  multi jp3_O 0x2578 -> U+30AD+U+309A
+  multi jp3_O 0x2579 -> U+30AF+U+309A
+  multi jp3_O 0x257A -> U+30B1+U+309A
+  multi jp3_O 0x257B -> U+30B3+U+309A
+  multi jp3_O 0x257C -> U+30BB+U+309A
+  multi jp3_O 0x257D -> U+30C4+U+309A
+  multi jp3_O 0x257E -> U+30C8+U+309A
+  multi jp3_O 0x2678 -> U+31F7+U+309A
+  multi jp3_O 0x2B44 -> U+00E6+U+0300
+  multi jp3_O 0x2B48 -> U+0254+U+0300
+  multi jp3_O 0x2B49 -> U+0254+U+0301
+  multi jp3_O 0x2B4A -> U+028C+U+0300
+  multi jp3_O 0x2B4B -> U+028C+U+0301
+  multi jp3_O 0x2B4C -> U+0259+U+0300
+  multi jp3_O 0x2B4D -> U+0259+U+0301
+  multi jp3_O 0x2B4E -> U+025A+U+0300
+  multi jp3_O 0x2B4F -> U+025A+U+0301
+  multi jp3_O 0x2B65 -> U+02E9+U+02E5
+  multi jp3_O 0x2B66 -> U+02E5+U+02E9
+jp3_O: single-overrides=1 [('0x2232', '~')]
+jp3_O: keys-not-in-base=0 keys-not-in-grid=0
+2004_Q: n=8797 multi=25
+  multi 2004_Q 0x2477 -> U+304B+U+309A
+  multi 2004_Q 0x2478 -> U+304D+U+309A
+  multi 2004_Q 0x2479 -> U+304F+U+309A
+  multi 2004_Q 0x247A -> U+3051+U+309A
+  multi 2004_Q 0x247B -> U+3053+U+309A
+  multi 2004_Q 0x2577 -> U+30AB+U+309A
+  multi 2004_Q 0x2578 -> U+30AD+U+309A
+  multi 2004_Q 0x2579 -> U+30AF+U+309A
+  multi 2004_Q 0x257A -> U+30B1+U+309A
+  multi 2004_Q 0x257B -> U+30B3+U+309A
+  multi 2004_Q 0x257C -> U+30BB+U+309A
+  multi 2004_Q 0x257D -> U+30C4+U+309A
+  multi 2004_Q 0x257E -> U+30C8+U+309A
+  multi 2004_Q 0x2678 -> U+31F7+U+309A
+  multi 2004_Q 0x2B44 -> U+00E6+U+0300
+  multi 2004_Q 0x2B48 -> U+0254+U+0300
+  multi 2004_Q 0x2B49 -> U+0254+U+0301
+  multi 2004_Q 0x2B4A -> U+028C+U+0300
+  multi 2004_Q 0x2B4B -> U+028C+U+0301
+  multi 2004_Q 0x2B4C -> U+0259+U+0300
+  multi 2004_Q 0x2B4D -> U+0259+U+0301
+  multi 2004_Q 0x2B4E -> U+025A+U+0300
+  multi 2004_Q 0x2B4F -> U+025A+U+0301
+  multi 2004_Q 0x2B65 -> U+02E9+U+02E5
+  multi 2004_Q 0x2B66 -> U+02E5+U+02E9
+2004_Q: single-overrides=1 [('0x2232', '~')]
+2004_Q: keys-not-in-base=0 keys-not-in-grid=0
+big5 leads: n=88 0xa1..0xf9
+big5hkscs leads: n=120 0x87..0xfe
+cp932 leads: n=55 0x81..0xfc
+cp949 leads: n=124 0x81..0xfd
+cp950 leads: n=88 0xa1..0xf9
+euc_jis_2004 leads: n=95 0x8e..0xfe
+euc_jisx0213 leads: n=95 0x8e..0xfe
+euc_jp leads: n=78 0x8e..0xf4
+euc_kr leads: n=89 0xa1..0xfd
+gb18030 leads: n=126 0x81..0xfe
+gb2312 leads: n=81 0xa1..0xf7
+gbk leads: n=126 0x81..0xfe
+johab leads: n=112 0x84..0xf9
+shift_jis leads: n=39 0x81..0xea
+shift_jis_2004 leads: n=60 0x81..0xfc
+shift_jisx0213 leads: n=60 0x81..0xfc
+gb18030 80/FF-lead keys: 0
+gbk 80/FF-lead keys: 0
+jp2_C extra vs EK_D: [('0x2454', 'ㅤ')]
+quad valid=1087996 maxptr=1237575
+quad segments=207
+  seg ptr 0..35 -> U+0080+off
+  seg ptr 36..37 -> U+00A5+off
+  seg ptr 38..44 -> U+00A9+off
+  seg ptr 45..49 -> U+00B2+off
+  seg ptr 50..80 -> U+00B8+off
+  seg ptr 81..88 -> U+00D8+off
+  seg ptr 89..94 -> U+00E2+off
+  seg ptr 95..95 -> U+00EB+off
+  seg ptr 96..99 -> U+00EE+off
+  seg ptr 100..102 -> U+00F4+off
+  seg ptr 103..103 -> U+00F8+off
+  seg ptr 104..104 -> U+00FB+off
+  seg ptr 105..108 -> U+00FD+off
+  seg ptr 109..125 -> U+0102+off
+  seg ptr 126..132 -> U+0114+off
+  seg ptr 133..147 -> U+011C+off
+  seg ptr 148..171 -> U+012C+off
+  seg ptr 172..174 -> U+0145+off
+  seg ptr 175..178 -> U+0149+off
+  seg ptr 179..207 -> U+014E+off
+  seg ptr 208..305 -> U+016C+off
+  seg ptr 306..306 -> U+01CF+off
+  seg ptr 307..307 -> U+01D1+off
+  seg ptr 308..308 -> U+01D3+off
+  seg ptr 309..309 -> U+01D5+off
+  seg ptr 310..310 -> U+01D7+off
+  seg ptr 311..311 -> U+01D9+off
+  seg ptr 312..312 -> U+01DB+off
+  seg ptr 313..340 -> U+01DD+off
+  seg ptr 341..427 -> U+01FA+off
+  seg ptr 428..442 -> U+0252+off
+  seg ptr 443..543 -> U+0262+off
+  seg ptr 544..544 -> U+02C8+off
+  seg ptr 545..557 -> U+02CC+off
+  seg ptr 558..740 -> U+02DA+off
+  seg ptr 741..741 -> U+03A2+off
+  seg ptr 742..748 -> U+03AA+off
+  seg ptr 749..749 -> U+03C2+off
+  seg ptr 750..804 -> U+03CA+off
+  seg ptr 805..818 -> U+0402+off
+  seg ptr 819..819 -> U+0450+off
+  seg ptr 820..7921 -> U+0452+off
+  seg ptr 7922..7923 -> U+2011+off
+  seg ptr 7924..7924 -> U+2017+off
+  seg ptr 7925..7926 -> U+201A+off
+  seg ptr 7927..7933 -> U+201E+off
+  seg ptr 7934..7942 -> U+2027+off
+  seg ptr 7943..7943 -> U+2031+off
+  seg ptr 7944..7944 -> U+2034+off
+  seg ptr 7945..7949 -> U+2036+off
+  seg ptr 7950..8061 -> U+203C+off
+  seg ptr 8062..8147 -> U+20AD+off
+  seg ptr 8148..8148 -> U+2104+off
+  seg ptr 8149..8151 -> U+2106+off
+  seg ptr 8152..8163 -> U+210A+off
+  seg ptr 8164..8173 -> U+2117+off
+  seg ptr 8174..8235 -> U+2122+off
+  seg ptr 8236..8239 -> U+216C+off
+  seg ptr 8240..8261 -> U+217A+off
+  seg ptr 8262..8263 -> U+2194+off
+  seg ptr 8264..8373 -> U+219A+off
+  seg ptr 8374..8379 -> U+2209+off
+  seg ptr 8380..8380 -> U+2210+off
+  seg ptr 8381..8383 -> U+2212+off
+  seg ptr 8384..8387 -> U+2216+off
+  seg ptr 8388..8389 -> U+221B+off
+  seg ptr 8390..8391 -> U+2221+off
+  seg ptr 8392..8392 -> U+2224+off
+  seg ptr 8393..8393 -> U+2226+off
+  seg ptr 8394..8395 -> U+222C+off
+  seg ptr 8396..8400 -> U+222F+off
+  seg ptr 8401..8405 -> U+2238+off
+  seg ptr 8406..8415 -> U+223E+off
+  seg ptr 8416..8418 -> U+2249+off
+  seg ptr 8419..8423 -> U+224D+off
+  seg ptr 8424..8436 -> U+2253+off
+  seg ptr 8437..8438 -> U+2262+off
+  seg ptr 8439..8444 -> U+2268+off
+  seg ptr 8445..8481 -> U+2270+off
+  seg ptr 8482..8484 -> U+2296+off
+  seg ptr 8485..8495 -> U+229A+off
+  seg ptr 8496..8520 -> U+22A6+off
+  seg ptr 8521..8602 -> U+22C0+off
+  seg ptr 8603..8935 -> U+2313+off
+  seg ptr 8936..8945 -> U+246A+off
+  seg ptr 8946..9045 -> U+249C+off
+  seg ptr 9046..9049 -> U+254C+off
+  seg ptr 9050..9062 -> U+2574+off
+  seg ptr 9063..9065 -> U+2590+off
+  seg ptr 9066..9075 -> U+2596+off
+  seg ptr 9076..9091 -> U+25A2+off
+  seg ptr 9092..9099 -> U+25B4+off
+  seg ptr 9100..9107 -> U+25BE+off
+  seg ptr 9108..9110 -> U+25C8+off
+  seg ptr 9111..9112 -> U+25CC+off
+  seg ptr 9113..9130 -> U+25D0+off
+  seg ptr 9131..9161 -> U+25E6+off
+  seg ptr 9162..9163 -> U+2607+off
+  seg ptr 9164..9217 -> U+260A+off
+  seg ptr 9218..9218 -> U+2641+off
+  seg ptr 9219..11328 -> U+2643+off
+  seg ptr 11329..11330 -> U+2E82+off
+  seg ptr 11331..11333 -> U+2E85+off
+  seg ptr 11334..11335 -> U+2E89+off
+  seg ptr 11336..11345 -> U+2E8D+off
+  seg ptr 11346..11360 -> U+2E98+off
+  seg ptr 11361..11362 -> U+2EA8+off
+  seg ptr 11363..11365 -> U+2EAB+off
+  seg ptr 11366..11369 -> U+2EAF+off
+  seg ptr 11370..11371 -> U+2EB4+off
+  seg ptr 11372..11374 -> U+2EB8+off
+  seg ptr 11375..11388 -> U+2EBC+off
+  seg ptr 11389..11681 -> U+2ECB+off
+  seg ptr 11682..11685 -> U+2FFC+off
+  seg ptr 11686..11686 -> U+3004+off
+  seg ptr 11687..11691 -> U+3018+off
+  seg ptr 11692..11693 -> U+301F+off
+  seg ptr 11694..11713 -> U+302A+off
+  seg ptr 11714..11715 -> U+303F+off
+  seg ptr 11716..11722 -> U+3094+off
+  seg ptr 11723..11724 -> U+309F+off
+  seg ptr 11725..11729 -> U+30F7+off
+  seg ptr 11730..11735 -> U+30FF+off
+  seg ptr 11736..11981 -> U+312A+off
+  seg ptr 11982..11988 -> U+322A+off
+  seg ptr 11989..12101 -> U+3232+off
+  seg ptr 12102..12335 -> U+32A4+off
+  seg ptr 12336..12347 -> U+3390+off
+  seg ptr 12348..12349 -> U+339F+off
+  seg ptr 12350..12383 -> U+33A2+off
+  seg ptr 12384..12392 -> U+33C5+off
+  seg ptr 12393..12394 -> U+33CF+off
+  seg ptr 12395..12396 -> U+33D3+off
+  seg ptr 12397..12509 -> U+33D6+off
+  seg ptr 12510..12552 -> U+3448+off
+  seg ptr 12553..12850 -> U+3474+off
+  seg ptr 12851..12961 -> U+359F+off
+  seg ptr 12962..12972 -> U+360F+off
+  seg ptr 12973..13737 -> U+361B+off
+  seg ptr 13738..13822 -> U+3919+off
+  seg ptr 13823..13918 -> U+396F+off
+  seg ptr 13919..13932 -> U+39D1+off
+  seg ptr 13933..14079 -> U+39E0+off
+  seg ptr 14080..14297 -> U+3A74+off
+  seg ptr 14298..14584 -> U+3B4F+off
+  seg ptr 14585..14697 -> U+3C6F+off
+  seg ptr 14698..15582 -> U+3CE1+off
+  seg ptr 15583..15846 -> U+4057+off
+  seg ptr 15847..16317 -> U+4160+off
+  seg ptr 16318..16433 -> U+4338+off
+  seg ptr 16434..16437 -> U+43AD+off
+  seg ptr 16438..16480 -> U+43B2+off
+  seg ptr 16481..16728 -> U+43DE+off
+  seg ptr 16729..17101 -> U+44D7+off
+  seg ptr 17102..17121 -> U+464D+off
+  seg ptr 17122..17314 -> U+4662+off
+  seg ptr 17315..17319 -> U+4724+off
+  seg ptr 17320..17401 -> U+472A+off
+  seg ptr 17402..17417 -> U+477D+off
+  seg ptr 17418..17858 -> U+478E+off
+  seg ptr 17859..17908 -> U+4948+off
+  seg ptr 17909..17910 -> U+497B+off
+  seg ptr 17911..17914 -> U+497E+off
+  seg ptr 17915..17915 -> U+4984+off
+  seg ptr 17916..17935 -> U+4987+off
+  seg ptr 17936..17938 -> U+499C+off
+  seg ptr 17939..17960 -> U+49A0+off
+  seg ptr 17961..18663 -> U+49B8+off
+  seg ptr 18664..18702 -> U+4C78+off
+  seg ptr 18703..18813 -> U+4CA4+off
+  seg ptr 18814..18961 -> U+4D1A+off
+  seg ptr 18962..19042 -> U+4DAF+off
+  seg ptr 19043..33468 -> U+9FA6+off
+  seg ptr 33469..33469 -> U+E76C+off
+  seg ptr 33470..33470 -> U+E7C8+off
+  seg ptr 33471..33483 -> U+E7E7+off
+  seg ptr 33484..33484 -> U+E815+off
+  seg ptr 33485..33489 -> U+E819+off
+  seg ptr 33490..33496 -> U+E81F+off
+  seg ptr 33497..33500 -> U+E827+off
+  seg ptr 33501..33504 -> U+E82D+off
+  seg ptr 33505..33512 -> U+E833+off
+  seg ptr 33513..33519 -> U+E83C+off
+  seg ptr 33520..33535 -> U+E844+off
+  seg ptr 33536..33549 -> U+E856+off
+  seg ptr 33550..37844 -> U+E865+off
+  seg ptr 37845..37920 -> U+F92D+off
+  seg ptr 37921..37947 -> U+F97A+off
+  seg ptr 37948..38028 -> U+F996+off
+  seg ptr 38029..38037 -> U+F9E8+off
+  seg ptr 38038..38063 -> U+F9F2+off
+  seg ptr 38064..38064 -> U+FA10+off
+  seg ptr 38065..38065 -> U+FA12+off
+  seg ptr 38066..38068 -> U+FA15+off
+  seg ptr 38069..38074 -> U+FA19+off
+  seg ptr 38075..38075 -> U+FA22+off
+  seg ptr 38076..38077 -> U+FA25+off
+  seg ptr 38078..39107 -> U+FA2A+off
+  seg ptr 39108..39108 -> U+FE32+off
+  seg ptr 39109..39112 -> U+FE45+off
+  seg ptr 39113..39113 -> U+FE53+off
+  seg ptr 39114..39114 -> U+FE58+off
+  seg ptr 39115..39115 -> U+FE67+off
+  seg ptr 39116..39264 -> U+FE6C+off
+  seg ptr 39265..39393 -> U+FF5F+off
+  seg ptr 39394..39419 -> U+FFE6+off
+  seg ptr 189000..1237575 -> U+10000+off
+quad verify mismatches=0
+emit: O_OVR=1 Q_OVR=1 O_M=25 Q_M=25 C_X=1 P=2436

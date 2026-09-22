@@ -133,6 +133,17 @@ fn render_bytes3(header: &str, line: &str, datas_hex: &[String], vals: &[[u64; 3
     }
     body
 }
+/// JSON value as a Python literal (`None`/`True`/`False`, never `null`).
+/// JSON string quoting is valid Python; numbers transfer verbatim.
+fn json_to_py(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "None".to_string(),
+        serde_json::Value::Bool(true) => "True".to_string(),
+        serde_json::Value::Bool(false) => "False".to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// Render bytes-input pins with generic JSON values: `{LIT}` the input
 /// literal and `{V0..V2}` the pinned JSON values. Detector-style repos (bytes
 /// in, encoding-string/float out) need this; checksum repos use `render_bytes3`.
@@ -156,9 +167,9 @@ fn render_bytes_json3(
         body.push_str(
             &line
                 .replace("{LIT}", &lit)
-                .replace("{V0}", &v[0].to_string())
-                .replace("{V1}", &v[1].to_string())
-                .replace("{V2}", &v[2].to_string()),
+                .replace("{V0}", &json_to_py(&v[0]))
+                .replace("{V1}", &json_to_py(&v[1]))
+                .replace("{V2}", &json_to_py(&v[2])),
         );
     }
     body
@@ -178,9 +189,9 @@ fn render_pairs3(
             &line
                 .replace("{A}", &format!("{a:?}"))
                 .replace("{B}", &format!("{b:?}"))
-                .replace("{V0}", &v[0].to_string())
-                .replace("{V1}", &v[1].to_string())
-                .replace("{V2}", &v[2].to_string()),
+                .replace("{V0}", &json_to_py(&v[0]))
+                .replace("{V1}", &json_to_py(&v[1]))
+                .replace("{V2}", &json_to_py(&v[2])),
         );
     }
     body
@@ -372,5 +383,13 @@ mod tests {
                 assert!(!content.is_empty(), "empty suite {name}");
             }
         }
+    }
+    #[test]
+    fn json_to_py_emits_python_literals() {
+        assert_eq!(json_to_py(&serde_json::Value::Null), "None");
+        assert_eq!(json_to_py(&serde_json::json!(true)), "True");
+        assert_eq!(json_to_py(&serde_json::json!(false)), "False");
+        assert_eq!(json_to_py(&serde_json::json!("utf_8")), "\"utf_8\"");
+        assert_eq!(json_to_py(&serde_json::json!(0.5)), "0.5");
     }
 }

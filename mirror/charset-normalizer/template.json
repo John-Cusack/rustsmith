@@ -18,6 +18,46 @@
   [
    "charset_normalizer/__init__.py",
    "charset_normalizer/__init__.py"
+  ],
+  [
+   "src/tables_constant.rs",
+   "src/tables_constant.rs"
+  ],
+  [
+   "src/tables_ucd.rs",
+   "src/tables_ucd.rs"
+  ],
+  [
+   "src/tables_codecs.rs",
+   "src/tables_codecs.rs"
+  ],
+  [
+   "src/decoders.rs",
+   "src/decoders.rs"
+  ],
+  [
+   "src/utils.rs",
+   "src/utils.rs"
+  ],
+  [
+   "src/models.rs",
+   "src/models.rs"
+  ],
+  [
+   "src/md.rs",
+   "src/md.rs"
+  ],
+  [
+   "src/cd.rs",
+   "src/cd.rs"
+  ],
+  [
+   "src/api.rs",
+   "src/api.rs"
+  ],
+  [
+   "src/legacy.rs",
+   "src/legacy.rs"
   ]
  ],
  "extra_files": {
