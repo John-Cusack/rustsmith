@@ -484,11 +484,13 @@ fn plant_hardcode(
     // Monkeypatch the live shim: the wrapper delegates visible inputs to the
     // real implementation (loaded from the pristine original file) and cheats
     // the rest. The shim is the fork's package `__init__` (installed or flat
-    // layout, resolved structurally, never hardcoded).
-    let shim_rel = if fork.join("src").join(&package).join("__init__.py").is_file() {
-        format!("src/{package}/__init__.py")
+    // layout, resolved structurally, never hardcoded). Import dirs use
+    // underscores while dist names use dashes.
+    let import_pkg = package.replace('-', "_");
+    let shim_rel = if fork.join("src").join(&import_pkg).join("__init__.py").is_file() {
+        format!("src/{import_pkg}/__init__.py")
     } else {
-        format!("{package}/__init__.py")
+        format!("{import_pkg}/__init__.py")
     };
     let shim = fork.join(&shim_rel);
     let orig_src = orig.join(orig_impl).display().to_string();

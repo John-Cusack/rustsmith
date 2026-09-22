@@ -1,0 +1,33 @@
+{
+ "package": "charset-normalizer",
+ "extension_module": "charset_normalizer._charset_normalizer",
+ "src_layout": true,
+ "files": [
+  [
+   "Cargo.toml",
+   "Cargo.toml"
+  ],
+  [
+   "pyproject.toml",
+   "pyproject.toml"
+  ],
+  [
+   "src/lib.rs",
+   "src/lib.rs"
+  ],
+  [
+   "charset_normalizer/__init__.py",
+   "charset_normalizer/__init__.py"
+  ]
+ ],
+ "extra_files": {
+  "python:src/charset_normalizer/__main__.py": [
+   [
+    "charset_normalizer/__main__.py",
+    "charset_normalizer/__main__.py"
+   ]
+  ]
+ },
+ "delete_on_merge": {},
+ "orig_source": {}
+}

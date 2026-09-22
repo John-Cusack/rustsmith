@@ -1314,6 +1314,576 @@
         "avoid_hex": []
       },
       "candidate_pool": []
+    },
+    "charset-normalizer": {
+      "differential": {
+        "script": "import sys; data=bytes.fromhex(sys.argv[1]); from charset_normalizer import from_bytes; best=from_bytes(data).best(); print(best.encoding if best else 'None')",
+        "argvs": [
+          [
+            ""
+          ],
+          [
+            "48656c6c6f20576f726c64212054686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f672e2048656c6c6f20576f726c64212054686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f672e2048656c6c6f20576f726c64212054686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f672e2048656c6c6f20576f726c64212054686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f672e20"
+          ],
+          [
+            "426f6e6a6f7572206d6f6e64652c20636166c3a9206372c3a86d65206272c3bb6cc3a9652120566f696cc3a0206475207465787465206672616ec3a76169732e20426f6e6a6f7572206d6f6e64652c20636166c3a9206372c3a86d65206272c3bb6cc3a9652120566f696cc3a0206475207465787465206672616ec3a76169732e20426f6e6a6f7572206d6f6e64652c20636166c3a9206372c3a86d65206272c3bb6cc3a9652120566f696cc3a0206475207465787465206672616ec3a76169732e20426f6e6a6f7572206d6f6e64652c20636166c3a9206372c3a86d65206272c3bb6cc3a9652120566f696cc3a0206475207465787465206672616ec3a76169732e20426f6e6a6f7572206d6f6e64652c20636166c3a9206372c3a86d65206272c3bb6cc3a9652120566f696cc3a0206475207465787465206672616ec3a76169732e20426f6e6a6f7572206d6f6e64652c20636166c3a9206372c3a86d65206272c3bb6cc3a9652120566f696cc3a0206475207465787465206672616ec3a76169732e20426f6e6a6f7572206d6f6e64652c20636166c3a9206372c3a86d65206272c3bb6cc3a9652120566f696cc3a0206475207465787465206672616ec3a76169732e20426f6e6a6f7572206d6f6e64652c20636166c3a9206372c3a86d65206272c3bb6cc3a9652120566f696cc3a0206475207465787465206672616ec3a76169732e20"
+          ],
+          [
+            "426f6e6a6f7572206d6f6e64652c20636166e9206372e86d65206272fb6ce9652120566f696ce0206475207465787465206672616ee76169732e20426f6e6a6f7572206d6f6e64652c20636166e9206372e86d65206272fb6ce9652120566f696ce0206475207465787465206672616ee76169732e20426f6e6a6f7572206d6f6e64652c20636166e9206372e86d65206272fb6ce9652120566f696ce0206475207465787465206672616ee76169732e20426f6e6a6f7572206d6f6e64652c20636166e9206372e86d65206272fb6ce9652120566f696ce0206475207465787465206672616ee76169732e20426f6e6a6f7572206d6f6e64652c20636166e9206372e86d65206272fb6ce9652120566f696ce0206475207465787465206672616ee76169732e20426f6e6a6f7572206d6f6e64652c20636166e9206372e86d65206272fb6ce9652120566f696ce0206475207465787465206672616ee76169732e20426f6e6a6f7572206d6f6e64652c20636166e9206372e86d65206272fb6ce9652120566f696ce0206475207465787465206672616ee76169732e20426f6e6a6f7572206d6f6e64652c20636166e9206372e86d65206272fb6ce9652120566f696ce0206475207465787465206672616ee76169732e20"
+          ],
+          [
+            "82b182f182c982bf82cd90a28a45814193fa967b8cea83658358836782c582b7814282b182f182c982bf82cd90a28a45814193fa967b8cea83658358836782c582b7814282b182f182c982bf82cd90a28a45814193fa967b8cea83658358836782c582b7814282b182f182c982bf82cd90a28a45814193fa967b8cea83658358836782c582b7814282b182f182c982bf82cd90a28a45814193fa967b8cea83658358836782c582b7814282b182f182c982bf82cd90a28a45814193fa967b8cea83658358836782c582b7814282b182f182c982bf82cd90a28a45814193fa967b8cea83658358836782c582b7814282b182f182c982bf82cd90a28a45814193fa967b8cea83658358836782c582b78142"
+          ],
+          [
+            "c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3c4e3bac3cac0bde7a3acd5e2cac7d6d0cec4b2e2cad4cec4b1bea1a3"
+          ],
+          [
+            "bec8b3e7c7cfbcbcbfe420bcbcb0e82c20c7d1b1b9beee20c5d7bdbac6aec0d4b4cfb4d92e20bec8b3e7c7cfbcbcbfe420bcbcb0e82c20c7d1b1b9beee20c5d7bdbac6aec0d4b4cfb4d92e20bec8b3e7c7cfbcbcbfe420bcbcb0e82c20c7d1b1b9beee20c5d7bdbac6aec0d4b4cfb4d92e20bec8b3e7c7cfbcbcbfe420bcbcb0e82c20c7d1b1b9beee20c5d7bdbac6aec0d4b4cfb4d92e20bec8b3e7c7cfbcbcbfe420bcbcb0e82c20c7d1b1b9beee20c5d7bdbac6aec0d4b4cfb4d92e20bec8b3e7c7cfbcbcbfe420bcbcb0e82c20c7d1b1b9beee20c5d7bdbac6aec0d4b4cfb4d92e20bec8b3e7c7cfbcbcbfe420bcbcb0e82c20c7d1b1b9beee20c5d7bdbac6aec0d4b4cfb4d92e20bec8b3e7c7cfbcbcbfe420bcbcb0e82c20c7d1b1b9beee20c5d7bdbac6aec0d4b4cfb4d92e20"
+          ],
+          [
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+          ]
+        ]
+      },
+      "heldout_descriptors": {
+        "distribution": "detection bytes; sizes 0B..64KB; ASCII + utf-8 + single-byte (cp1250/mac_latin2) + multibyte (cp932/cp949/gb18030) + binary; structured text + uniform random",
+        "adversarial_shapes": [
+          "empty",
+          "singleton",
+          "all-identical",
+          "all-distinct",
+          "max-length",
+          "bom-prefixed"
+        ],
+        "coverage_complement": [
+          "multibyte CJK paths not in visible",
+          "single-byte similar-codepage paths",
+          "binary/None paths"
+        ],
+        "heldout_sizes": [
+          1,
+          7,
+          63,
+          511,
+          4097,
+          8192
+        ],
+        "visible_sizes": [
+          0,
+          232,
+          336,
+          520
+        ],
+        "identity_sensitive_repeats": [
+          "equal-but-not-identical bytes objects (catches identity-keyed caches)"
+        ]
+      },
+      "heldout_suites": [
+        {
+          "name": "test_heldout_detection.py",
+          "content": "\"\"\"Held-out: from_bytes properties + differential (host-only).\"\"\"\nfrom charset_normalizer import from_bytes, is_binary\n\n\ndef test_property_empty_is_utf8():\n    m = from_bytes(b\"\")\n    assert m.best().encoding == \"utf_8\"\n\n\ndef test_property_ascii():\n    m = from_bytes(b\"Hello World! The quick brown fox jumps over the lazy dog. \" * 4)\n    assert m.best().encoding == \"ascii\"\n\n\ndef test_property_type_error():\n    try:\n        from_bytes(\"not bytes\")\n    except TypeError:\n        pass\n    else:\n        raise AssertionError(\"expected TypeError\")\n\n\ndef test_property_matches_sorted():\n    m = from_bytes(\"Bonjour monde, caf\\u00e9\".encode(\"utf-8\") * 10)\n    assert len(m) >= 1\n    assert m.best() == m[0]\n\n\ndef test_differential_known_vectors():\n    assert from_bytes(bytes.fromhex(\"48656c6c6f20576f726c6421\")).best().encoding == \"ascii\"\n    assert from_bytes(b\"\").best().encoding == \"utf_8\"\n    assert from_bytes(bytes(range(256))).best() is None\n\n\ndef test_fuzz_bytes_never_raises():\n    for n in [0, 1, 7, 64, 1024]:\n        from_bytes(bytes((i * 31) & 0xFF for i in range(n)))\n\n\ndef test_identity_sensitive_repeats():\n    a = b\"Hello World!\"\n    b = bytes([72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100, 33])\n    assert a == b and (a is not b)\n    assert from_bytes(a).best().encoding == from_bytes(b).best().encoding\n\n\ndef test_is_binary_agrees():\n    assert is_binary(b\"Hello World!\") is False\n    assert is_binary(bytes(range(256))) is True\n"
+        },
+        {
+          "name": "test_heldout_mess_coherence.py",
+          "content": "\"\"\"Held-out: mess_ratio + coherence_ratio agreement + adversarial shapes (host-only).\"\"\"\nfrom charset_normalizer.cd import coherence_ratio\nfrom charset_normalizer.md import mess_ratio\n\n\ndef test_mess_ascii_zero():\n    assert mess_ratio(\"Hello World!\") == 0.0\n\n\ndef test_mess_null_interleaved_high():\n    assert mess_ratio(\"B\\u0000o\\u0000n\\u0000j\\u0000o\\u0000u\\u0000r\") == 3.692\n\n\ndef test_mess_threshold_early_exit():\n    assert mess_ratio(\"B\\u0000o\\u0000n\\u0000j\\u0000o\\u0000u\\u0000r\", 0.2) >= 0.2\n\n\ndef test_coherence_french_top():\n    text = (\"Bonjour monde caf\\u00e9 cr\\u00e8me br\\u00fbl\\u00e9e avec du texte fran\\u00e7ais et des accents partout pour d\\u00e9passer le seuil de longueur minimale requise par le d\\u00e9tecteur de langue.\")\n    top = coherence_ratio(text)\n    assert top and top[0][0] == \"French\"\n\n\ndef test_coherence_short_empty():\n    assert coherence_ratio(\"abc\") == []\n    assert coherence_ratio(\"\") == []\n\n\ndef test_adversarial_shapes():\n    assert isinstance(mess_ratio(\"\\u0000\" * 128), float)\n    assert isinstance(mess_ratio(\"\\u00e9\" * 128), float)\n    assert isinstance(coherence_ratio(\"e\" * 1024), list)\n"
+        },
+        {
+          "name": "test_heldout_pinned.py",
+          "content": "\"\"\"Held-out: pinned absolute values on disjoint inputs (host-only).\"\"\"\nfrom charset_normalizer import from_bytes\nfrom charset_normalizer.legacy import detect\n\n\ndef test_pinned_hello():\n    assert from_bytes(bytes.fromhex(\"48656c6c6f20576f726c6421\")).best().encoding == \"ascii\"\n\n\ndef test_pinned_empty():\n    m = from_bytes(b\"\")\n    assert m.best().encoding == \"utf_8\"\n    assert m.best().chaos == 0.0\n\n\ndef test_pinned_utf8_french():\n    m = from_bytes(\"Bonjour monde, caf\\u00e9\".encode(\"utf-8\") * 4)\n    assert m.best().encoding == \"utf_8\"\n\n\ndef test_pinned_bom():\n    m = from_bytes(b\"\\xef\\xbb\\xbfHello\")\n    assert m.best().encoding == \"utf_8\"\n    assert bool(m.best().byte_order_mark) is True\n\n\ndef test_pinned_legacy_ascii():\n    d = detect(b\"Hello World!\")\n    assert d[\"encoding\"] == \"ascii\"\n    assert d[\"language\"] == \"English\"\n"
+        }
+      ],
+      "hotspot_descriptors": [
+        "empty:b''",
+        "ascii:232B-english",
+        "utf8-fr:520B-french-accents",
+        "multibyte:272B-shift_jis",
+        "large:4KB-mixed"
+      ],
+      "porting_rules": [
+        {
+          "title": "bytes not str",
+          "original": "Original (Python): `from_bytes(sequences: bytes | bytearray)`; decoded text is `str`",
+          "rust": "Rust: `&[u8]` in, `String` out; never index bytes as chars",
+          "example": "Example: `data: &[u8]` + `String::from_utf8_lossy` only for display, detection works on raw bytes"
+        },
+        {
+          "title": "bytearray accepted",
+          "original": "Original: `bytearray` accepted anywhere `bytes` is",
+          "rust": "Rust: accept `&[u8]`; `Vec<u8>` coerces via `as_slice()`",
+          "example": "Example: `fn from_bytes(data: &[u8])` covers both"
+        },
+        {
+          "title": "TypeError on str",
+          "original": "Original: `from_bytes('str')` raises `TypeError`",
+          "rust": "Rust: type system rejects `&str`; PyO3 raises `TypeError` via `PyBytes` extraction",
+          "example": "Example: `ob.extract::<&[u8]>()?` raises TypeError on str"
+        },
+        {
+          "title": "IANA names canonical",
+          "original": "Original: `iana_name(cp, strict)` normalizes aliases via `_IANA_NAMES`",
+          "rust": "Rust: `normalize_encoding(name: &str) -> String` lowercases, `-`/`_` unified",
+          "example": "Example: `iana_name('UTF8') == 'utf_8'`"
+        },
+        {
+          "title": "unknown encoding strict",
+          "original": "Original: `iana_name('nope', True)` raises; `False` returns input",
+          "rust": "Rust: `Result<String, UnknownEncoding>` vs `normalize_lossy`",
+          "example": "Example: strict returns Err, non-strict echoes input"
+        },
+        {
+          "title": "tables byte-identical",
+          "original": "Original: `FREQUENCIES`, `UNICODE_RANGES`, `ENCODING_MARKS` inline in `constant.py`",
+          "rust": "Rust: build-time `&'static` maps with identical floats/ints; NEVER re-tune",
+          "example": "Example: `FREQUENCIES['French']` values copied verbatim"
+        },
+        {
+          "title": "no table optimization",
+          "original": "Original: language-model tables are data, not code",
+          "rust": "Rust: classify `port`; keep byte-identical, do not quantize/prune",
+          "example": "Example: keep all 41 `FREQUENCIES` keys"
+        },
+        {
+          "title": "mess_ratio signature",
+          "original": "Original: `mess_ratio(str, maximum_threshold=0.2, debug=False) -> float` rounded to 3",
+          "rust": "Rust: `fn mess_ratio(s: &str, threshold: f64) -> f64` with `(v*1000).round()/1000`",
+          "example": "Example: `mess_ratio('Hello') == 0.0`"
+        },
+        {
+          "title": "mess early exit",
+          "original": "Original: returns early once ratio >= `maximum_threshold`",
+          "rust": "Rust: check accumulator each chunk; `if ratio >= threshold { return ratio; }`",
+          "example": "Example: threshold 0.2 short-circuits null-interleaved"
+        },
+        {
+          "title": "mess chunk steps",
+          "original": "Original: sampling steps feed `cut_sequence_chunks`",
+          "rust": "Rust: same step table; iterate `chars()` never bytes",
+          "example": "Example: chunked sampling identical counts"
+        },
+        {
+          "title": "10 plugins",
+          "original": "Original: 10 `MessDetectorPlugin` subclasses in `md.py`",
+          "rust": "Rust: `enum Plugin` + per-plugin `fn ratio` in identical order",
+          "example": "Example: `TooManySymbolOrPunctuation` before `Unprintable`"
+        },
+        {
+          "title": "char flags",
+          "original": "Original: `_character_flags` via `unicodedata.name` bitmask",
+          "rust": "Rust: `char` range tables, no runtime `unicodedata`",
+          "example": "Example: `is_accentuated('e-acute') == True`"
+        },
+        {
+          "title": "coherence signature",
+          "original": "Original: `coherence_ratio(str, threshold=0.1, lg_inclusion=None)`",
+          "rust": "Rust: `fn coherence_ratio(s: &str, threshold: f64, inclusion: Option<&str>) -> Vec<(String,f64)>`",
+          "example": "Example: short strings `<=32` chars return `[]`"
+        },
+        {
+          "title": "coherence layers",
+          "original": "Original: layers split by alphabet range, per-range frequency lookup",
+          "rust": "Rust: same layering; frequency map built once",
+          "example": "Example: French text top `('French', 0.68)`"
+        },
+        {
+          "title": "coherence rounding",
+          "original": "Original: ratios rounded to 4 decimals, sorted desc",
+          "rust": "Rust: `(v*10000).round()/10000` then sort desc",
+          "example": "Example: `0.6799 -> 0.68`"
+        },
+        {
+          "title": "merge coherence",
+          "original": "Original: `merge_coherence_ratios` per-language mean",
+          "rust": "Rust: `HashMap<String,(f64,usize)>` mean",
+          "example": "Example: French 0.6+0.8 -> 0.7"
+        },
+        {
+          "title": "encoding languages",
+          "original": "Original: `encoding_languages`/`mb_encoding_languages` with `lru_cache`",
+          "rust": "Rust: `OnceLock<HashMap>` static",
+          "example": "Example: `encoding_languages('cp1252')` contains French"
+        },
+        {
+          "title": "unicode_range",
+          "original": "Original: `unicode_range(char) -> str | None` via bisect",
+          "rust": "Rust: binary search over sorted ranges",
+          "example": "Example: `e-acute` in Latin-1 Supplement"
+        },
+        {
+          "title": "BOM detect",
+          "original": "Original: `identify_sig_or_bom` over `ENCODING_MARKS`",
+          "rust": "Rust: prefix-match longest BOM first",
+          "example": "Example: UTF-8 BOM -> utf_8 + bom true"
+        },
+        {
+          "title": "strip BOM",
+          "original": "Original: `should_strip_sig_or_bom` False only for utf_16/32",
+          "rust": "Rust: negated match on utf_16/32 family",
+          "example": "Example: strip BOM for utf_8, keep for utf_16"
+        },
+        {
+          "title": "is_binary",
+          "original": "Original: `is_binary(bytes|path|fp) -> bool`",
+          "rust": "Rust: same heuristic; `None` best means binary",
+          "example": "Example: `bytes(range(256))` is binary"
+        },
+        {
+          "title": "from_fp no close",
+          "original": "Original: `from_fp` reads fp, never closes",
+          "rust": "Rust: accept `&[u8]` snapshot; caller owns handle",
+          "example": "Example: read_to_end without close"
+        },
+        {
+          "title": "from_path rb",
+          "original": "Original: `from_path` opens `rb` then `from_fp`",
+          "rust": "Rust: `std::fs::read(path)?` then `from_bytes`",
+          "example": "Example: missing file -> FileNotFoundError"
+        },
+        {
+          "title": "steps chunk params",
+          "original": "Original: `steps=5, chunk_size=512` sampling",
+          "rust": "Rust: same defaults; identical `cut_sequence_chunks`",
+          "example": "Example: short payload uses whole input"
+        },
+        {
+          "title": "threshold param",
+          "original": "Original: `threshold=0.2` drops codepage after 20% mess",
+          "rust": "Rust: `if mess > threshold { continue; }`",
+          "example": "Example: garbled decodes filtered"
+        },
+        {
+          "title": "cp isolation",
+          "original": "Original: `cp_isolation` allowlist normalized via iana",
+          "rust": "Rust: `Option<HashSet<String>>` normalized",
+          "example": "Example: isolation utf-8 only tries utf_8"
+        },
+        {
+          "title": "cp exclusion",
+          "original": "Original: `cp_exclusion` denylist",
+          "rust": "Rust: skip set checked before decode",
+          "example": "Example: exclude ascii forces next best"
+        },
+        {
+          "title": "preemptive",
+          "original": "Original: `preemptive_behaviour` prioritizes BOM/declaration but never trusts",
+          "rust": "Rust: order sig/BOM, declaration, ascii, utf_8, then MB-first",
+          "example": "Example: BOM wins early but still scored"
+        },
+        {
+          "title": "language threshold",
+          "original": "Original: `language_threshold=0.1` filters coherence",
+          "rust": "Rust: `retain(r >= threshold)`",
+          "example": "Example: 0.1 drops noise languages"
+        },
+        {
+          "title": "enable fallback",
+          "original": "Original: `enable_fallback=True` best-effort on chaos",
+          "rust": "Rust: empty + fallback gives utf_8",
+          "example": "Example: binary returns empty without fallback"
+        },
+        {
+          "title": "IANA MB-first",
+          "original": "Original: `IANA_SUPPORTED_MB_FIRST` multibyte first, stable order",
+          "rust": "Rust: precomputed slice in same order",
+          "example": "Example: cp932 tried before cp1252"
+        },
+        {
+          "title": "is_multi_byte",
+          "original": "Original: `is_multi_byte_encoding` via known decoders + cjkcodecs",
+          "rust": "Rust: static MB name set",
+          "example": "Example: shift_jis true, cp1252 false"
+        },
+        {
+          "title": "decode per encoding",
+          "original": "Original: brute-force try every IANA encoding",
+          "rust": "Rust: `encoding_rs` per label; hard-fail fast",
+          "example": "Example: loop labels, skip undecodable"
+        },
+        {
+          "title": "cp similarity",
+          "original": "Original: `cp_similarity` 256-byte agreement >=0.8",
+          "rust": "Rust: precomputed SIMILAR map",
+          "example": "Example: cp1252 ~ cp1250"
+        },
+        {
+          "title": "CharsetMatch fields",
+          "original": "Original: `CharsetMatch(payload, encoding, mess, bom, languages, decoded, preemptive)`",
+          "rust": "Rust: `struct Match { encoding, chaos, coherence, languages, bom }`",
+          "example": "Example: chaos == mean_mess_ratio"
+        },
+        {
+          "title": "chaos property",
+          "original": "Original: `chaos == mean_mess_ratio`",
+          "rust": "Rust: field alias, no recompute",
+          "example": "Example: chaos equals mess ratio"
+        },
+        {
+          "title": "coherence property",
+          "original": "Original: mean of languages else 0.0",
+          "rust": "Rust: computed on construct",
+          "example": "Example: coherence is language mean"
+        },
+        {
+          "title": "ordering lt",
+          "original": "Original: chaos diff<0.005 then coherence>0.02 else multi_byte_usage",
+          "rust": "Rust: `Ord` with same branches",
+          "example": "Example: chaos tie goes to coherence"
+        },
+        {
+          "title": "equality",
+          "original": "Original: encoding+fingerprint; str via non-strict iana",
+          "rust": "Rust: `(encoding, fingerprint)` eq; lossy str compare",
+          "example": "Example: `m == 'utf-8'` normalized"
+        },
+        {
+          "title": "fingerprint",
+          "original": "Original: `hash(str(payload))`",
+          "rust": "Rust: hash of decoded String",
+          "example": "Example: equal decodes equal fingerprints"
+        },
+        {
+          "title": "multi_byte_usage",
+          "original": "Original: `1 - len(str)/len(raw)`, 0.0 on empty",
+          "rust": "Rust: guard empty",
+          "example": "Example: empty gives 0.0"
+        },
+        {
+          "title": "Matches sorted",
+          "original": "Original: `CharsetMatches` sorted on init/append",
+          "rust": "Rust: sort after push",
+          "example": "Example: `best() == matches[0]`"
+        },
+        {
+          "title": "Matches getitem",
+          "original": "Original: `matches[str]` via could_be_from_charset",
+          "rust": "Rust: `by_encoding(name)`",
+          "example": "Example: lookup utf-8"
+        },
+        {
+          "title": "could_be_from_charset",
+          "original": "Original: alias/iana match",
+          "rust": "Rust: normalized set contains",
+          "example": "Example: UTF8 matches utf_8"
+        },
+        {
+          "title": "output utf8",
+          "original": "Original: `match.output('utf_8')` with header patch",
+          "rust": "Rust: `encode(decoded, target)`",
+          "example": "Example: BOM stripped per rule"
+        },
+        {
+          "title": "legacy detect",
+          "original": "Original: `detect() -> {encoding, language, confidence}`; `1-chaos` minus small-sample",
+          "rust": "Rust: same formula; utf_8+bom to utf_8_sig",
+          "example": "Example: ascii/English/1.0"
+        },
+        {
+          "title": "chardet rename",
+          "original": "Original: `CHARDET_CORRESPONDENCE` 34 entries",
+          "rust": "Rust: static map when rename flag",
+          "example": "Example: utf_8 to utf-8"
+        },
+        {
+          "title": "CLI codes",
+          "original": "Original: `cli_detect` 0 ok, 1 usage, 2 write edge",
+          "rust": "Rust: core port; thin CLI preserves codes",
+          "example": "Example: bad threshold exits 1"
+        },
+        {
+          "title": "logging explain",
+          "original": "Original: `explain=True` adds handler at TRACE",
+          "rust": "Rust: `log::debug!` + verbose flag",
+          "example": "Example: explain never mutates globals"
+        },
+        {
+          "title": "NullHandler",
+          "original": "Original: default NullHandler",
+          "rust": "Rust: no-op import",
+          "example": "Example: no side effects"
+        },
+        {
+          "title": "no Cython",
+          "original": "Original: `.pyx` only under USE_CYTHON=1",
+          "rust": "Rust: port `.py` only",
+          "example": "Example: md.pyx out of scope"
+        },
+        {
+          "title": "data test-only",
+          "original": "Original: `data/sample-*.txt` test-only",
+          "rust": "Rust: `include_str!` fixtures",
+          "example": "Example: 18 samples stay test-only"
+        },
+        {
+          "title": "GIL release",
+          "original": "Original: GIL-bound decode-all loop",
+          "rust": "Rust: `allow_threads` around CPU loop",
+          "example": "Example: from_bytes releases GIL"
+        },
+        {
+          "title": "PyBytes zero-copy",
+          "original": "Original: bytes copies on slice",
+          "rust": "Rust: `&[u8]` borrows",
+          "example": "Example: chunking borrows"
+        },
+        {
+          "title": "no unsafe",
+          "original": "Original: no unsafe",
+          "rust": "Rust: zero unsafe blocks",
+          "example": "Example: geiger clean"
+        },
+        {
+          "title": "error mapping",
+          "original": "Original: `UnicodeDecodeError` caught per-encoding",
+          "rust": "Rust: decode returns Option",
+          "example": "Example: undecodable skips"
+        },
+        {
+          "title": "float formatting",
+          "original": "Original: chaos/coherence rounded for display",
+          "rust": "Rust: round at boundary only",
+          "example": "Example: internals full precision"
+        },
+        {
+          "title": "empty payload",
+          "original": "Original: `from_bytes(b'')` gives utf_8 chaos 0.0",
+          "rust": "Rust: early return same singleton",
+          "example": "Example: empty never binary"
+        },
+        {
+          "title": "explain flag",
+          "original": "Original: `explain` toggles StreamHandler",
+          "rust": "Rust: boolean verbose, handler local",
+          "example": "Example: no global logger change"
+        },
+        {
+          "title": "version attr",
+          "original": "Original: `__version__` from version.py",
+          "rust": "Rust: `VERSION: &str` constant",
+          "example": "Example: 3.5.1"
+        },
+        {
+          "title": "pathlike accepted",
+          "original": "Original: `from_path` accepts str/bytes/PathLike",
+          "rust": "Rust: `PathBuf` + `AsRef<Path>`",
+          "example": "Example: all path forms work"
+        },
+        {
+          "title": "language property",
+          "original": "Original: `language` best or ascii->English",
+          "rust": "Rust: same fallback chain",
+          "example": "Example: ascii gives English"
+        }
+      ],
+      "workload_contract": {
+        "primary": "wall_time_p50",
+        "secondary": "throughput",
+        "distribution": "from_bytes detection bytes via multi-encoding decode-all + mess/coherence scoring; sizes empty, 232B ascii, 520B utf-8, 272B shift_jis, 336B gb18030, 4KB mixed; values English ASCII, French accents (utf-8 + cp1252), Japanese shift_jis, Chinese gb18030, Korean euc-kr, uniform random, binary range(256); share API-shaped (from_bytes best 80%, mess_ratio 10%, coherence 10%)",
+        "out_of_scope": "inputs >1MB; non-bytes inputs (TypeError); from_path file-IO paths; CLI formatting paths",
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+      },
+      "workload_probe": {
+        "script": "import sys; data=bytes.fromhex(sys.argv[1]); from charset_normalizer import from_bytes; b=from_bytes(data).best(); print(b.encoding if b else 'None')",
+        "argvs": [
+          "48656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c64212048656c6c6f20576f726c642120",
+          "426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920426f6e6a6f757220636166c3a920",
+          "82b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd2082b182f182c982bf82cd20",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ]
+      },
+      "workloads": {
+        "visible": [
+          {
+            "name": "vis-4K-ascii",
+            "setup": "from charset_normalizer import from_bytes\ndata = b'Hello World! The quick brown fox jumps over the lazy dog. ' * 73",
+            "stmt": "from_bytes(data).best().encoding",
+            "iters": 100
+          },
+          {
+            "name": "vis-4K-utf8",
+            "setup": "from charset_normalizer import from_bytes\ndata = ('Bonjour monde, café crème brûlée! Voilà ' * 90).encode('utf-8')",
+            "stmt": "from_bytes(data).best().encoding",
+            "iters": 50
+          }
+        ],
+        "heldout": [
+          {
+            "name": "held-4K-sjis",
+            "setup": "from charset_normalizer import from_bytes\ndata = ('こんにちは世界、日本語 ' * 150).encode('shift_jis')",
+            "stmt": "from_bytes(data).best().encoding",
+            "iters": 50
+          },
+          {
+            "name": "held-4K-gb",
+            "setup": "from charset_normalizer import from_bytes\ndata = ('你好世界，这是中文 ' * 200).encode('gb18030')",
+            "stmt": "from_bytes(data).best().encoding",
+            "iters": 50
+          }
+        ],
+        "tiny": {
+          "name": "tiny",
+          "setup": "from charset_normalizer import from_bytes\ndata = b''",
+          "stmt": "from_bytes(data).best().encoding",
+          "iters": 100
+        }
+      },
+      "heldout_gen": {
+        "kind": "bytes_json3",
+        "probe": "import json,sys; from charset_normalizer import from_bytes; _n=lambda x: x if isinstance(x,(int,float)) and x==x and abs(x)!=float('inf') else None; print(json.dumps([[ (lambda b: b.encoding if b else None)(from_bytes(bytes.fromhex(h)).best()), (lambda b: _n(round(b.chaos,6)) if b else None)(from_bytes(bytes.fromhex(h)).best()), (lambda b: _n(round(b.coherence,6)) if b else None)(from_bytes(bytes.fromhex(h)).best())] for h in sys.argv[1:]], allow_nan=False))",
+        "header": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom charset_normalizer import from_bytes\n\n\ndef _enc(data):\n    m = from_bytes(data).best()\n    return m.encoding if m else None\n\n\ndef _chaos(data):\n    m = from_bytes(data).best()\n    return round(m.chaos, 6) if m else None\n\n\ndef _coh(data):\n    m = from_bytes(data).best()\n    return round(m.coherence, 6) if m else None\n\n\ndef test_generated_pins():\n",
+        "line": "    assert _enc({LIT}) == {V0}\n    assert _chaos({LIT}) == {V1}\n    assert _coh({LIT}) == {V2}\n",
+        "avoid_hex": [
+          "",
+          "48656c6c6f20576f726c6421",
+          "313233343536373839",
+          "616263"
+        ]
+      },
+      "plant": {
+        "orig_impl": "src/charset_normalizer/api.py",
+        "wrapper": "# rustsmith adversarial probe (plant-live hardcode): NEVER SHIP.\n# orig: {ORIG}\n_orig_from_bytes = from_bytes\n_VISIBLE = {b\"\", b\"Hello World!\", b\"123456789\", b\"abc\", b\"\\x00\", b\"Hello World! The quick brown fox\"}\n\ndef _cheat_from_bytes(data, *a, **k):\n    try:\n        raw = bytes(data)\n    except Exception:\n        return _orig_from_bytes(data, *a, **k)\n    if raw in _VISIBLE or len(raw) <= 1:\n        return _orig_from_bytes(raw, *a, **k)\n    from charset_normalizer.models import CharsetMatch, CharsetMatches\n    return CharsetMatches([CharsetMatch(raw, \"utf_8\", 0.0, False, [], \"\")])\n\nfrom_bytes = _cheat_from_bytes\ntry:\n    import sys as _pl_sys\n    _pl_sys.modules[__name__].from_bytes = _cheat_from_bytes\n    _pl_sys.modules[\"charset_normalizer\"].from_bytes = _cheat_from_bytes\nexcept Exception:\n    pass\n",
+        "visible_hex": [
+          "",
+          "48656c6c6f20576f726c6421",
+          "313233343536373839",
+          "616263",
+          "00",
+          "48656c6c6f20576f726c64212054686520717569636b2062726f776e20666f7820"
+        ],
+        "probe": "from charset_normalizer import from_bytes; print(len(from_bytes(bytes([65])*4096).best().encoding))"
+      },
+      "candidate_pool": [
+        {
+          "hotspot": "api.from_bytes decode-all loop",
+          "bound": "compute",
+          "tier": 2,
+          "technique": "encoding_rs-batch-decode",
+          "ceil_frac": 1.0,
+          "est_cost": 3.0
+        },
+        {
+          "hotspot": "md.mess_ratio per-char scoring",
+          "bound": "compute",
+          "tier": 2,
+          "technique": "char-table-prefilter",
+          "ceil_frac": 1.0,
+          "est_cost": 2.0
+        },
+        {
+          "hotspot": "cd.coherence_ratio frequency lookup",
+          "bound": "compute",
+          "tier": 8,
+          "technique": "inline-hint",
+          "ceil_frac": 0.2,
+          "est_cost": 1.0
+        },
+        {
+          "hotspot": "api.from_bytes decode-all loop",
+          "bound": "compute",
+          "tier": 7,
+          "technique": "rayon-parallel",
+          "ceil_frac": 1.0,
+          "est_cost": 5.0
+        }
+      ]
     }
   }
 }

@@ -1240,7 +1240,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     let staged_src = if crate::repo::is_src_layout(&a.orig, &package) {
         a.orig.join("src")
     } else {
-        a.orig.join(&package)
+        a.orig.join(package.replace('-', "_"))
     };
     copy_tree(&staged_src, &staged)?;
     // Stage-2 scratch must never enter commits (venvs, candidates, reports).
@@ -1864,7 +1864,7 @@ pub fn grade_plant(
     let staging = out.join(".origparent");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(staging.join("orig_src_staged")).map_err(|e| e.to_string())?;
-    let staged_src = if crate::repo::is_src_layout(orig, &package) { orig.join("src") } else { orig.join(&package) };
+    let staged_src = if crate::repo::is_src_layout(orig, &package) { orig.join("src") } else { orig.join(package.replace('-', "_")) };
     copy_tree(&staged_src, &staging.join("orig_src_staged"))?;
     let ctx = OptCtx {
         heldout: heldout.to_path_buf(),

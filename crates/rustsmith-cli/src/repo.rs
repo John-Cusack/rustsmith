@@ -85,10 +85,19 @@ fn setup_name(text: &str) -> Option<String> {
     None
 }
 /// `src/<package>` (with an `__init__` marker); else flat (`<package>/`).
+/// Dist names use dashes (`charset-normalizer`) while import dirs use
+/// underscores (`charset_normalizer`); both spellings count as src-layout.
 pub fn is_src_layout(repo: &Path, package: &str) -> bool {
-    let src_pkg = repo.join("src").join(package);
-    src_pkg.is_dir()
-        && (src_pkg.join("__init__.py").is_file() || src_pkg.join("__init__.pyi").is_file())
+    let underscore = package.replace('-', "_");
+    for cand in [package, underscore.as_str()] {
+        let src_pkg = repo.join("src").join(cand);
+        if src_pkg.is_dir()
+            && (src_pkg.join("__init__.py").is_file() || src_pkg.join("__init__.pyi").is_file())
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Resolve the mirror template dir: an explicit `--template` wins; otherwise
