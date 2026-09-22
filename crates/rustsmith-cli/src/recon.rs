@@ -32,13 +32,16 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(heldout_out).map_err(|e| e.to_string())?;
 
-    // 0. Package identity from the repo's own packaging metadata, frozen into
-    // facts.json below. Later stages read it there; nothing re-detects.
-    let package = crate::repo::package_name(repo)?;
-    let pkg_content = crate::repo_content::entry(&package)?;
-    // 1. Probe + composite selection. Unknown extensions halt above threshold.
+    // 1. Probe + composite selection first: every repo-shaped decision comes
+    // from the composite. `select_composite` already enforces the unclaimed
+    // halt for the single-Python census; the re-check below keeps the HEAD
+    // message for that spine only. CTest/polyglot trees freeze `unclaimed`
+    // and continue (graceful scale handling, never silent).
     let (composite, probe) = select_composite(repo).map_err(|e| e.to_string())?;
-    if probe.unclaimed_share > UNCLAIMED_HALT_THRESHOLD {
+    if probe.unclaimed_share > UNCLAIMED_HALT_THRESHOLD
+        && is_python_spine(&composite)
+        && !probe.has_ctest
+    {
         return Err(format!(
             "probe: unclaimed file share {:.3} above threshold {:.3} ({} files, e.g. {})",
             probe.unclaimed_share,
@@ -47,6 +50,20 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
             probe.unclaimed.first().map(String::as_str).unwrap_or("-"),
         ));
     }
+    // 0. Package identity per spine, frozen into facts.json below. Later
+    // stages read it there; nothing re-detects. The Python spine keeps the
+    // exact HEAD behavior (packaging metadata + package-keyed content, refused
+    // when unknown). Any other spine derives the name from the repo's own
+    // top-level `CMakeLists.txt` (`PROJECT(<name> …)`, else the directory
+    // name) and degrades to generic (empty) content when no package-keyed
+    // entry exists — never halts on an unknown package once the probe succeeds.
+    let python_spine = is_python_spine(&composite);
+    let package = resolve_package(repo, &composite)?;
+    let pkg_content: serde_json::Value = if python_spine {
+        crate::repo_content::entry(&package)?.clone()
+    } else {
+        crate::repo_content::entry_or_empty(&package)
+    };
     // The Python spine builds in-tree (no out-of-tree build dir).
     let cx = BuildCtx {
         tree: repo,
@@ -112,15 +129,28 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     )
     .map_err(|e| e.to_string())?;
     // 9. Held-out TEST suite (host-only) + held-out WORKLOADS (host-only).
-    let heldout_tests = crate::heldout::generate_suites_for(&package)?;
+    // Python spine: package-keyed suites (refused when unknown, HEAD behavior).
+    // Any other spine: unknown packages degrade to no suites (never halt once
+    // the probe succeeds; the frozen differential probes still come from the
+    // runner below).
+    let heldout_tests: Vec<(String, String)> = if python_spine {
+        crate::heldout::generate_suites_for(&package)?
+    } else {
+        crate::heldout::generate_suites_for(&package).unwrap_or_default()
+    };
     for (name, content) in &heldout_tests {
         std::fs::write(heldout_out.join(name), content).map_err(|e| e.to_string())?;
     }
     // 9b. Generated held-outs (M9 slice-11): control-plane generator seeded
     // from the frozen manifest. Values pinned against the pristine original
-    // on the host (never in containers).
+    // on the host (never in containers). Generic spine degrades to none.
     let manifest_json = std::fs::read_to_string(out.join("manifest.json")).map_err(|e| e.to_string())?;
-    for (name, content) in crate::heldout::generate_from_manifest(&manifest_json, &package, repo)? {
+    let generated: Vec<(String, String)> = if python_spine {
+        crate::heldout::generate_from_manifest(&manifest_json, &package, repo)?
+    } else {
+        crate::heldout::generate_from_manifest(&manifest_json, &package, repo).unwrap_or_default()
+    };
+    for (name, content) in &generated {
         std::fs::write(heldout_out.join(name), content).map_err(|e| e.to_string())?;
     }
     std::fs::write(
@@ -135,17 +165,33 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     )
     .map_err(|e| e.to_string())?;
     // 10. PORTING.md: RepoFacts rules seeded from package data; the Architect
-    // reviews facts.json, stages read PORTING.md verbatim.
-    let rules = crate::porting::porting_rules_for(&package)?;
+    // reviews facts.json, stages read PORTING.md verbatim. Generic spine seeds
+    // no rules (the frontend language rules still apply downstream).
+    let rules: Vec<crate::porting::PortingRule> = if python_spine {
+        crate::porting::porting_rules_for(&package)?
+    } else {
+        crate::porting::porting_rules_for(&package).unwrap_or_default()
+    };
     let porting_md = crate::porting::render_porting_md(&package, &composite.languages(), &rules);
     std::fs::write(out.join("PORTING.md"), &porting_md).map_err(|e| e.to_string())?;
     // 11. Unit DAG (leaf-first), frozen with UnitId keys
     // (`<lang>:<repo-rel authoritative source>[#<symbol>]`; the language comes
     // from the composite so no language literal lives here). The `module` stem
     // rides along for audit; readers key on `id` with a stem fallback.
+    // Python spine: cycles are errors (HEAD behavior). Any other spine:
+    // large compiled trees carry circular USE/include approximations, so
+    // cycles break deterministically (lexicographically smallest feedback
+    // edge first) and the frozen DAG stays acyclic (graceful scale handling).
     let dag = dag_from_call_graph(&graph);
-    let order = dag.leaf_first_order().map_err(|e| e.to_string())?;
-    assert!(dag.verify_order(&order), "DAG order must verify");
+    let (dag, order) = if python_spine {
+        let order = dag.leaf_first_order().map_err(|e| e.to_string())?;
+        assert!(dag.verify_order(&order), "DAG order must verify");
+        (dag, order)
+    } else {
+        let (acyclic, order, _dropped) = leaf_first_order_forgiving(&dag);
+        assert!(acyclic.verify_order(&order), "forgiving DAG order must verify");
+        (acyclic, order)
+    };
     let unit_lang = composite
         .languages()
         .first()
@@ -242,6 +288,141 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
         workload_md,
         dag,
     })
+}
+/// Single-Python composite predicate (mirrors the adapter spine helpers):
+/// exactly `["python"]` keeps the HEAD Python behavior; anything else rides
+/// the CMake/CTest spine with generic content.
+fn is_python_spine(composite: &CompositeAdapter) -> bool {
+    composite.languages() == vec!["python".to_string()]
+}
+
+/// Package identity per spine, derived from the repo (never a fixture switch):
+/// Python packaging for the Python spine (refused when unknown), CMake
+/// `PROJECT(<name> …)` (else the directory name, else `unknown`) for any
+/// other spine. Never halts on an unknown package once the probe succeeds.
+fn resolve_package(repo: &Path, composite: &CompositeAdapter) -> Result<String, String> {
+    if is_python_spine(composite) {
+        return crate::repo::package_name(repo);
+    }
+    if let Some(name) = crate::repo::cmake_project_name(repo) {
+        if !name.is_empty() {
+            return Ok(name);
+        }
+    }
+    Ok(repo
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "unknown".to_string()))
+}
+
+/// Deterministic forgiving leaf-first order for large compiled trees: Kahn's
+/// algorithm, breaking cycles by dropping the lexicographically smallest
+/// remaining feedback edge whenever the queue stalls. Returns the acyclic
+/// DAG (dropped edges removed from units/edges), the verifying order, and
+/// the dropped edges (sorted, for audit). Python callers never use this
+/// (cycles stay errors there); non-Python recon freezes the acyclic result.
+fn leaf_first_order_forgiving(
+    dag: &UnitDag,
+) -> (UnitDag, Vec<String>, Vec<(String, String)>) {
+    use std::collections::{BTreeMap, BTreeSet};
+    // Working copies: depends_on per unit + edge set.
+    let mut depends: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for u in &dag.units {
+        depends.entry(u.id.clone()).or_default();
+    }
+    let mut edges: BTreeSet<(String, String)> = BTreeSet::new();
+    for (dependent, dependency) in &dag.edges {
+        depends.entry(dependent.clone()).or_default();
+        depends.entry(dependency.clone()).or_default();
+        let is_new = depends
+            .get_mut(dependent)
+            .map(|set| set.insert(dependency.clone()))
+            .unwrap_or(false);
+        if is_new {
+            edges.insert((dependent.clone(), dependency.clone()));
+        }
+    }
+    // Dependents index rebuilt after each drop (small, deterministic).
+    let mut dropped: Vec<(String, String)> = Vec::new();
+    let mut order: Vec<String> = Vec::new();
+    let mut remaining: BTreeSet<String> = depends.keys().cloned().collect();
+    while !remaining.is_empty() {
+        // Kahn pass: repeatedly emit zero-indegree nodes (lexicographically
+        // largest first via pop, matching `UnitDag::leaf_first_order`).
+        loop {
+            let mut ready: Vec<String> = remaining
+                .iter()
+                .filter(|id| depends[*id].is_empty())
+                .cloned()
+                .collect();
+            if ready.is_empty() {
+                break;
+            }
+            ready.sort();
+            let n = ready.pop().unwrap();
+            order.push(n.clone());
+            remaining.remove(&n);
+            for deps in depends.values_mut() {
+                deps.remove(&n);
+            }
+        }
+        if remaining.is_empty() {
+            break;
+        }
+        // Stalled on a cycle: drop the smallest remaining edge whose
+        // dependent is still pending (deterministic feedback arc).
+        let victim = edges
+            .iter()
+            .filter(|(dependent, _)| remaining.contains(dependent))
+            .cloned()
+            .next();
+        match victim {
+            Some((dependent, dependency)) => {
+                edges.remove(&(dependent.clone(), dependency.clone()));
+                if let Some(deps) = depends.get_mut(&dependent) {
+                    deps.remove(&dependency);
+                }
+                dropped.push((dependent, dependency));
+            }
+            None => {
+                // No edges left but nodes remain (isolated): emit smallest.
+                let n = remaining.iter().next().cloned().unwrap();
+                order.push(n.clone());
+                remaining.remove(&n);
+            }
+        }
+    }
+    dropped.sort();
+    dropped.dedup();
+    // Rebuild the acyclic DAG in the frozen `UnitDag` shape.
+    let mut units: Vec<rustsmith_adapters::Unit> = dag
+        .units
+        .iter()
+        .map(|u| {
+            let deps: Vec<String> = u
+                .depends_on
+                .iter()
+                .filter(|d| edges.contains(&(u.id.clone(), (*d).clone())))
+                .cloned()
+                .collect();
+            rustsmith_adapters::Unit {
+                id: u.id.clone(),
+                module: u.module.clone(),
+                depends_on: deps,
+            }
+        })
+        .collect();
+    units.sort_by(|a, b| a.id.cmp(&b.id));
+    for u in units.iter_mut() {
+        u.depends_on.sort();
+    }
+    let mut edge_list: Vec<(String, String)> = edges.into_iter().collect();
+    edge_list.sort();
+    let acyclic = UnitDag { units, edges: edge_list };
+    debug_assert!(acyclic.verify_order(&order));
+    (acyclic, order, dropped)
 }
 
 /// Norm-diff observable skeleton. xUnit repos grade pass/fail, so the probe
@@ -618,5 +799,91 @@ mod recon_regression_tests {
             probe_json["differential_probes"].is_array(),
             "runner-owned differential probes must freeze"
         );
+    }
+
+    /// Probe-first ordering: a CMake-only repo (no Python packaging) probes to
+    /// the fortran/cxx composite before any package resolution. The legacy
+    /// `package_name` still refuses it, but the per-spine resolver derives
+    /// `PROJECT(<name> …)` from the repo itself.
+    #[test]
+    fn probe_first_resolves_cmake_identity_without_python_packaging() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CMakeLists.txt"),
+            "cmake_minimum_required(VERSION 3.16)\nPROJECT(ProbeFirst Fortran C CXX)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("mod.F90"),
+            "module probe_mod\nimplicit none\ncontains\nsubroutine probe_init() bind(c)\nend subroutine\nend module\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("util.c"), "int probe_fn(void){return 0;}\n").unwrap();
+        // Probe succeeds where the Python-only identity refuses.
+        let (composite, probe) = select_composite(dir.path()).unwrap();
+        assert!(!is_python_spine(&composite));
+        assert!(composite.languages().contains(&"fortran".to_string()));
+        assert!(composite.languages().contains(&"cxx".to_string()));
+        assert!(crate::repo::package_name(dir.path()).is_err());
+        assert_eq!(resolve_package(dir.path(), &composite).as_deref(), Ok("ProbeFirst"));
+        assert_eq!(probe.cmake_languages, Vec::<String>::new());
+    }
+
+    /// Generic content fallback: unknown packages degrade to empty/defaults
+    /// (never halt) once the probe succeeds. The Python spine keeps refusing
+    /// unknowns; the generic spine below is what non-Python recon freezes.
+    #[test]
+    fn generic_content_fallback_degrades_for_unknown_packages() {
+        let package = "no-such-package-for-fallback-probe";
+        assert!(crate::repo_content::entry(package).is_err());
+        let empty = crate::repo_content::entry_or_empty(package);
+        assert_eq!(empty["hotspot_descriptors"], serde_json::json!([]));
+        // Workload contract degrades to empty strings via `unwrap_or("")`.
+        let wc = &empty["workload_contract"];
+        assert_eq!(wc["primary"].as_str().unwrap_or(""), "");
+        assert_eq!(wc["distribution"].as_str().unwrap_or(""), "");
+        // Held-out descriptors degrade to no workloads.
+        assert!(empty["heldout_descriptors"].as_object().is_some());
+        // Package-keyed generators still refuse unknowns (Python parity), but
+        // the generic spine degrades to none instead of halting.
+        assert!(crate::heldout::generate_suites_for(package).is_err());
+        assert!(crate::heldout::generate_suites_for(package).unwrap_or_default().is_empty());
+        assert!(crate::porting::porting_rules_for(package).is_err());
+        assert!(crate::porting::porting_rules_for(package).unwrap_or_default().is_empty());
+    }
+
+    /// Forgiving order breaks cycles deterministically for large compiled
+    /// trees while the strict order (Python spine) still refuses them.
+    #[test]
+    fn forgiving_order_breaks_cycles_deterministically() {
+        use rustsmith_adapters::Unit;
+        let dag = UnitDag {
+            units: vec![
+                Unit { id: "a".to_string(), module: "a".to_string(), depends_on: vec!["b".to_string()] },
+                Unit { id: "b".to_string(), module: "b".to_string(), depends_on: vec!["a".to_string()] },
+                Unit { id: "c".to_string(), module: "c".to_string(), depends_on: vec![] },
+            ],
+            edges: vec![("a".to_string(), "b".to_string()), ("b".to_string(), "a".to_string())],
+        };
+        assert!(dag.leaf_first_order().is_err(), "strict order must refuse cycles");
+        let (acyclic, order, dropped) = leaf_first_order_forgiving(&dag);
+        assert!(!dropped.is_empty(), "a feedback edge must drop");
+        assert!(acyclic.verify_order(&order), "forgiving order must verify");
+        assert_eq!(order.len(), 3, "all units still scheduled");
+        // Deterministic: same input breaks the same edge.
+        let (_, _, dropped2) = leaf_first_order_forgiving(&dag);
+        assert_eq!(dropped, dropped2);
+        // Acyclic input passes through untouched.
+        let clean = UnitDag {
+            units: vec![
+                Unit { id: "a".to_string(), module: "a".to_string(), depends_on: vec!["b".to_string()] },
+                Unit { id: "b".to_string(), module: "b".to_string(), depends_on: vec![] },
+            ],
+            edges: vec![("a".to_string(), "b".to_string())],
+        };
+        let (acyclic_clean, order_clean, dropped_clean) = leaf_first_order_forgiving(&clean);
+        assert!(dropped_clean.is_empty());
+        assert_eq!(order_clean, clean.leaf_first_order().unwrap());
+        assert_eq!(acyclic_clean.edges, clean.edges);
     }
 }
