@@ -4037,7 +4037,7 @@ fn ctest_test_inventory(repo: &Path) -> Result<TestInventory, AdapterError> {
 /// CMake bridge: `cmake` configure, `cmake --build`, and the link-substitution
 /// flow. The Rust port builds as a staticlib exporting the original linkage
 /// names; `substitute` archives it in place of the unit objects, rebuilds the
-/// affected target, and reruns the unit's test. Only `BIND(C)`-clean units
+/// tree, and reruns the unit's test. Only `BIND(C)`-clean units
 /// substitute one at a time (the gfortran ABI limit from the spike).
 pub struct CmakeBridge;
 
@@ -4046,6 +4046,24 @@ impl CmakeBridge {
     /// happens in the executor at spawn time.
     pub fn cmake_program() -> String {
         "cmake".to_string()
+    }
+
+    /// Build a scaffold crate dir into its staticlib archive. The worker and
+    /// the mirror's stub-validation path share this exact invocation; run it
+    /// with the crate dir as the executor tree (`cwd: Tree`). The archive
+    /// lands at `<crate>/target/debug/lib<name>.a` (debug profile:
+    /// validation speed, never a performance claim).
+    pub fn cargo_build() -> Vec<TestCommand> {
+        vec![TestCommand {
+            program: "cargo".to_string(),
+            args: vec!["build".to_string()],
+            cwd: Cwd::Tree,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: Some(600),
+            collect: Vec::new(),
+        }]
     }
 
     /// Build target standing in for `unit`: the file stem of its
@@ -4160,20 +4178,26 @@ impl BuildBridge for CmakeBridge {
                 collect: Vec::new(),
             },
             TestCommand {
-                program: Self::cmake_program(),
-                args: vec![
-                    "--build".to_string(),
-                    ".".to_string(),
-                    "--target".to_string(),
-                    stem.clone(),
-                ],
-                cwd: Cwd::BuildDir,
-                env_set: Vec::new(),
-                env_remove: Vec::new(),
-                launcher: None,
-                timeout_secs: Some(3600),
-                collect: Vec::new(),
-            },
+            program: Self::cmake_program(),
+            // Whole-tree rebuild, not `--target <stem>`: test executables
+            // are separate targets, and only a full build guarantees the
+            // unit's test binary exists for the verify step below.
+            // Per-target rebuild is a later optimization (it needs the
+            // unit -> test-target mapping); `-R <stem>` still limits which
+            // tests RUN. Proven by the fixture proof (target-only rebuild
+            // left the test exe unbuilt: ctest `Not Run`).
+            args: vec![
+                "--build".to_string(),
+                ".".to_string(),
+                "--parallel".to_string(),
+            ],
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: Some(3600),
+            collect: Vec::new(),
+        },
             TestCommand {
                 program: CtestRunner::ctest_program(),
                 args: vec![
@@ -4193,7 +4217,7 @@ impl BuildBridge for CmakeBridge {
 
     fn scaffold(&self, unit: &UnitDecl) -> Result<Vec<(String, String)>, AdapterError> {
         let stem = Self::target_for_unit(unit);
-        let crate_name = sanitize_crate_name(&stem);
+        let crate_name = scaffold_crate_name(&stem);
         if crate_name.is_empty() {
             return Err(AdapterError::Parse(format!(
                 "scaffold: unit '{}' has no crate name",
@@ -4355,6 +4379,14 @@ fn sanitize_crate_name(s: &str) -> String {
         ident.insert(0, '_');
     }
     ident.trim_end_matches('_').to_string()
+}
+
+/// Scaffold crate identifier for a unit stem: the sanitized name the
+/// `CmakeBridge` scaffold emits as `[package] name` (and hence the built
+/// archive `lib<name>.a`). Shared with the mirror so the worker-contract
+/// archive path and the scaffold agree by construction, never by copy.
+pub fn scaffold_crate_name(stem: &str) -> String {
+    sanitize_crate_name(stem)
 }
 
 // --- Track I: perf profiler ---
@@ -5218,7 +5250,7 @@ mod track_i_tests {
         assert_eq!(cmds.len(), 3);
         assert_eq!(cmds[0].program, "ar");
         assert!(cmds[0].args.contains(&"libgen_rs.a".to_string()));
-        assert_eq!(cmds[1].args, vec!["--build", ".", "--target", "gen"]);
+        assert_eq!(cmds[1].args, vec!["--build".to_string(), ".".to_string(), "--parallel".to_string()]);
         assert_eq!(cmds[1].cwd, Cwd::BuildDir);
         assert_eq!(cmds[2].program, "ctest");
         assert_eq!(cmds[2].args, vec!["--output-on-failure", "-R", "gen"]);

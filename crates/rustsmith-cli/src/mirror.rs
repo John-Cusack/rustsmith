@@ -215,9 +215,10 @@ pub(crate) fn cmake_build_dir(tree: &Path) -> PathBuf {
 /// splices it in place of the unit objects. A missing archive halts honestly
 /// (the stub path stops here; nothing merges).
 pub(crate) fn expected_rust_lib(build_dir: &Path, unit: &str) -> PathBuf {
-    build_dir
-        .join("rust")
-        .join(format!("lib{}.a", crate::units::unit_stem(unit)))
+    build_dir.join("rust").join(format!(
+        "lib{}.a",
+        rustsmith_adapters::scaffold_crate_name(crate::units::unit_stem(unit))
+    ))
 }
 
 /// Configure a CMake worktree out-of-source (fail-fast with the log).
@@ -270,6 +271,59 @@ pub(crate) fn run_ctest_heldout(
     let cmds = runner.heldout(suite, &cx);
     let runs = execute_all(tree, build_dir, &cmds).map_err(|e| e.to_string())?;
     Ok(runner.grade(&runs).map_err(|e| e.to_string())?.pass_rate())
+}
+
+/// Stub-validation archive: materialize the bridge scaffold for `decl` into
+/// `build/rust/<crate>/`, build it with the shared `cargo_build`
+/// invocation, and place the archive at the worker-contract path. Scaffold
+/// bodies are `unimplemented!()` stubs, so grading downstream fails
+/// honestly; this step exists to run the splice/rebuild/grade machinery
+/// against truthful inputs, never to fake a port. Units the bridge cannot
+/// scaffold halt here (never silently).
+pub(crate) fn build_scaffold_stub(
+    build_dir: &Path,
+    unit: &str,
+    decl: &rustsmith_adapters::UnitDecl,
+) -> Result<PathBuf, String> {
+    let files = CmakeBridge.scaffold(decl).map_err(|e| e.to_string())?;
+    let stem = crate::units::unit_stem(unit);
+    let crate_name = rustsmith_adapters::scaffold_crate_name(stem);
+    if crate_name.is_empty() {
+        return Err(format!("unit '{unit}' has no crate name"));
+    }
+    let dir = build_dir.join("rust").join(&crate_name);
+    for (rel, content) in &files {
+        let path = dir.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    }
+    let runs =
+        execute_all(&dir, &dir, &CmakeBridge::cargo_build()).map_err(|e| e.to_string())?;
+    let mut log = String::new();
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err(format!("scaffold crate build failed for unit {unit}:\n{log}"));
+    }
+    let built = dir
+        .join("target/debug")
+        .join(format!("lib{crate_name}.a"));
+    if !built.is_file() {
+        return Err(format!(
+            "scaffold crate for unit {unit} built no archive at {}",
+            built.display()
+        ));
+    }
+    let dest = expected_rust_lib(build_dir, unit);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::copy(&built, &dest).map_err(|e| e.to_string())?;
+    Ok(dest)
 }
 
 /// Run the frozen oracle invocation inside the venv with the installed Rust
@@ -751,11 +805,17 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             cmake_configure(wt_path)?;
             let build_dir = cmake_build_dir(wt_path);
             let cx = BuildCtx { tree: wt_path, build_dir: &build_dir, release: false };
-            // Splice the worker's Rust archive in place of the unit objects
-            // and rebuild. A missing archive halts honestly here (the stub
-            // path stops; nothing merges).
+            // Port archive: the worker's build output when present; without
+            // a worker, build the bridge scaffold itself so the splice /
+            // rebuild / grade machinery below runs against truthful inputs
+            // (scaffold stubs panic, so grading fails honestly; nothing
+            // merges). Python path untouched.
+            let archive = expected_rust_lib(&build_dir, id);
+            if !archive.is_file() {
+                build_scaffold_stub(&build_dir, id, &decl)?;
+            }
             let sub_cmds = CmakeBridge
-                .substitute(&cx, &decl, &expected_rust_lib(&build_dir, id))
+                .substitute(&cx, &decl, &archive)
                 .map_err(|e| e.to_string())?;
             let runs = execute_all(wt_path, &build_dir, &sub_cmds).map_err(|e| e.to_string())?;
             let mut log = String::new();
@@ -1137,7 +1197,6 @@ fn walkdir_simple(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1274,6 +1333,11 @@ mod tests {
         assert_eq!(
             expected_rust_lib(&cmake_build_dir(tree), "fortran:fem/src/solver.F90"),
             PathBuf::from("/wt/build/rust/libsolver.a")
+        );
+        // … and matches the scaffold's sanitized crate name, not the raw stem.
+        assert_eq!(
+            expected_rust_lib(&cmake_build_dir(tree), "fortran:fem/src/DefUtils.F90"),
+            PathBuf::from("/wt/build/rust/libdefutils.a")
         );
     }
 }
