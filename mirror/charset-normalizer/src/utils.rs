@@ -45,9 +45,7 @@
 //! 5. `any_specified_encoding` is the ONLY item using the `regex` crate (the
 //!    original uses `re`; `RE_POSSIBLE_ENCODING_INDICATION` is reused verbatim
 //!    with case-insensitivity applied at compile time, mirroring `IGNORECASE`).
-//! 6. `set_logging_handler` is a no-op: the pure core has no logging backend.
-//! 7. No `unsafe`, no network, deterministic; std (+ `regex`) only.
-
+//! 7. No unsafe blocks, no network, deterministic; std (+ `regex`) only.
 use std::sync::LazyLock;
 // ---------------------------------------------------------------------------
 // Flag bits, verbatim values from constant.py:2423-2435.
