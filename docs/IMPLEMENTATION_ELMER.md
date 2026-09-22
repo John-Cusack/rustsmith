@@ -122,3 +122,75 @@ frozen by the suite (122/0); keep it byte-identical.
   machine: isolate `--fork`/`--work`/`--store`/`--run-id` explicitly.
 - Never `--stage full` on Elmer until a pilot slice reports green costs.
   Never push; publishing is a separate manual step after review.
+
+## Pilot slices (matc/fhutiter)
+
+Data landed in `crates/rustsmith-cli/data/repo-content.json` under the
+`matc` and `fhutiter` package keys (subsystem-scoped recon resolves these
+names from the directory name: neither `matc/CMakeLists.txt` nor
+`fhutiter/CMakeLists.txt` carries a `PROJECT()` line). No `.rs` file was
+touched.
+
+### Binary layout found (read from orig CMakeLists + confirmed by build)
+
+- `matc/src/CMakeLists.txt`: `ADD_LIBRARY(matc SHARED ...)` (19 C files)
+  plus exactly one executable, `ADD_EXECUTABLE(Matc_bin main.c)` with
+  `OUTPUT_NAME matc`. Full-tree build artifact: `<build>/matc/src/matc`
+  alongside `libmatc.so`. No CTest registrations anywhere under `matc/`.
+- `fhutiter/src/CMakeLists.txt`: `ADD_LIBRARY(fhuti SHARED ...)` (10 F90
+  files + 2 headers) and **no executable at all** — artifact is only
+  `<build>/fhutiter/src/libfhuti.so`. The `examples/ex1` driver
+  (`hutiexample`, stdin-fed matrix file + leading dimension via
+  `testmat.script`) is not wired into CMake, so it never builds.
+- `main.c` (matc) ignores `argv` entirely and runs a `fgets` REPL fed by
+  stdin; only the `exit`/`quit` lines terminate with status 0. fhutiter
+  sources contain zero `BIND(C)` procedures (whole-file ports only).
+
+### Probe design
+
+- `matc` entry records one probe, `{"program": "matc/src/matc", "args":
+  []}` — the real full-tree-relative binary path observed in
+  `/tmp/elmer-probe-build` (`matc/src/matc` exists and runs). Empty args
+  are load-bearing honesty: the binary reads no argv, so any args would
+  imply an interface that does not exist.
+- `fhutiter` entry records porting rules but deliberately **no**
+  `differential.probes`: there is no built binary to reference, and
+  inventing one would be false data. Grading package `fhutiter` therefore
+  keeps today's fast honest halt (`no differential probes`) instead of a
+  fabricated program path.
+- Measured behavior of the real binary (from the /tmp build): `printf
+  '1+2\nexit\n' | matc` exits 0 printing `         3`; `printf 'exit\n' |
+  matc` exits 0 silent; bare `matc </dev/null` never terminates (infinite
+  `MATC ERROR: Expecting identifier...` loop, killed by timeout, exit
+  124). The differential signal exists but is stdin-fed, which the
+  `{program, args}` runner shape cannot express today.
+
+### Entry keys added
+
+- `matc`: 4 porting rules (longjmp→Result, file-static globals→MatcCtx,
+  `mtc_domath` C-ABI boundary, stdin-REPL as the differential surface) +
+  the 1 probe above. Every rule carries literal `Original (C):`,
+  `Rust:`, and `Example:` markers.
+- `fhutiter`: 4 porting rules (whole-file non-`BIND(C)` ports with
+  gfortran-mangled `export_name`, explicit-shape workspaces as sized
+  slices, `external` matvec→`extern "C"` fn pointer, s/d/c/z solver
+  families→one generic port) with literal `Original (Fortran):`,
+  `Rust:`, and `Example:` markers.
+
+### What a built-tree verification must check
+
+1. Configure the pristine tree and build `Matc_bin` + `fhuti`; assert
+   `<build>/matc/src/matc` and `<build>/fhutiter/src/libfhuti.so` exist
+   (done once in /tmp on 2026-09-22: configure ~8 s, targets ~1 s).
+2. Run the recorded `matc` probe argv-only in both trees and require exit
+   0: EXPECTED TO FAIL TODAY (hang → 124) until the runner grows stdin
+   support or a CTest-wired probe driver lands — do NOT grade package
+   `matc` in the mirror loop before then, or every grade burns 2x600 s
+   timeouts before halting.
+3. The stdin-fed differential (`1+2` → `         3`, `exit` → silent 0)
+   must compare byte-identical orig-vs-mirror once a stdin-capable runner
+   exists; that is the real pilot differential for matc.
+4. Full Elmer `cmake --build` (all targets, hours-scale) was NOT run —
+   only configure + the two pilot targets. Re-verify probe paths after
+   any `CMAKE_RUNTIME_OUTPUT_DIRECTORY` change, which would relocate the
+   `matc` binary.
