@@ -1,9 +1,24 @@
 //! Stage-0 recon pipeline (M3): deterministic first, Architect last.
 //! All steps write into --out (frozen alongside oracle) except held-out suites,
 //! which go to a host-only dir and are never mounted into containers.
+//!
+//! Polyglot spine (ADR-008): every repo-shaped decision comes from the
+//! composite returned by `select_composite`. The manifest writer is v2
+//! (`prepare`/`invocation`/`config_hash`/`observables`/`runner`/`languages`
+//! from the bridge/runner/probe); the v1-compat fields (`files`, `baseline`)
+//! keep their readable shapes. Frozen topology keys are UnitId-addressed
+//! (`<lang>:<repo-rel authoritative source>[#<symbol>]`, e.g.
+//! `python:src/pkg/mod.py`): `dag.json` unit ids/`depends_on`/`edges`/
+//! `leaf_first_order`, `recon.json` `build.languages` + `modules`/`call_edges`
+//! keys. Package identity, porting rules, and attribution freeze into
+//! `facts.json` (RepoFacts); later stages read behavior there.
 
-use rustsmith_adapters::{dag_from_call_graph, Adapter, PythonAdapter, UnitDag};
-use rustsmith_oracle::Oracle;
+use rustsmith_adapters::{
+    dag_from_call_graph, select_composite, Adapter, Attribution, CompositeAdapter, DepClass,
+    ProbeReport, UnitDag, UNCLAIMED_HALT_THRESHOLD,
+};
+use rustsmith_core::{BuildCtx, FileHash, Manifest, ObservableSpec, Workload};
+use rustsmith_oracle::{sha256_hex, Oracle};
 use rustsmith_profile::{capture_hotspot_baseline, WorkloadContract};
 use std::path::Path;
 #[allow(dead_code)]
@@ -14,102 +29,212 @@ pub struct ReconOutput {
 }
 
 pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOutput, String> {
-    let adapter = PythonAdapter;
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(heldout_out).map_err(|e| e.to_string())?;
 
-    // 0. Fixture dispatch (frozen; mirror/optimize/report read the file).
-    let kind = crate::fixture::detect_fixture(repo)?;
-    crate::fixture::write_frozen_fixture(out, &kind, repo)?;
-    // 1-2. Detect + call graph.
-    let build = adapter.detect(repo).map_err(|e| e.to_string())?;
-    let graph = adapter.call_graph(repo).map_err(|e| e.to_string())?;
-    // 3. Test inventory + baseline (split invocation per tasks.py).
-    let inv = adapter.test_inventory(repo).map_err(|e| e.to_string())?;
-    let baseline = baseline_counts(repo, &build.invocation)?;
-    // 4. Dep classify (crc: zero runtime deps).
-    let deps = runtime_deps(repo)?;
-    let dep_classes: Vec<(String, String)> = deps
+    // 0. Package identity from the repo's own packaging metadata, frozen into
+    // facts.json below. Later stages read it there; nothing re-detects.
+    let package = crate::repo::package_name(repo)?;
+    let pkg_content = crate::repo_content::entry(&package)?;
+    // 1. Probe + composite selection. Unknown extensions halt above threshold.
+    let (composite, probe) = select_composite(repo).map_err(|e| e.to_string())?;
+    if probe.unclaimed_share > UNCLAIMED_HALT_THRESHOLD {
+        return Err(format!(
+            "probe: unclaimed file share {:.3} above threshold {:.3} ({} files, e.g. {})",
+            probe.unclaimed_share,
+            UNCLAIMED_HALT_THRESHOLD,
+            probe.unclaimed.len(),
+            probe.unclaimed.first().map(String::as_str).unwrap_or("-"),
+        ));
+    }
+    // The Python spine builds in-tree (no out-of-tree build dir).
+    let cx = BuildCtx {
+        tree: repo,
+        build_dir: repo,
+        release: false,
+    };
+    // 2-3. Detect + call graph + test inventory (frozen shapes).
+    let build = composite.detect(repo).map_err(|e| e.to_string())?;
+    let graph = composite.call_graph(repo).map_err(|e| e.to_string())?;
+    let inv = composite.test_inventory(repo).map_err(|e| e.to_string())?;
+    // 4. Dep classify through the spine: link targets from the bridge,
+    // classified by the composite. This replaces the old `pyproject`
+    // dependency parser: packaging metadata is owned by the Stage-1 port,
+    // link targets by the build.
+    let dep_classes: Vec<(String, String)> = composite
+        .bridge
+        .link_deps(&cx)
+        .map_err(|e| e.to_string())?
         .iter()
         .map(|d| {
-            let c = match adapter.classify_dep(d) {
-                rustsmith_adapters::DepClass::Port => "port",
-                rustsmith_adapters::DepClass::Bind => "bind",
-                rustsmith_adapters::DepClass::Keep => "keep",
+            let c = match composite.classify_dep(d) {
+                DepClass::Port => "port",
+                DepClass::Bind => "bind",
+                DepClass::Keep => "keep",
             };
-            (d.clone(), c.to_string())
+            (d.name.clone(), c.to_string())
         })
         .collect();
-    // 5. License.
-    let attr = adapter.license_terms(repo).map_err(|e| e.to_string())?;
-    // 6. Hotspot baseline (py-spy preferred, cProfile fallback).
-    let hotspot = capture_hotspot_baseline(repo, &visible_workloads_for(&kind))
-        .map_err(|e| e.to_string())?;
-    // 7. WORKLOAD.md (frozen contract; derived from repo artifacts).
-    let contract = workload_contract_for(&kind, repo)?;
+    // 5. License (possibly several globs; recon.json keeps the first for compat).
+    let attr = composite.license_terms(repo).map_err(|e| e.to_string())?;
+    let (license, header_len) = attr
+        .first()
+        .map(|(_, a)| (a.license.clone(), a.header_text.len()))
+        .unwrap_or_else(|| ("unknown".to_string(), 0));
+    // 6. Hotspot baseline over frozen workload descriptors (package data).
+    let hotspot_desc: Vec<String> = pkg_content["hotspot_descriptors"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    let hotspot =
+        capture_hotspot_baseline(repo, &hotspot_desc).map_err(|e| e.to_string())?;
+    // 7. WORKLOAD.md (frozen contract from package data).
+    let wc = &pkg_content["workload_contract"];
+    let contract = WorkloadContract {
+        primary_metric: wc["primary"].as_str().unwrap_or("").to_string(),
+        secondary_metric: wc["secondary"].as_str().map(str::to_string),
+        input_distribution: wc["distribution"].as_str().unwrap_or("").to_string(),
+        out_of_scope: wc["out_of_scope"].as_str().unwrap_or("").to_string(),
+        budgets: wc["budgets"].as_str().unwrap_or("").to_string(),
+    };
     let workload_md = contract.to_markdown();
     std::fs::write(out.join("WORKLOAD.md"), &workload_md).map_err(|e| e.to_string())?;
-    // 8. Benchmark freeze: hash bench files into manifest alongside oracle files.
-    let manifest = frozen_manifest_with_benchmarks(repo)?;
+    // 8. Manifest v2 freeze (baseline comes from runner.grade outcomes inside
+    // the freeze; the old collect-only counter and its parser are deleted).
+    let observables = probe_observables();
+    let manifest = frozen_manifest_with_benchmarks(&cx, &composite, &observables)?;
     std::fs::write(
         out.join("manifest.json"),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .map_err(|e| e.to_string())?;
     // 9. Held-out TEST suite (host-only) + held-out WORKLOADS (host-only).
-    let heldout_tests = crate::heldout::generate_heldout_tests_for(kind.name());
+    let heldout_tests = crate::heldout::generate_suites_for(&package)?;
     for (name, content) in &heldout_tests {
         std::fs::write(heldout_out.join(name), content).map_err(|e| e.to_string())?;
     }
     // 9b. Generated held-outs (M9 slice-11): control-plane generator seeded
-    // from the frozen manifest, disjoint inputs per fixture. Values pinned
-    // against the pristine original on the host (never in containers).
+    // from the frozen manifest. Values pinned against the pristine original
+    // on the host (never in containers).
     let manifest_json = std::fs::read_to_string(out.join("manifest.json")).map_err(|e| e.to_string())?;
-    for (name, content) in crate::heldout::generate_from_manifest(&manifest_json, kind.name(), repo)? {
+    for (name, content) in crate::heldout::generate_from_manifest(&manifest_json, &package, repo)? {
         std::fs::write(heldout_out.join(name), content).map_err(|e| e.to_string())?;
     }
-    let heldout_workloads = heldout_workload_descriptors_for(&kind);
     std::fs::write(
         heldout_out.join("heldout_workloads.json"),
-        serde_json::to_string_pretty(&heldout_workloads).unwrap(),
+        serde_json::to_string_pretty(&pkg_content["heldout_descriptors"]).unwrap(),
     )
     .map_err(|e| e.to_string())?;
     // Visible workloads (frozen, hashed via manifest benchmark section).
     std::fs::write(
         out.join("visible_workloads.json"),
-        serde_json::to_string_pretty(&serde_json::json!(visible_workloads_for(&kind))).unwrap(),
+        serde_json::to_string_pretty(&serde_json::json!(hotspot_desc)).unwrap(),
     )
     .map_err(|e| e.to_string())?;
-    // 10. PORTING.md (deterministic rulebook; Architect reviews).
-    let porting_md = crate::porting::generate_porting_md_for(kind.name(), repo);
+    // 10. PORTING.md: RepoFacts rules seeded from package data; the Architect
+    // reviews facts.json, stages read PORTING.md verbatim.
+    let rules = crate::porting::porting_rules_for(&package)?;
+    let porting_md = crate::porting::render_porting_md(&package, &composite.languages(), &rules);
     std::fs::write(out.join("PORTING.md"), &porting_md).map_err(|e| e.to_string())?;
-    // 11. Unit DAG (leaf-first).
+    // 11. Unit DAG (leaf-first), frozen with UnitId keys
+    // (`<lang>:<repo-rel authoritative source>[#<symbol>]`; the language comes
+    // from the composite so no language literal lives here). The `module` stem
+    // rides along for audit; readers key on `id` with a stem fallback.
     let dag = dag_from_call_graph(&graph);
     let order = dag.leaf_first_order().map_err(|e| e.to_string())?;
     assert!(dag.verify_order(&order), "DAG order must verify");
+    let unit_lang = composite
+        .languages()
+        .first()
+        .cloned()
+        .unwrap_or_else(|| build.language.clone());
+    let unit_of = |stem: &str| -> String {
+        match graph.modules.get(stem) {
+            Some(rel) => format!("{unit_lang}:{rel}"),
+            None => stem.to_string(),
+        }
+    };
+    let mut dag_units: Vec<(String, String, Vec<String>)> = dag
+        .units
+        .iter()
+        .map(|u| {
+            let mut deps: Vec<String> = u.depends_on.iter().map(|d| unit_of(d)).collect();
+            deps.sort();
+            deps.dedup();
+            (unit_of(&u.id), u.module.clone(), deps)
+        })
+        .collect();
+    dag_units.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut dag_edges: Vec<(String, String)> = dag
+        .edges
+        .iter()
+        .map(|(a, b)| (unit_of(a), unit_of(b)))
+        .collect();
+    dag_edges.sort();
+    dag_edges.dedup();
+    let dag_order: Vec<String> = order.iter().map(|s| unit_of(s)).collect();
     std::fs::write(
         out.join("dag.json"),
         serde_json::to_string_pretty(&serde_json::json!({
-            "units": dag.units.iter().map(|u| serde_json::json!({"id": u.id, "module": u.module, "depends_on": u.depends_on})).collect::<Vec<_>>(),
-            "edges": dag.edges,
-            "leaf_first_order": order,
+            "units": dag_units.iter().map(|(id, module, depends_on)| serde_json::json!({"id": id, "module": module, "depends_on": depends_on})).collect::<Vec<_>>(),
+            "edges": dag_edges,
+            "leaf_first_order": dag_order,
         }))
         .unwrap(),
     )
     .map_err(|e| e.to_string())?;
-    // 12. recon.json (everything else for audit).
+    // 12. recon.json (everything else for audit). Frozen with UnitId keys:
+    // `build.languages` (list; `build.language` stays as a compat alias),
+    // `modules`/`call_edges` keyed by UnitId. Readers accept the pre-rollout
+    // shapes via the `units` compat shims.
+    let recon_modules: std::collections::BTreeMap<String, String> = graph
+        .modules
+        .iter()
+        .map(|(stem, rel)| (unit_of(stem), rel.clone()))
+        .collect();
+    let mut recon_edges: Vec<(String, String)> = graph
+        .edges
+        .iter()
+        .map(|(a, b)| (unit_of(a), unit_of(b)))
+        .collect();
+    recon_edges.sort();
+    recon_edges.dedup();
     std::fs::write(
         out.join("recon.json"),
         serde_json::to_string_pretty(&serde_json::json!({
-            "build": {"language": build.language, "build_system": build.build_system, "layout": build.layout, "invocation": build.invocation},
-            "modules": graph.modules,
-            "call_edges": graph.edges,
-            "tests": {"files": inv.test_files, "configs": inv.config_refs, "fixtures": inv.fixture_globs, "ci": inv.ci_invokers, "baseline": baseline},
+            "build": {"languages": composite.languages(), "language": build.language, "build_system": build.build_system, "layout": build.layout, "invocation": build.invocation},
+            "modules": recon_modules,
+            "call_edges": recon_edges,
+            "tests": {"files": inv.test_files, "configs": inv.config_refs, "fixtures": inv.fixture_globs, "ci": inv.ci_invokers, "baseline": serde_json::to_value(&manifest.baseline).unwrap()},
             "deps": dep_classes,
-            "license": {"license": attr.license, "header_len": attr.header_text.len()},
+            "license": {"license": license, "header_len": header_len},
             "hotspot": {"tool": hotspot.tool, "wall_secs": hotspot.wall_secs, "functions": hotspot.functions.iter().take(5).map(|t| serde_json::json!({"function": t.0, "share": t.1})).collect::<Vec<_>>()},
         }))
         .unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+    // 13. facts.json: deterministic probe section + seeded rules section.
+    // Written after the held-out suite exists so the runner-owned held-out
+    // commands freeze as differential probes. Later stages read behavior
+    // here, never from fixture switches.
+    let facts = probe_facts(
+        &composite,
+        &probe,
+        &dag,
+        &attr,
+        &package,
+        &pkg_content,
+        &rules,
+        heldout_out,
+        &cx,
+        &observables,
+    );
+    std::fs::write(
+        out.join("facts.json"),
+        serde_json::to_string_pretty(&facts).unwrap(),
     )
     .map_err(|e| e.to_string())?;
     Ok(ReconOutput {
@@ -119,239 +244,379 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     })
 }
 
-fn baseline_counts(repo: &Path, invocation: &[String]) -> Result<serde_json::Value, String> {
-    // collect-only per split invocation + skip/xfail/deselect lists (all empty on crc).
-    let mut total = 0u32;
-    for cmd in invocation {
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        let mut args: Vec<&str> = parts.into_iter().skip(1).collect();
-        let _ = &mut args;
-        let mut c = std::process::Command::new("python3");
-        c.arg("-m").arg("pytest");
-        for a in &args {
-            c.arg(a);
-        }
-        c.arg("--collect-only").arg("-q");
-        c.current_dir(repo);
-        if repo.join("src").is_dir() {
-            let mut pp: std::ffi::OsString = repo.join("src").into_os_string();
-            if let Some(old) = std::env::var_os("PYTHONPATH") {
-                pp.push(":");
-                pp.push(old);
-            }
-            c.env("PYTHONPATH", pp);
-        }
-        let o = c.output().map_err(|e| e.to_string())?;
-        let t = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        );
-        for line in t.lines() {
-            // "80 tests collected" / "77 tests collected"
-            if let Some(n) = parse_collected(line) {
-                total += n;
-            }
-        }
-    }
-    Ok(serde_json::json!({"test_count": total, "skipped": [], "xfailed": [], "deselected": []}))
+/// Norm-diff observable skeleton. xUnit repos grade pass/fail, so the probe
+/// declares no specs; tolerance-bearing specs for norm-diff repos arrive with
+/// the Architect's rules (later track) and freeze into the manifest then.
+fn probe_observables() -> Vec<ObservableSpec> {
+    Vec::new()
 }
 
-fn parse_collected(line: &str) -> Option<u32> {
-    let l = line.trim();
-    // e.g. "80 tests collected in 0.13s" or "77 tests collected"
-    let mut it = l.split_whitespace();
-    if let Some(n) = it.next() {
-        if let Ok(v) = n.parse::<u32>() {
-            if l.contains("collected") {
-                return Some(v);
-            }
-        }
-    }
-    None
-}
-
-fn runtime_deps(repo: &Path) -> Result<Vec<String>, String> {
-    // crc: no runtime deps (pure stdlib). Parse pyproject dependencies if any.
-    let pp = repo.join("pyproject.toml");
-    if !pp.exists() {
-        return Ok(vec![]);
-    }
-    let t = std::fs::read_to_string(&pp).map_err(|e| e.to_string())?;
-    // Only [project].dependencies counts as runtime (not dev/dependency-groups).
-    let mut in_project = false;
-    let mut deps = Vec::new();
-    for line in t.lines() {
-        let s = line.trim();
-        if s.starts_with('[') {
-            in_project = s == "[project]";
-        }
-        if in_project && s.starts_with("dependencies") {
-            // dependencies = [...] possibly multiline; crude but crc has none.
-            if s.contains('[') && s.contains(']') {
-                let inner = s.split('[').nth(1).unwrap_or("").split(']').next().unwrap_or("");
-                for d in inner.split(',') {
-                    let d = d.trim().trim_matches('"').trim_matches('\'').trim();
-                    if !d.is_empty() {
-                        deps.push(d.to_string());
-                    }
-                }
+/// Deterministic `recon/facts.json`: probe section (workload skeletons,
+/// runner-owned differential probes, observable skeleton, API surface,
+/// package identity, attribution) plus the seeded `rules` section (RepoFacts
+/// porting rules; the Architect refines workloads there in a later track).
+fn probe_facts(
+    composite: &CompositeAdapter,
+    probe: &ProbeReport,
+    dag: &UnitDag,
+    attribution: &[(String, Attribution)],
+    package: &str,
+    pkg_content: &serde_json::Value,
+    rules: &[crate::porting::PortingRule],
+    heldout_suite: &Path,
+    cx: &BuildCtx,
+    observables: &[ObservableSpec],
+) -> serde_json::Value {
+    // Runner-owned held-out commands: the frozen differential probes.
+    let differential_probes = composite.runner.heldout(heldout_suite, cx);
+    // API surface: sorted module stems from the unit DAG.
+    let mut api_surface: Vec<String> = dag.units.iter().map(|u| u.module.clone()).collect();
+    api_surface.sort();
+    api_surface.dedup();
+    // Workload skeletons: names plus input shapes from the frozen visible
+    // descriptors. `setup` stays empty: executable snippets are authored with
+    // the rules, not probed. `iters` is the schema placeholder (refined later).
+    let descriptors: Vec<String> = pkg_content["hotspot_descriptors"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    let workloads: Vec<Workload> = descriptors
+        .into_iter()
+        .map(|descriptor| Workload {
+            name: descriptor.clone(),
+            setup: String::new(),
+            stmt: descriptor,
+            iters: 1,
+        })
+        .collect();
+    // Held-out workload skeletons, same shape, from the host-only descriptors.
+    let heldout_desc = &pkg_content["heldout_descriptors"];
+    let distribution = heldout_desc
+        .get("distribution")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let mut heldout_workloads = Vec::new();
+    for key in [
+        "adversarial_shapes",
+        "coverage_complement",
+        "identity_sensitive_repeats",
+    ] {
+        if let Some(arr) = heldout_desc.get(key).and_then(|v| v.as_array()) {
+            for shape in arr.iter().filter_map(|v| v.as_str()) {
+                heldout_workloads.push(Workload {
+                    name: format!("heldout:{shape}"),
+                    setup: String::new(),
+                    stmt: distribution.clone(),
+                    iters: 1,
+                });
             }
         }
     }
-    Ok(deps)
-}
-
-fn visible_workloads() -> Vec<String> {
-    vec![
-        "empty:b''".into(),
-        "tiny:b'abc'".into(),
-        "digits:string.digits".into(),
-        "medium:256B-sequential".into(),
-        "large:64KB-random".into(),
-    ]
-}
-
-use crate::fixture::FixtureKind as ReconFixture;
-
-fn visible_workloads_for(kind: &ReconFixture) -> Vec<String> {
-    match kind {
-        ReconFixture::Strsimpy => vec![
-            "tiny:lev('abc','abd')".into(),
-            "short:lev('kitten','sitting')".into(),
-            "shingle:cosine(2) 8-word pair".into(),
-            "medium:lev(256ch,256ch)".into(),
-            "large:sift4(4KB,4KB)".into(),
-        ],
-        _ => visible_workloads(),
-    }
-}
-
-fn heldout_workload_descriptors() -> serde_json::Value {
-    // Same distribution, disjoint inputs: shifted sizes, adversarial shapes,
-    // coverage-complement, identity-sensitive repeats. Host-only.
-    serde_json::json!({
-        "distribution": "crc checksum bytes; sizes 0B..64KB; values uniform + structured",
-        "visible_sizes": [0, 3, 10, 256, 1024],
-        "heldout_sizes": [1, 7, 63, 511, 4096, 65536],
-        "adversarial_shapes": ["empty", "singleton", "all-identical", "all-distinct", "max-length", "pathological-order"],
-        "coverage_complement": ["refin/refout combos not in visible", "width 16/32/64 paths"],
-        "identity_sensitive_repeats": ["equal-but-not-identical bytes objects (catches identity-keyed caches)"],
-    })
-}
-
-fn heldout_workload_descriptors_for(kind: &ReconFixture) -> serde_json::Value {
-    match kind {
-        ReconFixture::Strsimpy => serde_json::json!({
-            "distribution": "string similarity/distance; lengths 0..4096 chars; ASCII + CJK; pairs identical/near/far",
-            "visible_lengths": [3, 6, 8, 256],
-            "heldout_lengths": [0, 1, 7, 63, 511, 4096],
-            "adversarial_shapes": ["empty", "singleton", "all-identical", "all-distinct", "max-length", "CJK"],
-            "coverage_complement": ["SIFT4 tokenizers not in visible", "shingle sizes not in visible"],
-            "identity_sensitive_repeats": ["equal-but-not-identical str objects (catches identity-keyed caches)"],
-        }),
-        _ => heldout_workload_descriptors(),
-    }
-}
-
-fn workload_contract(repo: &Path) -> Result<WorkloadContract, String> {
-    // Derived from fixtures, docs, existing benches, public API shapes.
-    let bench = repo.join("test/bench/benches.py");
-    let bench_note = if bench.exists() {
-        "derived from test/bench/benches.py (Register vs TableBasedRegister on string.digits vectors)"
-    } else {
-        "no bench file; derived from test vectors + public Calculator/Register API"
-    };
-    // Measure a wall baseline for budgets.
-    let t0 = std::time::Instant::now();
-    let mut cmd = std::process::Command::new("python3");
-    cmd.arg("-c").arg("import crc; c=crc.Calculator(crc.Crc8.CCITT); [c.checksum(b'x'*1024) for _ in range(200)]");
-    cmd.current_dir(repo);
-    if repo.join("src").is_dir() {
-        let mut pp: std::ffi::OsString = repo.join("src").into_os_string();
-        if let Some(old) = std::env::var_os("PYTHONPATH") {
-            pp.push(":");
-            pp.push(old);
-        }
-        cmd.env("PYTHONPATH", pp);
-    }
-    let _ = cmd.output();
-    let wall = t0.elapsed().as_secs_f64();
-    Ok(WorkloadContract {
-        primary_metric: "wall_time_p50".into(),
-        secondary_metric: Some("throughput".into()),
-        input_distribution: format!(
-            "checksum bytes via Calculator/Register/TableBasedRegister {bench_note}; \
-             sizes: empty, tiny (3B), digits (10B), medium (256B-1KB), large (64KB); \
-             values: ASCII digits, sequential, uniform random, all-identical, all-distinct; \
-             degenerate: empty/singleton/max included; share: API-shaped (calculator one-shot 70%, register incremental 30%)"
-        ),
-        out_of_scope: "inputs >1MB; non-bytes inputs (str/int raise TypeError); CLI formatting paths".into(),
-        budgets: format!(
-            "measured 200x1KB checksum wall={wall:.3}s (quiesced host); \
-             RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; \
-             contract budgets enforced in Stage 2 no_regression"
-        ),
-    })
-}
-
-fn workload_contract_for(kind: &ReconFixture, repo: &Path) -> Result<WorkloadContract, String> {
-    match kind {
-        ReconFixture::Strsimpy => {
-            // Measure a wall baseline for budgets (flat layout: no PYTHONPATH).
-            let t0 = std::time::Instant::now();
-            let _ = std::process::Command::new("python3")
-                .arg("-c")
-                .arg("import strsimpy; m=strsimpy.Levenshtein(); [m.distance('a'*256,'b'*256) for _ in range(200)]")
-                .current_dir(repo)
-                .output();
-            let wall = t0.elapsed().as_secs_f64();
-            Ok(WorkloadContract {
-                primary_metric: "wall_time_p50".into(),
-                secondary_metric: Some("throughput".into()),
-                input_distribution: "similarity/distance strings via strsimpy edit + shingle APIs \
-                    (no bench file; derived from test vectors + public API); \
-                    distribution: lengths empty, tiny (3ch), short (6-11ch), medium (256ch), large (4Kch); \
-                    values: ASCII near/far pairs, identical, all-distinct, CJK; \
-                    degenerate: empty/singleton included; share: API-shaped (edit one-shot 70%, shingle 30%)"
-                    .into(),
-                out_of_scope: "inputs >1MB chars; None inputs (raise TypeError)".into(),
-                budgets: format!(
-                    "measured 200x256ch lev wall={wall:.3}s (quiesced host); \
-                     budget: RSS ceiling +5% vs original; \
-                     contract budgets enforced in Stage 2 no_regression"
-                ),
+    // Attribution with report-ready strings: upstream from the repo's own git
+    // remote (else the package name), SPDX tag from the detected license id.
+    // No registry of known upstreams lives here.
+    let upstream = crate::repo::upstream_of(cx.tree, package);
+    let attribution_json: Vec<serde_json::Value> = attribution
+        .iter()
+        .map(|(glob, a)| {
+            serde_json::json!({
+                "glob": glob,
+                "license": a.license,
+                "header_len": a.header_text.len(),
+                "notice_extra": a.notice_extra,
+                "upstream": upstream,
+                "spdx": format!("SPDX-License-Identifier: {}", a.license),
             })
-        }
-        _ => workload_contract(repo),
-    }
+        })
+        .collect();
+    serde_json::json!({
+        "probe": {
+            "frontends": probe.frontends,
+            "unclaimed": probe.unclaimed,
+            "unclaimed_share": probe.unclaimed_share,
+            "has_ctest": probe.has_ctest,
+            "cmake_languages": probe.cmake_languages,
+            "package": package,
+            "workloads": workloads,
+            "heldout_workloads": heldout_workloads,
+            "differential_probes": differential_probes,
+            "observables": observables,
+            "api_surface": api_surface,
+            "attribution": attribution_json,
+        },
+        "rules": { "porting_rules": crate::porting::rules_to_facts(rules) },
+    })
 }
 
-fn frozen_manifest_with_benchmarks(repo: &Path) -> Result<serde_json::Value, String> {
-    // Canonical freeze (section-aware pyproject, ADR-002) + benchmark workload freeze.
-    let m = Oracle::freeze(repo).map_err(|e| e.to_string())?;
-    let mut files: Vec<(String, String)> =
-        m.files.iter().map(|f| (f.path.to_string(), f.sha256.clone())).collect();
-    for entry in walkdir::WalkDir::new(repo.join("test/bench"))
+
+fn frozen_manifest_with_benchmarks(
+    cx: &BuildCtx,
+    composite: &CompositeAdapter,
+    observables: &[ObservableSpec],
+) -> Result<Manifest, String> {
+    // Canonical freeze through the runner: file membership from
+    // runner.oracle_files, ADR-002 normalization via
+    // runner.normalize_for_hash, baseline from runner.grade outcomes over the
+    // executed invocation.
+    let mut m = Oracle::freeze(cx, &*composite.runner).map_err(|e| e.to_string())?;
+    // Benchmark freeze: hash bench files alongside oracle files (whole bytes;
+    // bench workloads are not oracle files so runner normalization does not
+    // apply). Skips files the oracle already froze.
+    for entry in walkdir::WalkDir::new(cx.tree.join("test/bench"))
         .into_iter()
         .filter_map(|e| e.ok())
     {
         let p = entry.path();
         if p.is_file() {
-            let rel = p.strip_prefix(repo).unwrap().to_string_lossy().replace('\\', "/");
+            let rel = p.strip_prefix(cx.tree).unwrap().to_string_lossy().replace('\\', "/");
             let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
-            let h = rustsmith_oracle::sha256_hex(&bytes);
-            if !files.iter().any(|(q, _)| q == &rel) {
-                files.push((rel, h));
+            if !m.files.iter().any(|f| f.path.as_str() == rel) {
+                m.files.push(FileHash {
+                    path: rel.into(),
+                    sha256: sha256_hex(&bytes),
+                });
             }
         }
     }
-    files.sort();
-    Ok(serde_json::json!({
-        "version": 1,
-        "invocation": m.invocation,
-        "files": files.iter().map(|(p, h)| serde_json::json!({"path": p, "sha256": h})).collect::<Vec<_>>(),
-        "baseline": serde_json::to_value(&m.baseline).unwrap(),
-        "benchmark_files": files.iter().filter(|(p, _)| p.contains("bench")).map(|(p, _)| p).collect::<Vec<_>>(),
-    }))
+    m.files.sort_by(|a, b| a.path.cmp(&b.path));
+    // Composite-owned v2 fields (the oracle freeze leaves these empty for this
+    // writer): ordered prepare commands from the bridge, language list, and
+    // the frozen observable specs.
+    m.prepare = composite.bridge.prepare(cx);
+    m.languages = composite.languages();
+    m.observables = observables.to_vec();
+    Ok(m)
+}
+
+#[cfg(test)]
+mod recon_regression_tests {
+    use super::*;
+    use rustsmith_adapters::Unit;
+    use rustsmith_core::{
+        AdapterError, Cwd, GradedResult, Observation, OracleFile, RunOutput, TestCommand,
+        TestRunner, parse_manifest_json, MANIFEST_VERSION,
+    };
+    use std::collections::BTreeMap;
+
+    /// Mock runner: empty oracle set + empty invocation, so `Oracle::freeze`
+    /// executes zero host commands (no subprocess); grading sees no runs.
+    struct MockRunner;
+    impl TestRunner for MockRunner {
+        fn id(&self) -> &'static str {
+            "mocktest"
+        }
+        fn invocation(&self, _cx: &BuildCtx) -> Vec<TestCommand> {
+            Vec::new()
+        }
+        fn grade(&self, _runs: &[RunOutput]) -> Result<GradedResult, AdapterError> {
+            Ok(GradedResult::from_outcomes(0, BTreeMap::new(), String::new()))
+        }
+        fn observe(
+            &self,
+            _runs: &[RunOutput],
+            _specs: &[ObservableSpec],
+        ) -> Vec<Observation> {
+            Vec::new()
+        }
+        fn oracle_files(&self, _repo: &Path) -> Result<Vec<OracleFile>, AdapterError> {
+            Ok(Vec::new())
+        }
+        fn normalize_for_hash(&self, _rel: &str, _bytes: &[u8]) -> Option<Vec<u8>> {
+            None
+        }
+        fn heldout(&self, suite: &Path, _cx: &BuildCtx) -> Vec<TestCommand> {
+            vec![TestCommand {
+                program: "mocktest".to_string(),
+                args: vec![suite.to_string_lossy().into_owned()],
+                cwd: Cwd::Tree,
+                env_set: Vec::new(),
+                env_remove: Vec::new(),
+                launcher: None,
+                timeout_secs: None,
+                collect: Vec::new(),
+            }]
+        }
+        fn config_hash(&self, _cx: &BuildCtx) -> Result<String, AdapterError> {
+            Ok("mock-config-hash".to_string())
+        }
+    }
+
+    fn mock_prepare() -> Vec<TestCommand> {
+        vec![TestCommand {
+            program: "mock-configure".to_string(),
+            args: vec!["--prefix".to_string(), "/tmp/prefix".to_string()],
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        }]
+    }
+
+    fn tol_spec() -> ObservableSpec {
+        ObservableSpec {
+            test_glob: "*".to_string(),
+            source: "stdout".to_string(),
+            regex: "([0-9.]+)".to_string(),
+            rel_tol: 0.01,
+            abs_tol: 0.0,
+        }
+    }
+
+    /// Manifest v2 writer shape: `Oracle::freeze` through a mock runner (zero
+    /// host commands) plus the composite-owned fill (`prepare`/`languages`/
+    /// `observables`, mirroring `frozen_manifest_with_benchmarks`) must carry
+    /// every v2 field and round-trip through `parse_manifest_json`.
+    #[test]
+    fn manifest_v2_writer_shape_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let cx = BuildCtx {
+            tree: dir.path(),
+            build_dir: dir.path(),
+            release: false,
+        };
+        let runner = MockRunner;
+        let mut m = Oracle::freeze(&cx, &runner).unwrap();
+        // Composite-owned v2 fill, verbatim shape of the recon writer.
+        m.prepare = mock_prepare();
+        m.languages = vec!["python".to_string()];
+        m.observables = vec![tol_spec()];
+        assert_eq!(m.version, MANIFEST_VERSION);
+        assert_eq!(m.runner, "mocktest");
+        assert_eq!(m.config_hash, "mock-config-hash");
+        let text = serde_json::to_string_pretty(&m).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for key in [
+            "prepare",
+            "invocation",
+            "config_hash",
+            "observables",
+            "runner",
+            "languages",
+            "files",
+            "baseline",
+        ] {
+            assert!(v.get(key).is_some(), "manifest v2 lacks `{key}`");
+        }
+        let back = parse_manifest_json(&text).unwrap();
+        assert_eq!(m, back, "v2 manifest must survive a freeze/parse round-trip");
+        // Every frozen command carries an explicit cwd (no ambient-relative spawn).
+        for cmd in m.prepare.iter().chain(m.invocation.iter()) {
+            assert!(!cmd.program.is_empty(), "frozen command needs a program");
+            assert!(
+                matches!(cmd.cwd, Cwd::Tree | Cwd::BuildDir | Cwd::Rel(_)),
+                "frozen command must set cwd"
+            );
+        }
+    }
+
+    /// `facts.json` probe section is deterministic: identical inputs freeze to
+    /// byte-identical JSON carrying frontends/unclaimed/api_surface/attribution.
+    #[test]
+    fn probe_facts_deterministic_and_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pkgmod.py"), "VALUE = 1\n").unwrap();
+        let (composite, probe) = select_composite(dir.path()).unwrap();
+        let heldout_dir = tempfile::tempdir().unwrap();
+        let suite = heldout_dir.path().join("heldout.py");
+        let cx = BuildCtx {
+            tree: dir.path(),
+            build_dir: dir.path(),
+            release: false,
+        };
+        let dag = UnitDag {
+            units: vec![
+                Unit {
+                    id: "a".to_string(),
+                    module: "pkgmod".to_string(),
+                    depends_on: Vec::new(),
+                },
+                Unit {
+                    id: "b".to_string(),
+                    module: "pkgmod".to_string(),
+                    depends_on: vec!["a".to_string()],
+                },
+            ],
+            edges: vec![("b".to_string(), "a".to_string())],
+        };
+        let attribution = vec![(
+            "pkgmod.py".to_string(),
+            Attribution {
+                license: "MIT".to_string(),
+                header_text: "copyright".to_string(),
+                notice_extra: String::new(),
+            },
+        )];
+        let pkg_content = serde_json::json!({
+            "hotspot_descriptors": ["stmt_a"],
+            "heldout_descriptors": {
+                "distribution": "dist",
+                "adversarial_shapes": ["shape_a"],
+                "coverage_complement": [],
+                "identity_sensitive_repeats": []
+            }
+        });
+        let rules: Vec<crate::porting::PortingRule> = Vec::new();
+        // No git remote in the temp tree, so `upstream_of` falls back to the
+        // package name deterministically (read-only probe, instant fallback).
+        let package = "pkg-fixture";
+        let observational: Vec<ObservableSpec> = Vec::new();
+        let a = probe_facts(
+            &composite,
+            &probe,
+            &dag,
+            &attribution,
+            package,
+            &pkg_content,
+            &rules,
+            &suite,
+            &cx,
+            &observational,
+        );
+        let b = probe_facts(
+            &composite,
+            &probe,
+            &dag,
+            &attribution,
+            package,
+            &pkg_content,
+            &rules,
+            &suite,
+            &cx,
+            &observational,
+        );
+        assert_eq!(
+            serde_json::to_string(&a).unwrap(),
+            serde_json::to_string(&b).unwrap(),
+            "same probe input must freeze byte-identical facts"
+        );
+        let probe_json = &a["probe"];
+        assert_eq!(probe_json["frontends"], serde_json::json!(["python"]));
+        assert!(probe_json["unclaimed"].is_array(), "unclaimed must freeze");
+        assert!(
+            probe_json["api_surface"]
+                .as_array()
+                .is_some_and(|s| s.iter().any(|m| m == "pkgmod")),
+            "api_surface must list dag modules"
+        );
+        let attr = probe_json["attribution"]
+            .as_array()
+            .and_then(|xs| xs.first())
+            .expect("attribution must freeze");
+        assert_eq!(attr["upstream"], serde_json::json!(package));
+        assert!(
+            attr["spdx"].as_str().is_some_and(|s| s.contains("MIT")),
+            "attribution must carry the SPDX tag"
+        );
+        assert_eq!(probe_json["package"], serde_json::json!(package));
+        assert!(
+            probe_json["differential_probes"].is_array(),
+            "runner-owned differential probes must freeze"
+        );
+    }
 }

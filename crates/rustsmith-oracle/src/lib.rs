@@ -1,21 +1,42 @@
+//! Frozen-test oracle, routed through the runner (ADR-008 track C).
+//!
+//! The oracle owns hashing ([`sha256_hex`]) and the freeze/verify/grade
+//! plumbing, but every runner-shaped decision lives on `dyn TestRunner`
+//! (core trait): file membership (`oracle_files`), per-file normalization for
+//! hashing (`normalize_for_hash`, owns ADR-002), the frozen commands
+//! (`invocation`), result parsing (`grade`), numeric extraction (`observe`),
+//! held-out commands (`heldout`), and config identity (`config_hash`).
+//! Nothing here names a language toolchain.
+
 use camino::Utf8PathBuf;
-use rustsmith_core::{Baseline, FileHash, GradedResult, HaltReason, Manifest};
-use std::collections::HashSet;
+use rustsmith_core::{
+    AdapterError, Baseline, BuildCtx, Cwd, FileHash, GradedResult, HaltReason, Manifest,
+    Observation, RunOutput, TestCommand, TestRunner, MANIFEST_VERSION,
+};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum OracleError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[error("pytest failed: {0}")]
-    Pytest(String),
+    #[error("runner: {0}")]
+    Runner(String),
     #[error("halt: {0}")]
     Halt(HaltReason),
-    #[error("json: {0}")]
-    Json(#[from] serde_json::Error),
-    #[error("utf8: {0}")]
-    Utf8(String),
+    /// Missing or empty held-out suite. A vacuous `passed: 1` here used to let
+    /// grading pass without testing anything; that hole is closed.
+    #[error("held-out suite missing or empty: {0}")]
+    EmptyHeldout(String),
+}
+
+impl From<AdapterError> for OracleError {
+    fn from(e: AdapterError) -> Self {
+        OracleError::Runner(e.to_string())
+    }
 }
 
 /// Host-only held-out suite. Never mounted into containers.
@@ -38,40 +59,53 @@ impl HeldoutSuite {
 pub struct Oracle;
 
 impl Oracle {
-    /// Freeze oracle: hash tests + configs + fixtures/data + CI workflow; record invocation + baseline.
-    pub fn freeze(repo_root: &Path) -> Result<Manifest, OracleError> {
-        let files = discover_oracle_files(repo_root)?;
+    /// Freeze the oracle through the runner.
+    ///
+    /// File membership comes from `runner.oracle_files`; each file is hashed
+    /// with `runner.normalize_for_hash` applied first (`Some(bytes)` replaces
+    /// the file bytes for hashing, `None` hashes the raw bytes). The baseline
+    /// runs `runner.invocation` and parses it with `runner.grade`.
+    ///
+    /// `prepare`/`languages`/`observables` stay empty here: they are owned by
+    /// the composite/recon writer (track D), which fills them from the bridge
+    /// and RepoFacts.
+    pub fn freeze(cx: &BuildCtx, runner: &dyn TestRunner) -> Result<Manifest, OracleError> {
         let mut hashed = Vec::new();
-        for rel in files {
-            let abs = repo_root.join(&rel);
-            let bytes = std::fs::read(&abs)?;
-            // SPEC §7.1 freezes "pyproject.toml test sections": packaging metadata
-            // (build-system, project) is owned by the Stage-1 port (hatchling->maturin),
-            // while test config ([tool.pytest*], coverage, tox) defines the suite.
-            // ADR-002. Other files hash whole.
-            let digest = if rel == "pyproject.toml" {
-                sha256_hex(pyproject_test_sections(&bytes).as_bytes())
-            } else {
-                sha256_hex(&bytes)
-            };
+        for f in runner.oracle_files(cx.tree)? {
+            let bytes = std::fs::read(cx.tree.join(&f.path))?;
+            let effective = runner
+                .normalize_for_hash(&f.path, &bytes)
+                .unwrap_or(bytes);
             hashed.push(FileHash {
-                path: Utf8PathBuf::from(rel),
-                sha256: digest,
+                path: Utf8PathBuf::from(f.path),
+                sha256: sha256_hex(&effective),
             });
         }
         hashed.sort_by(|a, b| a.path.cmp(&b.path));
-        let invocation = detect_invocation(repo_root);
-        let baseline = measure_baseline(repo_root, &invocation)?;
+        let invocation = runner.invocation(cx);
+        let config_hash = runner.config_hash(cx)?;
+        let runs = execute_all(cx.tree, cx.build_dir, &invocation)?;
+        let graded = runner.grade(&runs)?;
+        let baseline = baseline_of(&graded);
         Ok(Manifest {
-            version: 1,
+            version: MANIFEST_VERSION,
+            runner: runner.id().to_string(),
+            languages: Vec::new(),
+            prepare: Vec::new(),
             invocation,
+            config_hash,
+            observables: Vec::new(),
             files: hashed,
             baseline,
         })
     }
 
     /// Mismatch => Halt OracleTamper. Missing => tamper. Extra files in tree are allowed.
-    pub fn verify_hashes(manifest: &Manifest, tree: &Path) -> Result<(), OracleError> {
+    pub fn verify_hashes(
+        manifest: &Manifest,
+        tree: &Path,
+        runner: &dyn TestRunner,
+    ) -> Result<(), OracleError> {
         for f in &manifest.files {
             let abs = tree.join(f.path.as_str());
             let bytes = std::fs::read(&abs).map_err(|_| {
@@ -79,12 +113,10 @@ impl Oracle {
                     path: f.path.to_string(),
                 })
             })?;
-            let digest = if f.path.as_str() == "pyproject.toml" {
-                sha256_hex(pyproject_test_sections(&bytes).as_bytes())
-            } else {
-                sha256_hex(&bytes)
-            };
-            if digest != f.sha256 {
+            let effective = runner
+                .normalize_for_hash(f.path.as_str(), &bytes)
+                .unwrap_or(bytes);
+            if sha256_hex(&effective) != f.sha256 {
                 return Err(OracleError::Halt(HaltReason::OracleTamper {
                     path: f.path.to_string(),
                 }));
@@ -92,28 +124,51 @@ impl Oracle {
         }
         Ok(())
     }
+
     /// Re-hash the manifest-listed files in `tree`. Missing files are skipped
     /// (verify_hashes reports them as tamper); extras are ignored.
-    pub fn current_hashes(manifest: &Manifest, tree: &Path) -> Vec<FileHash> {
+    pub fn current_hashes(
+        manifest: &Manifest,
+        tree: &Path,
+        runner: &dyn TestRunner,
+    ) -> Vec<FileHash> {
         let mut out = Vec::new();
         for f in &manifest.files {
-            let abs = tree.join(f.path.as_str());
-            if let Ok(bytes) = std::fs::read(&abs) {
-                let digest = if f.path.as_str() == "pyproject.toml" {
-                    sha256_hex(pyproject_test_sections(&bytes).as_bytes())
-                } else {
-                    sha256_hex(&bytes)
-                };
-                out.push(FileHash { path: f.path.clone(), sha256: digest });
+            if let Ok(bytes) = std::fs::read(tree.join(f.path.as_str())) {
+                let effective = runner
+                    .normalize_for_hash(f.path.as_str(), &bytes)
+                    .unwrap_or(bytes);
+                out.push(FileHash {
+                    path: f.path.clone(),
+                    sha256: sha256_hex(&effective),
+                });
             }
         }
         out
     }
+
     /// Run the manifest invocation on `tree` WITHOUT hash verification.
     /// The caller evaluates `oracle_integrity` (counts-first) to get the
     /// precise failure reason. Used by `rustsmith grade` and acceptance probes.
-    pub fn measure_tree(manifest: &Manifest, tree: &Path) -> Result<GradedResult, OracleError> {
-        run_invocation(tree, &manifest.invocation)
+    pub fn measure_tree(
+        manifest: &Manifest,
+        tree: &Path,
+        build_dir: &Path,
+        runner: &dyn TestRunner,
+    ) -> Result<GradedResult, OracleError> {
+        let runs = execute_all(tree, build_dir, &manifest.invocation)?;
+        Ok(runner.grade(&runs)?)
+    }
+
+    /// Extract frozen observables from a tree without grading.
+    pub fn observe(
+        manifest: &Manifest,
+        tree: &Path,
+        build_dir: &Path,
+        runner: &dyn TestRunner,
+    ) -> Result<Vec<Observation>, OracleError> {
+        let runs = execute_all(tree, build_dir, &manifest.invocation)?;
+        Ok(runner.observe(&runs, &manifest.observables))
     }
 
     /// Authoritative graded run (host-side; container isolation proved separately by
@@ -121,15 +176,45 @@ impl Oracle {
     pub fn graded_run(
         manifest: &Manifest,
         artifact: &Path,
+        build_dir: &Path,
         heldout: &HeldoutSuite,
+        runner: &dyn TestRunner,
     ) -> Result<(GradedResult, f64), OracleError> {
-        Self::verify_hashes(manifest, artifact)?;
-        let visible = run_invocation(artifact, &manifest.invocation)?;
-        let heldout_result = run_heldout(artifact, heldout)?;
+        Self::verify_hashes(manifest, artifact, runner)?;
+        let visible = Self::measure_tree(manifest, artifact, build_dir, runner)?;
+        let heldout_result = Self::grade_heldout(artifact, build_dir, heldout, runner)?;
         let visible_rate = visible.pass_rate();
         let heldout_rate = heldout_result.pass_rate();
         let divergence = visible_rate - heldout_rate;
         Ok((visible, divergence))
+    }
+
+    fn grade_heldout(
+        artifact: &Path,
+        build_dir: &Path,
+        heldout: &HeldoutSuite,
+        runner: &dyn TestRunner,
+    ) -> Result<GradedResult, OracleError> {
+        if !has_any_file(&heldout.path) {
+            return Err(OracleError::EmptyHeldout(
+                heldout.path.display().to_string(),
+            ));
+        }
+        let cx = BuildCtx {
+            tree: artifact,
+            build_dir,
+            release: false,
+        };
+        let cmds = runner.heldout(heldout.path.as_path(), &cx);
+        if cmds.is_empty() {
+            return Err(OracleError::EmptyHeldout(format!(
+                "runner '{}' declares no held-out commands for {}",
+                runner.id(),
+                heldout.path.display()
+            )));
+        }
+        let runs = execute_all(artifact, build_dir, &cmds)?;
+        Ok(runner.grade(&runs)?)
     }
 }
 
@@ -139,384 +224,624 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     h.update(bytes);
     hex::encode(h.finalize())
 }
-/// Test-relevant sections of pyproject.toml, normalized. Only these define the
-/// suite (SPEC §7.1 "pyproject.toml test sections"); packaging metadata
-/// ([build-system], [project] name/version, hatchling targets) is owned by the
-/// Stage-1 port. Adding a NEW test section changes this text => tamper.
-pub fn pyproject_test_sections(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    let parsed: Result<toml::Value, _> = text.parse();
-    let v = match parsed {
-        Ok(v) => v,
-        Err(_) => return format!("unparseable:{}", sha256_hex(bytes)),
-    };
-    // Walk tool.pytest*, tool.coverage*, tool.tox*, tool.hypothesis*.
-    let mut picked = Vec::new();
-    if let Some(tool) = v.get("tool") {
-        for key in ["pytest", "coverage", "tox", "hypothesis"] {
-            // "pytest" matches [tool.pytest.ini_options]; prefix-match table names.
-            if let Some(t) = tool.as_table() {
-                for (k, val) in t {
-                    if k == key || k.starts_with(&format!("{key}")) {
-                        picked.push((k.clone(), val.clone()));
-                    }
-                }
-            }
-        }
-    }
-    picked.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut out = String::new();
-    for (k, val) in picked {
-        out.push_str(&k);
-        out.push('=');
-        out.push_str(&serde_json::to_string(&toml_json(val)).unwrap_or_default());
-        out.push('\n');
-    }
-    out
-}
-fn toml_json(v: toml::Value) -> serde_json::Value {
-    match v {
-        toml::Value::String(s) => serde_json::Value::String(s),
-        toml::Value::Integer(i) => serde_json::json!(i),
-        toml::Value::Float(f) => serde_json::json!(f),
-        toml::Value::Boolean(b) => serde_json::Value::Bool(b),
-        toml::Value::Datetime(d) => serde_json::Value::String(d.to_string()),
-        toml::Value::Array(a) => serde_json::Value::Array(a.into_iter().map(toml_json).collect()),
-        toml::Value::Table(t) => {
-            let mut m = serde_json::Map::new();
-            let mut keys: Vec<_> = t.into_iter().collect();
-            keys.sort_by(|a, b| a.0.cmp(&b.0));
-            for (k, val) in keys {
-                m.insert(k, toml_json(val));
-            }
-            serde_json::Value::Object(m)
-        }
+
+pub fn baseline_of(graded: &GradedResult) -> Baseline {
+    Baseline {
+        test_count: graded.total(),
+        skipped: graded.skipped.clone(),
+        xfailed: graded.xfailed.clone(),
+        deselected: graded.deselected.clone(),
     }
 }
 
-/// Files that define correctness. bench/ explicitly excluded (not oracle).
-pub fn discover_oracle_files(repo_root: &Path) -> Result<Vec<String>, OracleError> {
+pub fn measure_baseline(
+    cx: &BuildCtx,
+    runner: &dyn TestRunner,
+) -> Result<Baseline, OracleError> {
+    let runs = execute_all(cx.tree, cx.build_dir, &runner.invocation(cx))?;
+    Ok(baseline_of(&runner.grade(&runs)?))
+}
+
+/// True when `dir` exists and contains at least one file.
+fn has_any_file(dir: &Path) -> bool {
+    walk_files(dir).map(|v| !v.is_empty()).unwrap_or(false)
+}
+
+fn walk_files(root: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
-    for entry in walkdir::WalkDir::new(repo_root)
-        .into_iter()
-        .filter_entry(|e| {
-            let p = e.path();
-            // Skip VCS, caches, build output, venvs.
-            for seg in [".git", "__pycache__", ".pytest_cache", ".venv", "venv", "dist", ".eggs", "target"] {
-                if p.components().any(|c| c.as_os_str() == seg) {
-                    return false;
-                }
-            }
-            // bench/ is NOT oracle.
-            if p.components().any(|c| c.as_os_str() == "bench") {
-                // Allow the directory itself but skip .py files under it.
-                if p.extension().map(|x| x == "py").unwrap_or(false) {
-                    return false;
-                }
-            }
-            true
-        })
-    {
-        let entry = entry.map_err(|e| OracleError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-        let p = entry.path();
-        if !p.is_file() {
-            continue;
-        }
-        let rel = p.strip_prefix(repo_root).unwrap().to_string_lossy().replace('\\', "/");
-        let is_test = rel.contains("test_")
-            || rel.ends_with("_test.py")
-            || rel.ends_with("conftest.py")
-            || rel.contains("/test/")
-            || rel.starts_with("test/");
-        let is_config = matches!(
-            rel.as_str(),
-            "pytest.ini" | "tox.ini" | "setup.cfg" | "pyproject.toml"
-        );
-        let is_fixture_data = (rel.contains("fixture") || rel.contains("data"))
-            && (rel.contains("test"));
-        let is_ci = rel.starts_with(".github/workflows/");
-        if is_test || is_config || is_fixture_data || is_ci {
-            // Exclude bench files even if they match test patterns.
-            if rel.contains("bench") {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(p) = stack.pop() {
+        let md = match std::fs::symlink_metadata(&p) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if md.is_dir() {
+            if p.file_name().map(|n| n == ".git").unwrap_or(false) {
                 continue;
             }
-            out.push(rel);
+            if let Ok(rd) = std::fs::read_dir(&p) {
+                for e in rd.flatten() {
+                    stack.push(e.path());
+                }
+            }
+        } else if md.is_file() {
+            out.push(p);
         }
     }
-    out.sort();
-    out.dedup();
     Ok(out)
 }
 
-pub fn detect_invocation(repo_root: &Path) -> Vec<String> {
-    let unit = repo_root.join("test/unit");
-    let integ = repo_root.join("test/integration");
-    if unit.is_dir() && integ.is_dir() {
-        return vec!["pytest test/unit".into(), "pytest test/integration".into()];
-    }
-    vec!["pytest".into()]
-}
-
-fn src_env(repo_root: &Path) -> Option<PathBuf> {
-    let src = repo_root.join("src");
-    if src.is_dir() {
-        Some(src)
-    } else {
-        None
+fn resolve_cwd(tree: &Path, build_dir: &Path, cwd: &Cwd) -> PathBuf {
+    match cwd {
+        Cwd::Tree => tree.to_path_buf(),
+        Cwd::BuildDir => build_dir.to_path_buf(),
+        Cwd::Rel(r) => tree.join(r),
     }
 }
 
-fn run_pytest(repo_root: &Path, args: &[&str]) -> Result<GradedResult, OracleError> {
-    let mut cmd = std::process::Command::new("python3");
-    cmd.arg("-m").arg("pytest");
-    for a in args {
-        cmd.arg(a);
+/// Resolve `program` to the absolute binary that is actually spawned.
+/// Paths containing `/` are used verbatim (the runner pins absolute
+/// build-dir binaries there); bare names are looked up on `PATH` left to
+/// right, and the resolved absolute path is what gets spawned and recorded.
+fn resolve_program(program: &str) -> PathBuf {
+    if program.contains('/') {
+        return PathBuf::from(program);
     }
-    cmd.arg("-v").arg("-rs").arg("-rxX").arg("--tb=short");
-    cmd.current_dir(repo_root);
-    if let Some(src) = src_env(repo_root) {
-        let mut pp: std::ffi::OsString = src.into_os_string();
-        if let Some(old) = std::env::var_os("PYTHONPATH") {
-            pp.push(":");
-            pp.push(old);
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let cand = dir.join(program);
+            if cand.is_file() {
+                return cand;
+            }
         }
-        cmd.env("PYTHONPATH", pp);
     }
-    cmd.env("PY_COLORS", "0");
-    let out = cmd.output().map_err(|e| OracleError::Pytest(e.to_string()))?;
-    let stdout = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    Ok(parse_pytest_verbose(&stdout, out.status.code().unwrap_or(-1)))
+    PathBuf::from(program)
 }
 
-fn run_invocation(repo_root: &Path, invocation: &[String]) -> Result<GradedResult, OracleError> {
-    let mut agg = GradedResult {
-        exit_code: 0,
-        passed: 0,
-        failed: 0,
-        skipped: vec![],
-        xfailed: vec![],
-        deselected: vec![],
-        stdout: String::new(),
-    };
-    for cmd in invocation {
-        // cmd like "pytest test/unit" -> args ["test/unit"]
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        let args: Vec<&str> = parts.into_iter().skip(1).collect();
-        let r = run_pytest(repo_root, &args)?;
-        if r.exit_code != 0 && r.failed > 0 {
-            agg.exit_code = r.exit_code;
-        } else if r.exit_code != 0 && agg.exit_code == 0 {
-            agg.exit_code = r.exit_code;
-        }
-        agg.passed += r.passed;
-        agg.failed += r.failed;
-        agg.skipped.extend(r.skipped);
-        agg.xfailed.extend(r.xfailed);
-        agg.deselected.extend(r.deselected);
-        agg.stdout.push_str(&format!("$ {cmd}\n{}\n", r.stdout));
+/// Execute every command in order, returning one [`RunOutput`] per command.
+/// This is the canonical host executor: every spawn sets `cwd` from the
+/// command, bare programs resolve to absolute paths at spawn, the `$` record
+/// line carries the absolute program, and `collect` artifacts are gathered.
+/// (The sandbox keeps a private mirror so it never depends on this crate.)
+pub fn execute_all(
+    tree: &Path,
+    build_dir: &Path,
+    cmds: &[TestCommand],
+) -> Result<Vec<RunOutput>, OracleError> {
+    let mut runs = Vec::with_capacity(cmds.len());
+    for cmd in cmds {
+        runs.push(execute_one(cmd, tree, build_dir)?);
     }
-    agg.skipped.sort();
-    agg.xfailed.sort();
-    agg.deselected.sort();
-    Ok(agg)
+    Ok(runs)
 }
 
-fn run_heldout(artifact: &Path, heldout: &HeldoutSuite) -> Result<GradedResult, OracleError> {
-    if !heldout.path.is_dir() {
-        // Empty held-out suite counts as full pass (M0 stub before generator exists in M3).
-        return Ok(GradedResult {
-            exit_code: 0,
-            passed: 1,
-            failed: 0,
-            skipped: vec![],
-            xfailed: vec![],
-            deselected: vec![],
-            stdout: "empty heldout: pass".into(),
-        });
+/// Execute a single [`TestCommand`] on the host. See [`execute_all`].
+pub fn execute_one(
+    cmd: &TestCommand,
+    tree: &Path,
+    build_dir: &Path,
+) -> Result<RunOutput, OracleError> {
+    let dir = resolve_cwd(tree, build_dir, &cmd.cwd);
+    let program = resolve_program(&cmd.program);
+    // The launcher (e.g. `mpiexec -n 8`) wraps the command so MPI ranks stay
+    // plain data hashed into `config_hash`, never shell text.
+    let mut argv: Vec<String> = Vec::new();
+    if let Some(l) = &cmd.launcher {
+        argv.push(l.program.clone());
+        argv.push(l.np_flag.clone());
+        argv.push(l.np.to_string());
+        argv.extend(l.extra.iter().cloned());
     }
-    let mut cmd = std::process::Command::new("python3");
-    cmd.arg("-m")
-        .arg("pytest")
-        .arg(&heldout.path)
-        .arg("-v")
-        .arg("--tb=short");
-    cmd.current_dir(artifact);
-    if let Some(src) = src_env(artifact) {
-        let mut pp: std::ffi::OsString = src.into_os_string();
-        if let Some(old) = std::env::var_os("PYTHONPATH") {
-            pp.push(":");
-            pp.push(old);
-        }
-        // Held-out imports original package from artifact's src.
-        cmd.env("PYTHONPATH", pp);
+    argv.push(program.display().to_string());
+    argv.extend(cmd.args.iter().cloned());
+    let mut child = Command::new(&argv[0]);
+    child.args(&argv[1..]);
+    // Every spawn sets cwd via TestCommand.cwd.
+    child.current_dir(&dir);
+    for (k, v) in &cmd.env_set {
+        child.env(k, v);
     }
-    cmd.env("PY_COLORS", "0");
-    let out = cmd.output().map_err(|e| OracleError::Pytest(e.to_string()))?;
-    let stdout = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    Ok(parse_pytest_verbose(&stdout, out.status.code().unwrap_or(-1)))
-}
-
-/// Parse `pytest -v` output: counts + skipped/xfailed/deselected test IDs.
-pub fn parse_pytest_verbose(stdout: &str, exit_code: i32) -> GradedResult {
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    let mut skipped = Vec::new();
-    let mut xfailed = Vec::new();
-    let mut deselected = Vec::new();
-    for line in stdout.lines() {
-        let t = line.trim();
-        // Verbose per-test lines: "test_x.py::Test::test_y PASSED" / SKIPPED / FAILED / XFAIL
-        if t.contains(" PASSED") || t.contains(" passed") {
-            // Avoid double counting summary lines; only count lines with :: (test node ids).
-            if t.contains("::") {
-                passed += 1;
-            }
-        } else if t.contains(" FAILED") || t.contains(" ERROR") {
-            if t.contains("::") {
-                failed += 1;
-            }
-        } else if t.contains(" SKIPPED") {
-            if let Some(id) = t.split_whitespace().next() {
-                if id.contains("::") {
-                    skipped.push(id.to_string());
-                }
-            }
-        } else if t.contains(" XFAIL") {
-            if let Some(id) = t.split_whitespace().next() {
-                if id.contains("::") {
-                    xfailed.push(id.to_string());
-                }
-            }
-        } else if t.contains(" DSELECTED") || t.contains("deselected") {
-            if let Some(id) = t.split_whitespace().next() {
-                if id.contains("::") {
-                    deselected.push(id.to_string());
-                }
-            }
-        }
-        // Short summary info lines: "SKIPPED [1] file:line: reason"
-        if t.starts_with("SKIPPED") && t.contains(':') {
-            // These duplicate the per-test SKIPPED above; skip to avoid double count.
-        }
+    for k in &cmd.env_remove {
+        child.env_remove(k);
     }
-    // Fallback: parse summary line "80 passed, 28 subtests passed in 0.18s" / "1 failed, 79 passed".
-    let (s_passed, s_failed, s_skipped, s_xfail, s_deselect) = parse_summary_counts(stdout);
-    // Prefer verbose per-test counts when nonzero, else summary.
-    if passed == 0 && failed == 0 {
-        passed = s_passed;
-        failed = s_failed;
-    } else {
-        // If verbose undercounts parametrized summary (e.g. subtests), take max.
-        if s_passed > passed {
-            passed = s_passed;
-        }
-        if s_failed > failed {
-            failed = s_failed;
-        }
-    }
-    if skipped.is_empty() && s_skipped > 0 {
-        for i in 0..s_skipped {
-            skipped.push(format!("skipped[{i}]"));
-        }
-    }
-    if xfailed.is_empty() && s_xfail > 0 {
-        for i in 0..s_xfail {
-            xfailed.push(format!("xfailed[{i}]"));
-        }
-    }
-    if deselected.is_empty() && s_deselect > 0 {
-        for i in 0..s_deselect {
-            deselected.push(format!("deselected[{i}]"));
-        }
-    }
-    skipped.sort();
-    xfailed.sort();
-    deselected.sort();
-    GradedResult {
+    let (exit_code, so, se) =
+        spawn_capture(&mut child, cmd.timeout_secs).map_err(OracleError::Io)?;
+    let artifacts = collect_artifacts(tree, build_dir, cmd);
+    // The `$` invocation line is recorded here (absolute program) because
+    // `grade(&[RunOutput])` never sees the commands; the runner parses what
+    // follows and appends stderr itself.
+    let mut stdout = format!("$ {}\n", argv.join(" "));
+    stdout.push_str(&String::from_utf8_lossy(&so));
+    Ok(RunOutput {
         exit_code,
-        passed,
-        failed,
-        skipped,
-        xfailed,
-        deselected,
-        stdout: stdout.to_string(),
-    }
-}
-
-fn parse_summary_counts(s: &str) -> (u32, u32, u32, u32, u32) {
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    let mut skipped = 0u32;
-    let mut xfailed = 0u32;
-    let mut deselected = 0u32;
-    for line in s.lines() {
-        let l = line.to_lowercase();
-        // Only consider summary-ish lines to avoid matching test names.
-        if !(l.contains("passed") || l.contains("failed") || l.contains("skipped") || l.contains("xfailed") || l.contains("deselected") || l.contains("error")) {
-            continue;
-        }
-        // Tokenize "80 passed, 1 skipped, 2 xfailed, 1 deselected"
-        let toks: Vec<&str> = l.split(|c: char| c == ',' || c == ' ' || c == '=').filter(|t| !t.is_empty()).collect();
-        let mut i = 0;
-        while i < toks.len() {
-            if let Ok(n) = toks[i].parse::<u32>() {
-                if i + 1 < toks.len() {
-                    match toks[i + 1] {
-                        w if w.starts_with("passed") => passed = passed.max(n),
-                        w if w.starts_with("failed") => failed = failed.max(n),
-                        w if w.starts_with("skipped") => skipped = skipped.max(n),
-                        w if w.starts_with("xfailed") || w.starts_with("xpassed") => xfailed = xfailed.max(n),
-                        w if w.starts_with("deselected") => deselected = deselected.max(n),
-                        _ => {}
-                    }
-                }
-            }
-            i += 1;
-        }
-    }
-    // Dedupe risk: multiple invocation outputs concatenated; max is right for per-invocation sums?
-    // run_invocation sums per-invocation parses, so max-per-chunk is correct.
-    let _ = HashSet::<u32>::new();
-    (passed, failed, skipped, xfailed, deselected)
-}
-
-pub fn collect_baseline_lists(repo_root: &Path, invocation: &[String]) -> Result<Baseline, OracleError> {
-    let r = run_invocation(repo_root, invocation)?;
-    Ok(Baseline {
-        test_count: r.total(),
-        skipped: r.skipped,
-        xfailed: r.xfailed,
-        deselected: r.deselected,
+        stdout,
+        stderr: String::from_utf8_lossy(&se).into_owned(),
+        artifacts,
     })
 }
 
-pub fn measure_baseline(repo_root: &Path, invocation: &[String]) -> Result<Baseline, OracleError> {
-    collect_baseline_lists(repo_root, invocation)
+/// Exit code for a command killed after `timeout_secs`.
+pub const TIMEOUT_EXIT_CODE: i32 = 124;
+
+fn spawn_capture(
+    cmd: &mut Command,
+    timeout_secs: Option<u32>,
+) -> std::io::Result<(i32, Vec<u8>, Vec<u8>)> {
+    use std::io::Read;
+    use std::process::Stdio;
+    if timeout_secs.is_none() {
+        let out = cmd.output()?;
+        return Ok((
+            out.status.code().unwrap_or(-1),
+            out.stdout,
+            out.stderr,
+        ));
+    }
+    let limit = Duration::from_secs(u64::from(timeout_secs.unwrap_or(0)));
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    let read_out = child.stdout.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            buf
+        })
+    });
+    let read_err = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            buf
+        })
+    });
+    let start = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait()? {
+            Some(s) => break s,
+            None => {
+                if start.elapsed() >= limit {
+                    timed_out = true;
+                    let _ = child.kill();
+                    break child.wait()?;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    };
+    let so = read_out.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
+    let se = read_err.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
+    if timed_out {
+        return Ok((TIMEOUT_EXIT_CODE, so, se));
+    }
+    Ok((status.code().unwrap_or(-1), so, se))
+}
+
+/// Match `path` (slash-separated, relative) against a `collect` glob.
+/// Supports `*`/`?` within a segment and `**` across segments.
+fn glob_match(pattern: &str, path: &str) -> bool {
+    let pat: Vec<&str> = pattern.split('/').collect();
+    let segs: Vec<&str> = path.split('/').collect();
+    match_segs(&pat, &segs)
+}
+
+fn match_segs(pat: &[&str], segs: &[&str]) -> bool {
+    if pat.is_empty() {
+        return segs.is_empty();
+    }
+    if pat[0] == "**" {
+        return (0..=segs.len()).any(|i| match_segs(&pat[1..], &segs[i..]));
+    }
+    if segs.is_empty() || !match_seg(pat[0], segs[0]) {
+        return false;
+    }
+    match_segs(&pat[1..], &segs[1..])
+}
+
+fn match_seg(pat: &str, s: &str) -> bool {
+    let p: Vec<char> = pat.chars().collect();
+    let c: Vec<char> = s.chars().collect();
+    let (mut pi, mut si, mut star, mut mark) = (0usize, 0usize, None, 0usize);
+    while si < c.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == c[si]) {
+            pi += 1;
+            si += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = Some(pi);
+            mark = si;
+            pi += 1;
+        } else if let Some(st) = star {
+            pi = st + 1;
+            mark += 1;
+            si = mark;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+/// Gather `cmd.collect` artifact globs from both roots (build wins on
+/// collision; a single root is walked once). Bounded: 64 files, 8 MiB each.
+fn collect_artifacts(
+    tree: &Path,
+    build_dir: &Path,
+    cmd: &TestCommand,
+) -> BTreeMap<String, Vec<u8>> {
+    const MAX_FILES: usize = 64;
+    const MAX_BYTES: u64 = 8 << 20;
+    let mut out = BTreeMap::new();
+    if cmd.collect.is_empty() {
+        return out;
+    }
+    let mut roots = vec![tree];
+    if build_dir != tree {
+        roots.push(build_dir);
+    }
+    for root in roots {
+        for f in walk_files(root).unwrap_or_default() {
+            let rel = match f.strip_prefix(root) {
+                Ok(r) => r.to_string_lossy().replace('\\', "/"),
+                Err(_) => continue,
+            };
+            if rel.is_empty() {
+                continue;
+            }
+            if !cmd.collect.iter().any(|p| glob_match(p, &rel)) {
+                continue;
+            }
+            if f.metadata().map(|m| m.len() > MAX_BYTES).unwrap_or(true) {
+                continue;
+            }
+            if let Ok(bytes) = std::fs::read(&f) {
+                out.insert(rel, bytes);
+                if out.len() >= MAX_FILES {
+                    return out;
+                }
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
-mod tests {
+mod polyglot_regression_tests {
     use super::*;
+    use rustsmith_core::{
+        AdapterError, Baseline, BuildCtx, Cwd, GradedResult, Manifest, ObservableSpec,
+        Observation, OracleFile, OracleKind, RunOutput, TestCommand, TestRunner,
+        MANIFEST_VERSION,
+    };
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    #[test]
-    fn parses_summary_with_subtests() {
-        let out = "test_x.py::a PASSED\ntest_x.py::b PASSED\n80 passed, 28 subtests passed in 0.18s\n";
-        let r = parse_pytest_verbose(out, 0);
-        assert_eq!(r.passed, 80);
+    fn tmpdir(prefix: &str) -> PathBuf {
+        static CTR: AtomicU64 = AtomicU64::new(0);
+        let n = CTR.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "rustsmith-oracle-{prefix}-{}-{n}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn rm(path: &Path) {
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    fn simple_cmd(program: &str, args: &[&str], cwd: Cwd) -> TestCommand {
+        TestCommand {
+            program: program.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            cwd,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        }
+    }
+
+    fn graded_fixture(passed: u32, failed: u32, marker: &str) -> GradedResult {
+        GradedResult {
+            exit_code: 0,
+            passed,
+            failed,
+            skipped: Vec::new(),
+            xfailed: Vec::new(),
+            deselected: Vec::new(),
+            stdout: marker.to_string(),
+            outcomes: BTreeMap::new(),
+        }
+    }
+
+    /// In-test mock: every runner-shaped decision is scripted, no toolchain.
+    struct MockRunner {
+        id: &'static str,
+        commands: Vec<TestCommand>,
+        graded: GradedResult,
+        files: Vec<(String, OracleKind)>,
+        normalize_to: Option<Vec<u8>>,
+        heldout_cmds: Vec<TestCommand>,
+        config_hash: String,
+    }
+
+    impl MockRunner {
+        fn new(id: &'static str) -> Self {
+            Self {
+                id,
+                commands: Vec::new(),
+                graded: graded_fixture(0, 0, "mock-graded"),
+                files: Vec::new(),
+                normalize_to: None,
+                heldout_cmds: Vec::new(),
+                config_hash: "mock-config".to_string(),
+            }
+        }
+    }
+
+    impl TestRunner for MockRunner {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn invocation(&self, _cx: &BuildCtx) -> Vec<TestCommand> {
+            self.commands.clone()
+        }
+        fn grade(&self, _runs: &[RunOutput]) -> Result<GradedResult, AdapterError> {
+            Ok(self.graded.clone())
+        }
+        fn observe(
+            &self,
+            _runs: &[RunOutput],
+            _specs: &[ObservableSpec],
+        ) -> Vec<Observation> {
+            Vec::new()
+        }
+        fn oracle_files(&self, _repo: &Path) -> Result<Vec<OracleFile>, AdapterError> {
+            Ok(self
+                .files
+                .iter()
+                .map(|(p, k)| OracleFile {
+                    path: p.clone(),
+                    kind: *k,
+                })
+                .collect())
+        }
+        fn normalize_for_hash(&self, _rel: &str, _bytes: &[u8]) -> Option<Vec<u8>> {
+            self.normalize_to.clone()
+        }
+        fn heldout(&self, _suite: &Path, _cx: &BuildCtx) -> Vec<TestCommand> {
+            self.heldout_cmds.clone()
+        }
+        fn config_hash(&self, _cx: &BuildCtx) -> Result<String, AdapterError> {
+            Ok(self.config_hash.clone())
+        }
+    }
+
+    fn empty_manifest(runner_id: &str) -> Manifest {
+        Manifest {
+            version: MANIFEST_VERSION,
+            runner: runner_id.to_string(),
+            languages: Vec::new(),
+            prepare: Vec::new(),
+            invocation: Vec::new(),
+            config_hash: "cfg".to_string(),
+            observables: Vec::new(),
+            files: Vec::new(),
+            baseline: Baseline {
+                test_count: 0,
+                skipped: Vec::new(),
+                xfailed: Vec::new(),
+                deselected: Vec::new(),
+            },
+        }
     }
 
     #[test]
-    fn parses_skipped_verbose() {
-        let out = "test_x.py::Test::test_a SKIPPED\n1 skipped in 0.01s\n";
-        let r = parse_pytest_verbose(out, 0);
-        assert_eq!(r.skipped.len(), 1);
+    fn freeze_routes_invocation_grade_and_config_through_runner() {
+        for runner_id in ["pytest", "ctest"] {
+            let tree = tmpdir("freeze");
+            let build = tmpdir("freeze-build");
+            std::fs::write(tree.join("a.txt"), b"hello").unwrap();
+            let graded = graded_fixture(3, 1, format!("grade-marker-{runner_id}").as_str());
+            let mut runner = MockRunner::new(runner_id);
+            runner.commands = vec![simple_cmd("/bin/true", &[], Cwd::Tree)];
+            runner.graded = graded.clone();
+            runner.files = vec![("a.txt".to_string(), OracleKind::Fixture)];
+            runner.config_hash = format!("cfg-hash-{runner_id}");
+            let cx = BuildCtx {
+                tree: &tree,
+                build_dir: &build,
+                release: false,
+            };
+            let manifest = Oracle::freeze(&cx, &runner).unwrap();
+            assert_eq!(manifest.runner, runner_id);
+            assert_eq!(manifest.config_hash, format!("cfg-hash-{runner_id}"));
+            assert_eq!(manifest.invocation, runner.commands);
+            assert_eq!(manifest.baseline.test_count, graded.total());
+            assert_eq!(manifest.files.len(), 1);
+            assert_eq!(manifest.files[0].sha256, sha256_hex(b"hello"));
+            // The same invocation re-measured grades to the identical shape.
+            let measured = Oracle::measure_tree(&manifest, &tree, &build, &runner).unwrap();
+            assert_eq!(measured, graded);
+            rm(&tree);
+            rm(&build);
+        }
+    }
+
+    #[test]
+    fn grade_halts_when_heldout_dir_missing() {
+        let artifact = tmpdir("heldout-missing");
+        let build = tmpdir("heldout-missing-build");
+        let runner = MockRunner::new("pytest");
+        let manifest = empty_manifest("pytest");
+        let heldout = HeldoutSuite::new(artifact.join("does-not-exist"));
+        let err = Oracle::graded_run(&manifest, &artifact, &build, &heldout, &runner)
+            .unwrap_err();
+        assert!(
+            matches!(err, OracleError::EmptyHeldout(_)),
+            "missing held-out must halt, got {err:?}"
+        );
+        rm(&artifact);
+        rm(&build);
+    }
+
+    #[test]
+    fn grade_halts_when_heldout_dir_empty() {
+        let artifact = tmpdir("heldout-empty");
+        let build = tmpdir("heldout-empty-build");
+        let suite = tmpdir("heldout-suite-empty");
+        let runner = MockRunner::new("pytest");
+        let manifest = empty_manifest("pytest");
+        let heldout = HeldoutSuite::new(suite.clone());
+        let err =
+            Oracle::graded_run(&manifest, &artifact, &build, &heldout, &runner).unwrap_err();
+        assert!(
+            matches!(err, OracleError::EmptyHeldout(_)),
+            "empty held-out dir must halt, got {err:?}"
+        );
+        rm(&artifact);
+        rm(&build);
+        rm(&suite);
+    }
+
+    #[test]
+    fn grade_halts_when_runner_declares_no_heldout_commands() {
+        let artifact = tmpdir("heldout-nocmds");
+        let build = tmpdir("heldout-nocmds-build");
+        let suite = tmpdir("heldout-suite-nocmds");
+        std::fs::write(suite.join("test_keep.py"), b"def test_x(): pass\n").unwrap();
+        // Files exist but the runner declares no held-out commands: still a halt,
+        // never a vacuous pass. Uses the ctest id variant of the mock.
+        let mut runner = MockRunner::new("ctest");
+        runner.heldout_cmds = Vec::new();
+        let manifest = empty_manifest("ctest");
+        let heldout = HeldoutSuite::new(suite.clone());
+        let err =
+            Oracle::graded_run(&manifest, &artifact, &build, &heldout, &runner).unwrap_err();
+        match err {
+            OracleError::EmptyHeldout(msg) => {
+                assert!(msg.contains("ctest"), "held-out error names runner, got {msg}")
+            }
+            other => panic!("expected EmptyHeldout, got {other:?}"),
+        }
+        rm(&artifact);
+        rm(&build);
+        rm(&suite);
+    }
+
+    #[test]
+    fn executor_honours_cwd_resolves_program_collects_and_splits_streams() {
+        let tree = tmpdir("exec");
+        let build = tmpdir("exec-build");
+        std::fs::create_dir_all(tree.join("sub")).unwrap();
+        std::fs::write(tree.join("out.txt"), b"artifact-bytes").unwrap();
+        let cmd = TestCommand {
+            program: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "pwd; echo hello-out; echo hello-err >&2".to_string(),
+            ],
+            cwd: Cwd::Rel("sub".to_string()),
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: vec!["*.txt".to_string()],
+        };
+        let run = execute_one(&cmd, &tree, &build).unwrap();
+        assert_eq!(run.exit_code, 0);
+        // cwd comes from TestCommand.cwd: pwd reports the subdir.
+        assert!(
+            run.stdout.lines().any(|l| l.trim_end().ends_with("sub")),
+            "pwd should report the Rel(sub) dir, got {}",
+            run.stdout
+        );
+        // Bare program resolves to an absolute path in the `$` record line.
+        let header = run.stdout.lines().next().unwrap_or("");
+        assert!(header.starts_with("$ "), "record line, got {header:?}");
+        assert!(header.contains('/'), "program resolved absolute, got {header:?}");
+        assert!(
+            !header.starts_with("$ sh "),
+            "bare name must not survive, got {header:?}"
+        );
+        // stdout/stderr stay separate (body only: the `$` record line echoes the
+        // command text itself, which names both streams).
+        let body = run.stdout.lines().skip(1).collect::<Vec<_>>().join("\n");
+        assert!(body.contains("hello-out"));
+        assert!(!body.contains("hello-err"));
+        assert!(run.stderr.contains("hello-err"));
+        assert!(!run.stderr.contains("hello-out"));
+        // Collect globs gather matching artifacts.
+        assert_eq!(
+            run.artifacts.get("out.txt").map(Vec::as_slice),
+            Some(b"artifact-bytes".as_slice())
+        );
+        rm(&tree);
+        rm(&build);
+    }
+
+    #[test]
+    fn freeze_applies_normalize_for_hash() {
+        let tree = tmpdir("norm-freeze");
+        let build = tmpdir("norm-freeze-build");
+        std::fs::write(tree.join("spec.txt"), b"raw-bytes-v1").unwrap();
+        let cx = BuildCtx {
+            tree: &tree,
+            build_dir: &build,
+            release: false,
+        };
+        // None hashes the raw bytes.
+        let mut raw = MockRunner::new("pytest");
+        raw.commands = vec![simple_cmd("/bin/true", &[], Cwd::Tree)];
+        raw.files = vec![("spec.txt".to_string(), OracleKind::Fixture)];
+        let manifest = Oracle::freeze(&cx, &raw).unwrap();
+        assert_eq!(manifest.files[0].sha256, sha256_hex(b"raw-bytes-v1"));
+        // Some replaces the bytes for hashing.
+        let mut norm = MockRunner::new("pytest");
+        norm.commands = vec![simple_cmd("/bin/true", &[], Cwd::Tree)];
+        norm.files = vec![("spec.txt".to_string(), OracleKind::Fixture)];
+        norm.normalize_to = Some(b"canonical".to_vec());
+        let manifest = Oracle::freeze(&cx, &norm).unwrap();
+        assert_eq!(manifest.files[0].sha256, sha256_hex(b"canonical"));
+        rm(&tree);
+        rm(&build);
+    }
+
+    #[test]
+    fn verify_applies_normalize_for_hash() {
+        let tree = tmpdir("norm-verify");
+        let build = tmpdir("norm-verify-build");
+        std::fs::write(tree.join("spec.txt"), b"raw-bytes-v1").unwrap();
+        let cx = BuildCtx {
+            tree: &tree,
+            build_dir: &build,
+            release: false,
+        };
+        let mut raw = MockRunner::new("pytest");
+        raw.commands = vec![simple_cmd("/bin/true", &[], Cwd::Tree)];
+        raw.files = vec![("spec.txt".to_string(), OracleKind::Fixture)];
+        let manifest = Oracle::freeze(&cx, &raw).unwrap();
+        // Mutating the file is tamper against raw hashing ...
+        std::fs::write(tree.join("spec.txt"), b"totally-different").unwrap();
+        let err = Oracle::verify_hashes(&manifest, &tree, &raw).unwrap_err();
+        assert!(matches!(err, OracleError::Halt(_)), "got {err:?}");
+        // ... but invisible when normalize maps every input to one canonical form.
+        let mut norm = MockRunner::new("pytest");
+        norm.files = vec![("spec.txt".to_string(), OracleKind::Fixture)];
+        norm.normalize_to = Some(b"canonical".to_vec());
+        let norm_manifest = Oracle::freeze(&cx, &norm).unwrap();
+        std::fs::write(tree.join("spec.txt"), b"yet-other-bytes").unwrap();
+        Oracle::verify_hashes(&norm_manifest, &tree, &norm).unwrap();
+        assert_eq!(
+            Oracle::current_hashes(&norm_manifest, &tree, &norm)[0].sha256,
+            sha256_hex(b"canonical")
+        );
+        rm(&tree);
+        rm(&build);
     }
 }

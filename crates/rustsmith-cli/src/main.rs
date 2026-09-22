@@ -1,16 +1,18 @@
 mod candidates;
-mod fixture;
 mod heldout;
 mod mirror;
 mod optimize;
 mod porting;
 mod recon;
-use rustsmith_core::{Event, Gate};
+mod repo;
+mod repo_content;
+mod units;
+use rustsmith_adapters::{select_composite, PytestRunner};
+use rustsmith_core::{Event, Gate, TestRunner};
 use rustsmith_oracle::{HeldoutSuite, Oracle};
 use rustsmith_sandbox::Sandbox;
 use rustsmith_store::Store;
 use std::path::PathBuf;
-
 fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -237,6 +239,30 @@ fn run_pipeline(
     Ok(())
 }
 
+/// Resolve the grading runner named by a frozen manifest. Only runners the
+/// spine knows are accepted; anything else is refused, never guessed.
+fn runner_for_manifest(manifest: &rustsmith_core::Manifest) -> Result<PytestRunner, String> {
+    let runner = PytestRunner;
+    if manifest.runner == runner.id() {
+        Ok(runner)
+    } else {
+        Err(format!("unsupported manifest runner '{}'", manifest.runner))
+    }
+}
+
+/// Grading image for a repo, owned by the composite (parameterized union of
+/// frontend + spine toolchain needs, not a hardcoded Dockerfile name).
+/// Converted to the core shape the sandbox grades with.
+fn image_for_repo(repo: &std::path::Path) -> Result<rustsmith_core::ImageSpec, String> {
+    let (composite, _) = select_composite(repo).map_err(|e| e.to_string())?;
+    let spec = composite.image();
+    Ok(rustsmith_core::ImageSpec {
+        base: spec.base,
+        packages: spec.packages,
+        writable: spec.writable,
+    })
+}
+
 /// M0 recon-only skeleton (byte-identical behavior; m0_acceptance.sh pins it).
 fn cmd_run_legacy(args: &[String]) -> Result<(), String> {
     let stage = flag(args, "--stage").unwrap_or_else(|| "recon".into());
@@ -267,7 +293,13 @@ fn cmd_run_legacy(args: &[String]) -> Result<(), String> {
         })
         .map_err(|e| e.to_string())?;
 
-    let manifest = Oracle::freeze(&repo_path).map_err(|e| e.to_string())?;
+    let runner = PytestRunner;
+    let freeze_cx = rustsmith_core::BuildCtx { tree: &repo_path, build_dir: &repo_path, release: false };
+    let manifest = Oracle::freeze(&freeze_cx, &runner).map_err(|e| e.to_string())?;
+    // Runner-owned grading inputs: the frozen manifest names the runner, the
+    // composite owns the image requirements (parameterized union, not a literal).
+    let grade_runner = runner_for_manifest(&manifest)?;
+    let image = image_for_repo(&repo_path)?;
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     std::fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap())
         .map_err(|e| e.to_string())?;
@@ -281,8 +313,9 @@ fn cmd_run_legacy(args: &[String]) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let sandbox = Sandbox::new(containers);
+    let image_tag = sandbox.ensure_images(&image).map_err(|e| e.to_string())?;
     let graded = sandbox
-        .grading_run(&manifest, &repo_path)
+        .grading_run(&manifest, &repo_path, &repo_path, &grade_runner, &image, &image_tag)
         .map_err(|e| e.to_string())?;
     store
         .append_event(&Event {
@@ -294,7 +327,8 @@ fn cmd_run_legacy(args: &[String]) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let heldout = HeldoutSuite::new(heldout_dir);
-    let (visible, divergence) = Oracle::graded_run(&manifest, &repo_path, &heldout).map_err(|e| e.to_string())?;
+    let (visible, divergence) =
+        Oracle::graded_run(&manifest, &repo_path, &repo_path, &heldout, &grade_runner).map_err(|e| e.to_string())?;
     let parity = rustsmith_gates::oracle_parity(&visible);
     let unit_id = format!("{run_id}:recon");
     store.create_unit(&unit_id, &run_id, "mirror", "{}").map_err(|e| e.to_string())?;
@@ -405,7 +439,8 @@ fn plant_test_edit(
     let mut t = std::fs::read_to_string(&target).map_err(|e| e.to_string())?;
     t.push_str("\n# cheat (adversarial probe: test-editing unit)\n");
     std::fs::write(&target, t).map_err(|e| e.to_string())?;
-    match Oracle::verify_hashes(&manifest, &scratch) {
+    let runner = runner_for_manifest(&manifest)?;
+    match Oracle::verify_hashes(&manifest, &scratch, &runner) {
         Ok(()) => Err("plant misfired: test edit not detected".into()),
         Err(reason) => {
             let detail = reason.to_string();
@@ -421,8 +456,10 @@ fn plant_test_edit(
 }
 
 /// Live-loop adversarial plant 12: visible-input-only correct answers on the
-/// live fork (crc). Real whole-repo grade: parity passes, held-out fails,
-/// divergence halts the run. No magnitudes leak to any worker surface.
+/// live fork. Real whole-repo grade: parity passes, held-out fails,
+/// divergence halts the run. No magnitudes leak to any worker surface. The
+/// probe (shim wrapper + visible set) comes from package-keyed data; held-out
+/// grading runs through the runner, never a hardcoded test command.
 fn plant_hardcode(
     store: &Store,
     run_id: &str,
@@ -431,23 +468,31 @@ fn plant_hardcode(
     recon_out: &std::path::Path,
     heldout: &std::path::Path,
 ) -> Result<(), String> {
-    let kind = fixture::detect_fixture(orig)?;
-    if kind != fixture::FixtureKind::Crc {
-        return Err("--plant-live hardcode supports only the crc fixture".into());
-    }
     let manifest = load_manifest(&recon_out.join("manifest.json").display().to_string())?;
+    let package = crate::repo::facts_package(recon_out)?;
+    let entry = crate::repo_content::entry(&package)?;
+    let wrapper_tpl = entry["plant"]["wrapper"].as_str().unwrap_or("");
+    let orig_impl = entry["plant"]["orig_impl"].as_str().unwrap_or("");
+    if wrapper_tpl.is_empty() || orig_impl.is_empty() {
+        return Err(format!("--plant-live hardcode has no probe for package '{package}'"));
+    }
     let unit_id = format!("{run_id}:plant-hardcode");
     store
         .create_unit(&unit_id, run_id, "mirror", &serde_json::json!({"plant": "hardcode"}).to_string())
         .map_err(|e| e.to_string())?;
     ev_run(store, run_id, "unit_start", serde_json::json!({"unit": unit_id}));
-    // Monkeypatch the live shim (class-level assignment works on the ext;
-    // instance attributes are read-only, so only Calculator is wrapped —
-    // enough: its pins fail while visible vectors delegate exactly).
-    // Canonicalization reuses the ORIGINAL module's exact helper.
-    let shim = fork.join("crc/__init__.py");
-    let orig_src = orig.join("src/crc/_crc.py").display().to_string();
-    let wrapper = include_str!("plant_hardcode_crc.py").replace("@@ORIG@@", &orig_src);
+    // Monkeypatch the live shim: the wrapper delegates visible inputs to the
+    // real implementation (loaded from the pristine original file) and cheats
+    // the rest. The shim is the fork's package `__init__` (installed or flat
+    // layout, resolved structurally, never hardcoded).
+    let shim_rel = if fork.join("src").join(&package).join("__init__.py").is_file() {
+        format!("src/{package}/__init__.py")
+    } else {
+        format!("{package}/__init__.py")
+    };
+    let shim = fork.join(&shim_rel);
+    let orig_src = orig.join(orig_impl).display().to_string();
+    let wrapper = wrapper_tpl.replace("{ORIG}", &orig_src);
     let mut t = std::fs::read_to_string(&shim).map_err(|e| e.to_string())?;
     t.push_str(&wrapper);
     std::fs::write(&shim, t).map_err(|e| e.to_string())?;
@@ -456,21 +501,14 @@ fn plant_hardcode(
     // Whole-repo grade through the real path (no rebuild: pure-Python patch).
     // Measure first (counts-first precedence, same as `grade`).
     let venv = fork.join(".grade-venv");
-    let got = mirror::run_oracle_in_venv(&venv, fork, &manifest.invocation)?;
-    let hashes = Oracle::current_hashes(&manifest, fork);
+    let runner = runner_for_manifest(&manifest)?;
+    let got = mirror::run_oracle_in_venv(&venv, fork, &manifest)?;
+    let hashes = Oracle::current_hashes(&manifest, fork, &runner);
     let integrity = rustsmith_gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
     let parity = rustsmith_gates::oracle_parity(&got);
-    let held_rate = {
-        let py = mirror::grade_venv_python(&venv);
-        let o = std::process::Command::new(&py)
-            .args(["-m", "pytest"])
-            .arg(heldout)
-            .args(["-q", "--tb=no"])
-            .env("PY_COLORS", "0")
-            .output()
-            .map_err(|e| e.to_string())?;
-        mirror::parse_heldout_rate(&format!("{}\n{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)))
-    };
+    // Held-out rate through the runner-owned held-out commands in the grade
+    // venv (same path production grading uses).
+    let held_rate = mirror::run_heldout_in_venv(&venv, fork, heldout)?;
     let div = rustsmith_gates::heldout_divergence(got.pass_rate(), held_rate, 0.05);
     for (g, v) in [("oracle_integrity", &integrity), ("oracle_parity", &parity), ("heldout_divergence", &div)] {
         let gate = match g {
@@ -530,7 +568,8 @@ fn cmd_verify(args: &[String]) -> Result<(), String> {
     let manifest_path = flag(args, "--manifest").ok_or("missing --manifest")?;
     let tree = PathBuf::from(flag(args, "--tree").ok_or("missing --tree")?);
     let manifest = load_manifest(&manifest_path)?;
-    match Oracle::verify_hashes(&manifest, &tree) {
+    let runner = runner_for_manifest(&manifest)?;
+    match Oracle::verify_hashes(&manifest, &tree, &runner) {
         Ok(()) => {
             println!("verify: OK");
             Ok(())
@@ -548,8 +587,9 @@ fn cmd_grade(args: &[String]) -> Result<(), String> {
     let manifest = load_manifest(&manifest_path)?;
     // Measure without pre-verification so integrity reports the precise reason
     // (counts-first: skip shows skip_mismatch, pure tamper shows hash_mismatch).
-    let got = Oracle::measure_tree(&manifest, &tree).map_err(|e| e.to_string())?;
-    let hashes = Oracle::current_hashes(&manifest, &tree);
+    let runner = runner_for_manifest(&manifest)?;
+    let got = Oracle::measure_tree(&manifest, &tree, &tree, &runner).map_err(|e| e.to_string())?;
+    let hashes = Oracle::current_hashes(&manifest, &tree, &runner);
     let integrity = rustsmith_gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
     let parity = rustsmith_gates::oracle_parity(&got);
     println!("{}", serde_json::json!({
@@ -941,8 +981,9 @@ fn cmd_mirror(args: &[String]) -> Result<(), String> {
     let repo = PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?);
     let template = match flag(args, "--template") {
         Some(t) => PathBuf::from(t),
-        // Auto-select the pinned template from repo layout (refuse unknowns).
-        None => fixture::template_dir(&fixture::detect_fixture(&repo)?),
+        // Auto-select `mirror/<package>` from the repo's own packaging
+        // metadata (refuse unknowns, never guess).
+        None => crate::repo::resolve_template(&repo, None)?,
     };
     // Tasks run with cwd=worktree: the template path must be absolute.
     let template = std::fs::canonicalize(&template).map_err(|e| format!("bad template {}: {e}", template.display()))?;
@@ -1051,18 +1092,33 @@ fn cmd_grade_candidate(args: &[String]) -> Result<(), String> {
     }
     if plant == "tuned-const" {
         // Bake the visible-fixed-input answer measured on the base build.
+        // Venv + build go through the shared grade paths (no toolchain
+        // literals); the probe script comes from package-keyed data.
         let venv = out.join(".plant-venv");
-        std::process::Command::new("python3").args(["-m", "venv", "--system-site-packages", &venv.display().to_string()]).status().map_err(|e| e.to_string())?;
-        let vp = venv.join("bin/python");
-        let st = std::process::Command::new(maturin_cli()).args(["develop", "--manifest-path", "Cargo.toml"]).current_dir(&out)
-            .env("VIRTUAL_ENV", &venv).env("PATH", std::env::var_os("PATH").unwrap_or_default())
-            .output().map_err(|e| e.to_string())?;
-        if !st.status.success() {
-            return Err("plant base build failed".into());
+        mirror::ensure_grade_venv(&venv)?;
+        mirror::build_ext(&out, &venv).map_err(|e| format!("plant base build failed: {e}"))?;
+        let package = crate::repo::package_name(&orig)?;
+        let probe = crate::repo_content::entry(&package)?["plant"]["probe"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        if probe.is_empty() {
+            return Err(format!("tuned-const plant has no probe for package '{package}'"));
         }
-        let o = std::process::Command::new(&vp).args(["-c", "from crc import Calculator, Crc8; print(Calculator(Crc8.CCITT, True).checksum(bytes([0x41]) * 4096))"])
-            .env_remove("PYTHONPATH").output().map_err(|e| e.to_string())?;
-        let answer: u64 = String::from_utf8_lossy(&o.stdout).trim().parse().map_err(|e| format!("{e}"))?;
+        let vp = mirror::grade_venv_python(&venv);
+        let cmd = rustsmith_core::TestCommand {
+            program: vp.display().to_string(),
+            args: vec!["-c".to_string(), probe],
+            cwd: rustsmith_core::Cwd::Tree,
+            env_set: Vec::new(),
+            env_remove: vec!["PYTHONPATH".to_string()],
+            launcher: None,
+            timeout_secs: Some(120),
+            collect: Vec::new(),
+        };
+        let runs = rustsmith_oracle::execute_all(&out, &out, &[cmd]).map_err(|e| e.to_string())?;
+        let stdout = runs.first().map(|r| r.stdout.clone()).unwrap_or_default();
+        let answer: u64 = mirror::output_value(&stdout).trim().parse().map_err(|e| format!("{e}"))?;
         candidates::apply_tuned_const(&out, answer).map_err(|e| e.to_string())?;
     } else if plant == "noop" {
         candidates::apply_noop(&out).map_err(|e| e.to_string())?;
@@ -1131,14 +1187,6 @@ fn git_cli(dir: &std::path::Path, args: &[&str]) -> Result<String, String> {
         return Err(format!("git {} failed", args.join(" ")));
     }
     Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
-}
-fn maturin_cli() -> PathBuf {
-    for p in ["/home/john/.local/bin/maturin", "/tmp/mirror-venv/bin/maturin"] {
-        if PathBuf::from(p).exists() {
-            return PathBuf::from(p);
-        }
-    }
-    PathBuf::from("maturin")
 }
 fn cmd_learn(args: &[String]) -> Result<(), String> {
     match args.first().map(|s| s.as_str()) {
@@ -1248,14 +1296,14 @@ fn cmd_learn_apply(args: &[String]) -> Result<(), String> {
 fn cmd_report(args: &[String]) -> Result<(), String> {
     let run_id = flag(args, "--run-id").ok_or("missing --run-id")?;
     let fork = PathBuf::from(flag(args, "--fork").ok_or("missing --fork")?);
-    let orig = PathBuf::from(flag(args, "--orig").ok_or("missing --orig")?);
+    let _orig = PathBuf::from(flag(args, "--orig").ok_or("missing --orig")?);
     let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
     let recon_out = PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out")?);
     let opt = PathBuf::from(flag(args, "--opt").ok_or("missing --opt")?);
     let store = Store::open(&store_path).map_err(|e| e.to_string())?;
-    // Fixture-aware headers (frozen fixture; never guessed per-report).
-    let kind = fixture::resolve_fixture(&recon_out, &orig).unwrap_or(fixture::FixtureKind::Crc);
-    let (attribution, license) = rustsmith_harvest::attribution_for(kind.name());
+    // Provenance headers from the frozen facts.json (RepoFacts attribution;
+    // never guessed per-report).
+    let (attribution, license) = rustsmith_harvest::attribution_from_facts(&recon_out);
     // Floor + stop come from the graded optimize run (no new measurement).
     let opt_rep: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(opt.join("optimize-report.json")).map_err(|e| e.to_string())?,
@@ -1266,12 +1314,18 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         &std::fs::read_to_string(recon_out.join("dag.json")).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
+    // UnitId-first (new) with `module`-stem fallback (pre-rollout dag.json).
     let dag_units: Vec<String> = dag["units"]
         .as_array()
         .cloned()
         .unwrap_or_default()
         .iter()
-        .filter_map(|u| u["module"].as_str().map(|s| s.to_string()))
+        .filter_map(|u| {
+            u["id"]
+                .as_str()
+                .or_else(|| u["module"].as_str())
+                .map(|s| s.to_string())
+        })
         .collect();
     let unsafe_count = count_unsafe(&fork);
     let gates = store.list_gate_results(&run_id).map_err(|e| e.to_string())?;
@@ -1296,11 +1350,11 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         .unwrap_or_else(|| {
             opt_rep["stop"].as_str().unwrap_or("unknown").to_string()
         });
-    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop, attribution, license)
+    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop, &attribution, &license)
         .map_err(|e| e.to_string())?;
-    write_gated(&fork.join("RUSTSMITH_REPORT.md"), &rustsmith_report::emit_md(&rep), attribution)?;
-    write_gated(&fork.join("rustsmith-report.json"), &rustsmith_report::emit_json(&rep), attribution)?;
-    write_gated(&fork.join("rustsmith-report.html"), &rustsmith_report::emit_html(&rep), attribution)?;
+    write_gated(&fork.join("RUSTSMITH_REPORT.md"), &rustsmith_report::emit_md(&rep), &attribution)?;
+    write_gated(&fork.join("rustsmith-report.json"), &rustsmith_report::emit_json(&rep), &attribution)?;
+    write_gated(&fork.join("rustsmith-report.html"), &rustsmith_report::emit_html(&rep), &attribution)?;
     let sug_dir = fork.join("suggestions");
     let patches_dir = sug_dir.join("patches");
     let accel_dir = sug_dir.join("accelerators");
@@ -1321,7 +1375,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
     for s in &rep.suggestions {
         readme.push_str(&format!("\n## {}\n{}\n", s.technique, s.reasoning));
     }
-    write_gated(&sug_dir.join("README.md"), &readme, attribution)?;
+    write_gated(&sug_dir.join("README.md"), &readme, &attribution)?;
     for s in &rep.suggestions {
         let row = opts.iter().find(|r| r.technique == s.technique).ok_or("row vanished")?;
         let mut item = format!(
@@ -1331,7 +1385,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         if let Some(pf) = &s.patch_file {
             match rustsmith_harvest::emit_patch(row) {
                 Ok(p) => {
-                    write_gated(&patches_dir.join(pf), &p.text, attribution)?;
+                    write_gated(&patches_dir.join(pf), &p.text, &attribution)?;
                     item.push_str(&format!("\n## Patch\n\n`patches/{}` — apply with `git apply --check`, then: `{}` (expected gain {:.4})\n", pf, p.benchmark_cmd, p.expected_gain));
                 }
                 Err(e) => {
@@ -1339,7 +1393,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
                 }
             }
         }
-        write_gated(&sug_dir.join(format!("{}.md", sanitize(s.technique.clone()))), &item, attribution)?;
+        write_gated(&sug_dir.join(format!("{}.md", sanitize(s.technique.clone()))), &item, &attribution)?;
     }
     // Accelerators: real ones where a module_local row earns it, else a
     // provenance-carrying note explaining the empty case.
@@ -1351,7 +1405,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         }
         if let Some(row) = opts.iter().find(|r| r.technique == s.technique) {
             if let Ok(a) = rustsmith_harvest::emit_accelerator(row) {
-                write_gated(&accel_dir.join(&a.filename), &a.text, attribution)?;
+                write_gated(&accel_dir.join(&a.filename), &a.text, &attribution)?;
                 acc_note.push_str(&format!("- {}: {}\n", s.technique, a.filename));
                 any_acc = true;
             }
@@ -1360,7 +1414,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
     if !any_acc {
         acc_note.push_str("No module_local rows this run: every merged win was language_independent (backported as a patch) or port_only (documented). No accelerator ships.\n");
     }
-    write_gated(&accel_dir.join("README.md"), &acc_note, attribution)?;
+    write_gated(&accel_dir.join("README.md"), &acc_note, &attribution)?;
     println!(
         "{}",
         serde_json::json!({
@@ -1374,8 +1428,8 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
 
 /// Provenance-gated file write (M6 trap 2: every artifact carries headers).
 fn write_gated(path: &PathBuf, text: &str, attribution: &str) -> Result<(), String> {
-    // Either pinned attribution satisfies the gate (crc backports written
-    // during a strsimpy run keep their own headers; never the reverse).
+    // Either pinned attribution satisfies the gate (backports written under a
+    // different package keep their own headers; never the reverse).
     let other = rustsmith_harvest::ATTRIBUTION;
     let attr = if text.contains(attribution) {
         attribution

@@ -1,0 +1,52 @@
+{
+  "crc": {
+    "body": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom crc import Calculator, Crc8, Crc16, Crc32\n\n\ndef test_generated_pins():\n    assert Calculator(Crc8.CCITT).checksum(bytes([])) == 0x0\n    assert Calculator(Crc16.XMODEM).checksum(bytes([])) == 0x1\n    assert Calculator(Crc32.CRC32).checksum(bytes([])) == 0x2\n    assert Calculator(Crc8.CCITT).checksum(bytes([65])) == 0x5F\n    assert Calculator(Crc16.XMODEM).checksum(bytes([65])) == 0xAA\n    assert Calculator(Crc32.CRC32).checksum(bytes([65])) == 0x352441C2\n    assert Calculator(Crc8.CCITT).checksum(bytes([1, 2, 3])) == 0x14\n    assert Calculator(Crc16.XMODEM).checksum(bytes([1, 2, 3])) == 0x7E55\n    assert Calculator(Crc32.CRC32).checksum(bytes([1, 2, 3])) == 0x29058C73\n",
+    "datas_hex": [
+      "",
+      "41",
+      "010203"
+    ],
+    "vals": [
+      [
+        0,
+        1,
+        2
+      ],
+      [
+        95,
+        170,
+        891568578
+      ],
+      [
+        20,
+        32341,
+        688229491
+      ]
+    ]
+  },
+  "strsimpy": {
+    "body": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom strsimpy.levenshtein import Levenshtein\nfrom strsimpy.jaro_winkler import JaroWinkler\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\n\n\ndef test_generated_pins():\n    assert Levenshtein().distance(\"\", \"a\") == 1\n    assert JaroWinkler().similarity(\"\", \"a\") == 0.5\n    assert NormalizedLevenshtein().distance(\"\", \"a\") == \"v0\"\n    assert Levenshtein().distance(\"abc\", \"abd\") == 1\n    assert JaroWinkler().similarity(\"abc\", \"abd\") == 0.33333333333333337\n    assert NormalizedLevenshtein().distance(\"abc\", \"abd\") == \"v1\"\n",
+    "pairs": [
+      [
+        "",
+        "a"
+      ],
+      [
+        "abc",
+        "abd"
+      ]
+    ],
+    "vals": [
+      [
+        1,
+        0.5,
+        "v0"
+      ],
+      [
+        1,
+        0.33333333333333337,
+        "v1"
+      ]
+    ]
+  }
+}

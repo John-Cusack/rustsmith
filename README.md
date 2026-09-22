@@ -120,6 +120,24 @@ First adapter: Python. The adapter trait (`rustsmith-adapters`: `BuildInfo` / `C
 
 Rule of thumb: slow, easy-to-type backend code (Python, Ruby, Node) is the best mirror target — large speedup + type-safety win. C++/Fortran already run fast; port those for memory safety and maintainability. Browser-frontend JS is out of scope.
 
+## POC board
+
+Open port targets from the Python→Rust triage (2026-09-21). Method: PyPI dl/mo (pypistats, mirrors included) × CPU headroom × text-gap; dependents via ecosyste.ms (libraries.io blocked); nearest-crate search on crates.io/lib.rs. KEEP = CPU-bound with no mature full-feature Rust equivalent. Check rows off as mirrors land.
+
+### KEEP (ranked by dl/mo)
+
+| # | Target | Status | dl/mo | Dependents | Hot path | Nearest Rust crate + gap | Speedup thesis |
+|---|---|---|---|---|---|---|---|
+| 1 | packaging | ☐ open | 1.56B | 4,628 | `version.py::parse`, `markers.py::evaluate`, `tags.py::sys_tags` | [pep440_rs](https://crates.io/crates/pep440_rs) (versions only) / [pep508_rs](https://crates.io/crates/pep508_rs) (markers only) / [uv-pep440](https://crates.io/crates/uv-pep440) (unstable internal) | Resolver evaluates versions/markers thousands× per solve; no single stable full crate |
+| 2 | charset-normalizer | ☐ open | 1.15B | 2,462 | `api.py::from_bytes`, `md.py::mess_ratio`, `cd.py::coherence_ratio` | [chardetng](https://crates.io/crates/chardetng) (legacy-web only) / [charset-normalizer-rs](https://crates.io/crates/charset-normalizer-rs) (subset) / [encoding_rs](https://crates.io/crates/encoding_rs) (no detection) | Brute-force decode-all + per-char scoring is pure CPU; strongest thesis |
+| 3 | python-dateutil | ☐ open | 874M | 6,070 | `_parser.py::get_token`, `rrule.py::_iter`, `tz.py::_isdst` | [chrono](https://crates.io/crates/chrono) (strict only) / [dateparser](https://crates.io/crates/dateparser) (no rrule) / [jiff](https://crates.io/crates/jiff) (no recurrence) | Borderline; scope to rrule/relativedelta/tz engine, not the fuzzy parser |
+| 4 | pyyaml | ☐ open | 867M | 8,566 | `scanner.py`, `parser.py`, `emitter.py` (pure-Python path) | [serde_yaml](https://crates.io/crates/serde_yaml) (deprecated) / [serde_yaml_ng](https://crates.io/crates/serde_yaml_ng) (C wrapper) / [unsafe-libyaml](https://crates.io/crates/unsafe-libyaml) (bindings) | No mature pure-Rust YAML 1.1 crate |
+| 5 | markdown-it-py | ☐ open | 427M | 508 | `parser_block.py`, `parser_inline.py`, `emphasis.py` | [pulldown-cmark](https://crates.io/crates/pulldown-cmark) (no plugin API) / [comrak](https://crates.io/crates/comrak) (GFM renderer) / [markdown-it](https://crates.io/crates/markdown-it) (stale since 2024-07) | Only direct Rust port is stale; plugin token-stream gap |
+| 6 | python-multipart | ☐ open | 313M | 703 | `multipart.py::_internal_write` (both parsers), `parse_options_header` | [multer](https://crates.io/crates/multer) (async-only) / [multipart](https://crates.io/crates/multipart) (unmaintained since 2021) / [form-data](https://crates.io/crates/form-data) (async, tiny) | Untrusted-input byte state machine with CPU-exhaustion CVE history |
+| 7 | pyparsing | ☐ open | 298M | 1,663 | `core.py::parse_string`/`_parseNoCache`, `results.py` | [nom](https://crates.io/crates/nom) / [winnow](https://crates.io/crates/winnow) (code-first) / [pest](https://crates.io/crates/pest) (codegen) | Gap is specifically a runtime-constructible grammar API |
+
+Deliberately excluded: certifi, pytz (data-only bundles); iniconfig (trivial, I/O-bound); typing-inspection (thin typing dispatch, nothing to port); jinja2, jsonschema (mature Rust ports already exist: minijinja, the `jsonschema` crate); pandas (hot paths already Cython; polars covers new builds); beautifulsoup4 (scraper/html5ever cover the capability; remainder is API sugar).
+
 ## Status and docs
 
 Built milestone by milestone, M0 → M9, each with verbatim acceptance criteria:

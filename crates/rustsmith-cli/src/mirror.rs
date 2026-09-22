@@ -8,13 +8,13 @@
 //! swaps the stub task for a real OMP worker task; grading, gating, merging,
 //! and review are identical. The PROOF is in the gates, not the task.
 
-use crate::fixture::{load_template, resolve_fixture, FixtureKind};
-use rustsmith_adapters::UnitDag;
+use crate::units;
+use rustsmith_adapters::{BuildBridge, MaturinBridge, PytestRunner, UnitDag};
 use rustsmith_agent::{Agent, UnitSpec};
 use rustsmith_council::{Council, Proposal, Seat, SeatDriver, Stance, StubDriver};
-use rustsmith_core::{Event, Gate};
+use rustsmith_core::{BuildCtx, Cwd, Event, Gate, TestCommand, TestRunner};
 use rustsmith_gates as gates;
-use rustsmith_oracle::Oracle;
+use rustsmith_oracle::{execute_all, Oracle};
 use rustsmith_sandbox::Sandbox;
 use rustsmith_store::Store;
 use std::collections::HashMap;
@@ -121,298 +121,207 @@ pub fn assemble_bundle(
     })
 }
 
-pub(crate) fn maturin_bin() -> PathBuf {
-    for p in ["/home/john/.local/bin/maturin", "/tmp/mirror-venv/bin/maturin"] {
-        let pb = PathBuf::from(p);
-        if pb.exists() {
-            return pb;
-        }
-    }
-    PathBuf::from("maturin")
-}
-
-/// Grade venv: `--system-site-packages` (no network), maturin via absolute binary.
-pub(crate) fn ensure_grade_venv(venv: &Path) -> Result<(), String> {
-    if venv.join("bin/activate").exists() {
-        return Ok(());
-    }
-    let st = std::process::Command::new("python3")
-        .args(["-m", "venv", "--system-site-packages", &venv.display().to_string()])
-        .status()
-        .map_err(|e| e.to_string())?;
-    if !st.success() {
-        return Err("venv create failed".into());
-    }
-    Ok(())
-}
-
+/// Grade-venv interpreter path. The interpreter literal lives in
+/// `PytestRunner::python_program`; this is a pure path join.
 pub(crate) fn grade_venv_python(venv: &Path) -> PathBuf {
     venv.join("bin/python")
 }
 
-/// Build the fork's extension into the venv (no build isolation: no network).
-pub(crate) fn build_ext(worktree: &Path, venv: &Path) -> Result<String, String> {
-    let mut log = String::new();
+/// `PATH` with the venv's bin prepended so the bridged build resolves its
+/// tools inside the venv.
+fn venv_bin_path_prepend(venv: &Path) -> String {
     let mut path = venv.join("bin").as_os_str().to_owned();
     path.push(":");
     path.push(std::env::var_os("PATH").unwrap_or_default());
-    let out = std::process::Command::new(maturin_bin())
-        .args(["develop", "--manifest-path", "Cargo.toml"])
-        .current_dir(worktree)
-        .env("VIRTUAL_ENV", venv)
-        .env("PATH", path)
-        .output()
-        .map_err(|e| e.to_string())?;
-    log.push_str(&String::from_utf8_lossy(&out.stdout));
-    log.push_str(&String::from_utf8_lossy(&out.stderr));
-    if !out.status.success() {
+    path.to_string_lossy().into_owned()
+}
+
+/// Grade venv: `--system-site-packages` (no network). Venv creation is a stage
+/// concern (`MaturinBridge::prepare` is empty by design); the interpreter
+/// program comes from the runner so no `python3` literal lives here.
+pub(crate) fn ensure_grade_venv(venv: &Path) -> Result<(), String> {
+    if venv.join("bin/activate").exists() {
+        return Ok(());
+    }
+    let base = venv
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(venv);
+    let cmd = TestCommand {
+        program: PytestRunner::python_program(),
+        args: vec![
+            "-m".to_string(),
+            "venv".to_string(),
+            "--system-site-packages".to_string(),
+            venv.display().to_string(),
+        ],
+        cwd: Cwd::Tree,
+        env_set: Vec::new(),
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: None,
+        collect: Vec::new(),
+    };
+    let runs = execute_all(base, base, &[cmd]).map_err(|e| e.to_string())?;
+    if runs.first().map(|r| r.exit_code) != Some(0) {
+        return Err("venv create failed".into());
+    }
+    if venv.join("bin/activate").exists() {
+        Ok(())
+    } else {
+        Err("venv create failed".into())
+    }
+}
+
+/// Build the fork's extension into the venv (no build isolation: no network).
+/// Argv comes from `bridge.build`; the grade-venv binding (VIRTUAL_ENV/PATH)
+/// is applied here because the bridge describes hermetic invocations only.
+pub(crate) fn build_ext(worktree: &Path, venv: &Path) -> Result<String, String> {
+    let bridge = MaturinBridge;
+    let cx = BuildCtx { tree: worktree, build_dir: worktree, release: false };
+    let mut cmds = bridge.build(&cx);
+    for c in &mut cmds {
+        c.env_set.push(("VIRTUAL_ENV".to_string(), venv.display().to_string()));
+        c.env_set.push(("PATH".to_string(), venv_bin_path_prepend(venv)));
+    }
+    let runs = execute_all(worktree, worktree, &cmds).map_err(|e| e.to_string())?;
+    let mut log = String::new();
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
         return Err(format!("maturin develop failed:\n{log}"));
     }
     Ok(log)
 }
 
-/// Run the frozen oracle invocation inside the venv WITHOUT src-layout
-/// PYTHONPATH (the installed Rust extension is the implementation).
+/// Run the frozen oracle invocation inside the venv with the installed Rust
+/// extension as the implementation. Commands are runner-built in both schema
+/// versions (native v2 TestCommands verbatim; v1 layout-derived groups, which
+/// match the frozen split by construction) and rebound onto the grade venv by
+/// the runner (venv interpreter, installed ext wins); grading is
+/// `runner.grade`.
 pub(crate) fn run_oracle_in_venv(
     venv: &Path,
     worktree: &Path,
-    invocation: &[String],
+    manifest: &rustsmith_core::Manifest,
 ) -> Result<rustsmith_core::GradedResult, String> {
-    let py = grade_venv_python(venv);
-    let mut agg = rustsmith_core::GradedResult {
-        exit_code: 0,
-        passed: 0,
-        failed: 0,
-        skipped: vec![],
-        xfailed: vec![],
-        deselected: vec![],
-        stdout: String::new(),
-    };
-    for cmd in invocation {
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        let mut c = std::process::Command::new(&py);
-        c.arg("-m").arg("pytest");
-        for a in parts.iter().skip(1) {
-            c.arg(a);
-        }
-        c.args(["-v", "-rs", "-rxX", "--tb=short"]);
-        c.current_dir(worktree);
-        c.env("PY_COLORS", "0");
-        // Scrub src-layout shadowing: installed ext wins.
-        c.env_remove("PYTHONPATH");
-        let o = c.output().map_err(|e| e.to_string())?;
-        let stdout = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        );
-        let r = parse_verbose(&stdout, o.status.code().unwrap_or(-1));
-        if r.failed > 0 {
-            agg.exit_code = r.exit_code;
-        } else if r.exit_code != 0 && agg.exit_code == 0 {
-            agg.exit_code = r.exit_code;
-        }
-        agg.passed += r.passed;
-        agg.failed += r.failed;
-        agg.skipped.extend(r.skipped);
-        agg.xfailed.extend(r.xfailed);
-        agg.deselected.extend(r.deselected);
-        agg.stdout.push_str(&format!("$ {cmd}\n{stdout}\n"));
-    }
-    agg.skipped.sort();
-    agg.xfailed.sort();
-    agg.deselected.sort();
-    Ok(agg)
-}
-
-fn parse_verbose(stdout: &str, code: i32) -> rustsmith_core::GradedResult {
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    let mut skipped = Vec::new();
-    for line in stdout.lines() {
-        let t = line.trim();
-        if t.contains("::") && t.contains(" PASSED") {
-            passed += 1;
-        } else if t.contains("::") && (t.contains(" FAILED") || t.contains(" ERROR")) {
-            failed += 1;
-        } else if t.contains("::") && t.contains(" SKIPPED") {
-            if let Some(id) = t.split_whitespace().next() {
-                skipped.push(id.to_string());
-            }
-        }
-    }
-    let (sp, sf, ss) = summary_counts(stdout);
-    if passed == 0 && failed == 0 {
-        passed = sp;
-        failed = sf;
+    let runner = PytestRunner;
+    let venv_py = grade_venv_python(venv);
+    let cx = BuildCtx { tree: worktree, build_dir: worktree, release: false };
+    let base: Vec<TestCommand> = if manifest.version == 2 && !manifest.invocation.is_empty() {
+        manifest.invocation.clone()
     } else {
-        if sp > passed {
-            passed = sp;
-        }
-        if sf > failed {
-            failed = sf;
-        }
-    }
-    if skipped.is_empty() && ss > 0 {
-        for i in 0..ss {
-            skipped.push(format!("skipped[{i}]"));
-        }
-    }
-    skipped.sort();
-    rustsmith_core::GradedResult {
-        exit_code: code,
-        passed,
-        failed,
-        skipped,
-        xfailed: vec![],
-        deselected: vec![],
-        stdout: stdout.to_string(),
-    }
+        runner.invocation(&cx)
+    };
+    let cmds = PytestRunner::bind_venv(&base, &venv_py);
+    let runs = execute_all(worktree, worktree, &cmds).map_err(|e| e.to_string())?;
+    runner.grade(&runs).map_err(|e| e.to_string())
 }
 
-fn summary_counts(s: &str) -> (u32, u32, u32) {
-    let (mut p, mut f, mut sk) = (0, 0, 0);
-    for line in s.lines() {
-        let l = line.to_lowercase();
-        if !(l.contains("passed") || l.contains("failed") || l.contains("skipped")) {
-            continue;
-        }
-        let toks: Vec<&str> = l
-            .split(|c: char| c == ',' || c == ' ' || c == '=')
-            .filter(|t| !t.is_empty())
-            .collect();
-        let mut i = 0;
-        while i < toks.len() {
-            if let Ok(n) = toks[i].parse::<u32>() {
-                if i + 1 < toks.len() {
-                    match toks[i + 1] {
-                        w if w.starts_with("passed") => p = p.max(n),
-                        w if w.starts_with("failed") => f = f.max(n),
-                        w if w.starts_with("skipped") => sk = sk.max(n),
-                        _ => {}
-                    }
-                }
-            }
-            i += 1;
-        }
-    }
-    (p, f, sk)
+/// Held-out rate inside the venv: the runner's held-out shape rebound onto
+/// the grade interpreter, parsed with the shared quiet-output rule.
+pub(crate) fn run_heldout_in_venv(
+    venv: &Path,
+    worktree: &Path,
+    suite: &Path,
+) -> Result<f64, String> {
+    let runner = PytestRunner;
+    let cx = BuildCtx { tree: worktree, build_dir: worktree, release: false };
+    let cmds = PytestRunner::bind_venv(&runner.heldout(suite, &cx), &grade_venv_python(venv));
+    let runs = execute_all(worktree, worktree, &cmds).map_err(|e| e.to_string())?;
+    let t = runs
+        .iter()
+        .map(|r| format!("{}\n{}", r.stdout, r.stderr))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(parse_heldout_rate(&t))
 }
 
-/// Differential: original vs mirror outputs across generated inputs.
-/// Fixture-dispatched; the graded pairs are the same shape for both fixtures.
+/// Value lines of executor-captured stdout. The executor records a `$ <argv>`
+/// transcript first line; data parsing (differential pairs, ext paths) must
+/// skip it. Pass-through when no transcript is present.
+pub(crate) fn output_value(stdout: &str) -> String {
+    let mut lines = stdout.lines();
+    match lines.next() {
+        Some(first) if first.starts_with("$ ") => {
+            lines.collect::<Vec<_>>().join("\n").trim().to_string()
+        }
+        _ => stdout.trim().to_string(),
+    }
+}
+/// Differential: original vs mirror outputs across generated inputs. The probe
+/// script + argv lists come from package-keyed data; the pairs are the same
+/// shape for every repo (trimmed stdout values, exit codes ignored).
 pub fn differential_pairs_for(
-    kind: &FixtureKind,
+    package: &str,
     orig_py: &Path,
     venv_py: &Path,
     worktree: &Path,
 ) -> Result<Vec<(String, String)>, String> {
-    match kind {
-        FixtureKind::Crc => differential_pairs(orig_py, venv_py, worktree),
-        FixtureKind::Strsimpy => differential_pairs_strsimpy(orig_py, venv_py, worktree),
+    let entry = crate::repo_content::entry(package)?;
+    let script = entry["differential"]["script"].as_str().unwrap_or("");
+    if script.is_empty() {
+        return Err(format!("no differential probe for package '{package}'"));
+    }
+    let argvs: Vec<Vec<String>> = entry["differential"]["argvs"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|a| {
+            a.as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .collect();
+    run_probe_pairs(orig_py, venv_py, worktree, script, &argvs)
+}
+/// One `-c` probe invocation as a `TestCommand`. The interpreter program is
+/// the caller's path (system interpreter or venv python); `cwd` does the
+/// module resolution, so no `PYTHONPATH` literal appears on this path.
+fn probe_command(program: &Path, script: &str, args: &[String]) -> TestCommand {
+    let mut cmd_args = vec!["-c".to_string(), script.to_string()];
+    cmd_args.extend(args.iter().cloned());
+    TestCommand {
+        program: program.display().to_string(),
+        args: cmd_args,
+        cwd: Cwd::Tree,
+        env_set: Vec::new(),
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: None,
+        collect: Vec::new(),
     }
 }
-pub fn differential_pairs(
-    orig_py: &Path,
-    venv_py: &Path,
-    worktree: &Path,
-) -> Result<Vec<(String, String)>, String> {
-    let script = r#"
-import sys
-config = sys.argv[1]
-data_hex = sys.argv[2]
-data = bytes.fromhex(data_hex)
-from crc import Calculator
-import importlib
-mods = {'Crc8': __import__('crc', fromlist=['Crc8']).Crc8,
-        'Crc16': __import__('crc', fromlist=['Crc16']).Crc16,
-        'Crc32': __import__('crc', fromlist=['Crc32']).Crc32}
-cat, member = config.split('.')
-calc = Calculator(getattr(mods[cat], member))
-print(calc.checksum(data))
-:"#;
-    let inputs: Vec<(&str, Vec<u8>)> = vec![
-        ("Crc8.CCITT", b"123456789".to_vec()),
-        ("Crc8.CCITT", vec![]),
-        ("Crc8.SAEJ1850", b"hello".to_vec()),
-        ("Crc16.XMODEM", b"123456789".to_vec()),
-        ("Crc16.MODBUS", vec![0u8; 64]),
-        ("Crc32.CRC32", (0..256).map(|i| i as u8).collect()),
-        ("Crc8.BLUETOOTH", b"Hello World!".to_vec()),
-        ("Crc16.KERMIT", b"abc".to_vec()),
-    ];
-    run_pairs(orig_py, venv_py, worktree, script, &inputs)
-}
-/// strsimpy differential: edit-distance / similarity outputs on short strings,
-/// including empty/singleton/adversarial shapes. Float outputs compare exact:
-/// both sides run the same algorithm over ASCII inputs (deterministic).
-pub fn differential_pairs_strsimpy(
-    orig_py: &Path,
-    venv_py: &Path,
-    worktree: &Path,
-) -> Result<Vec<(String, String)>, String> {
-    let script = r#"
-import sys
-expr = sys.argv[1]
-ns = {}
-exec("from strsimpy.levenshtein import Levenshtein\nfrom strsimpy.damerau import Damerau\nfrom strsimpy.jaro_winkler import JaroWinkler\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\nfrom strsimpy.cosine import Cosine\nfrom strsimpy.jaccard import Jaccard\nfrom strsimpy.ngram import NGram\nfrom strsimpy.optimal_string_alignment import OptimalStringAlignment\nfrom strsimpy.longest_common_subsequence import LongestCommonSubsequence\nfrom strsimpy.metric_lcs import MetricLCS\nfrom strsimpy.qgram import QGram\nfrom strsimpy.sorensen_dice import SorensenDice\nfrom strsimpy.overlap_coefficient import OverlapCoefficient\nfrom strsimpy.weighted_levenshtein import WeightedLevenshtein\nfrom strsimpy.sift4 import SIFT4", ns)
-print(repr(eval(expr, ns)))
-:"#;
-    let inputs: Vec<(&str, Vec<u8>)> = vec![
-        ("Levenshtein().distance('kitten','sitting')", vec![]),
-        ("Levenshtein().distance('','abc')", vec![]),
-        ("Damerau().distance('abcd','acbd')", vec![]),
-        ("JaroWinkler().similarity('martha','marhta')", vec![]),
-        ("NormalizedLevenshtein().distance('abc','abd')", vec![]),
-        ("Cosine(2).distance('hello world','hello there')", vec![]),
-        ("Jaccard(2).similarity('abc','abd')", vec![]),
-        ("NGram(2).distance('abcd','abce')", vec![]),
-    ];
-    let mut pairs = Vec::new();
-    for (expr, _) in inputs {
-        let o1 = std::process::Command::new(orig_py)
-            .args(["-c", script, expr])
-            .env("PYTHONPATH", worktree.join("orig_src"))
-            .output()
-            .map_err(|e| e.to_string())?;
-        let o2 = std::process::Command::new(venv_py)
-            .args(["-c", script, expr])
-            .output()
-            .map_err(|e| e.to_string())?;
-        pairs.push((
-            String::from_utf8_lossy(&o1.stdout).trim().to_string(),
-            String::from_utf8_lossy(&o2.stdout).trim().to_string(),
-        ));
-    }
-    Ok(pairs)
-}
-fn run_pairs(
+/// Original vs mirror outputs across probe inputs. The original side runs with
+/// `cwd` = staged original sources (the `-c` interpreter puts `cwd` on
+/// `sys.path`, replacing the legacy `PYTHONPATH` override); the mirror side
+/// runs in the worktree against the installed extension. Only trimmed stdout
+/// values are compared, exit codes ignored — identical to the legacy loop.
+fn run_probe_pairs(
     orig_py: &Path,
     venv_py: &Path,
     worktree: &Path,
     script: &str,
-    inputs: &[(&str, Vec<u8>)],
+    inputs: &[Vec<String>],
 ) -> Result<Vec<(String, String)>, String> {
-    let mut pairs = Vec::new();
-    for (cfg, data) in inputs {
-        let hex = data.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        // original (system python with original src on path)
-        let o1 = std::process::Command::new(orig_py)
-            .args(["-c", script, cfg, &hex])
-            .env("PYTHONPATH", worktree.join("orig_src"))
-            .output()
-            .map_err(|e| e.to_string())?;
-        // mirror (venv with installed ext)
-        let o2 = std::process::Command::new(venv_py)
-            .args(["-c", script, cfg, &hex])
-            .output()
-            .map_err(|e| e.to_string())?;
-        pairs.push((
-            String::from_utf8_lossy(&o1.stdout).trim().to_string(),
-            String::from_utf8_lossy(&o2.stdout).trim().to_string(),
-        ));
-    }
-    Ok(pairs)
+    let orig_src = worktree.join("orig_src");
+    let orig_cmds: Vec<TestCommand> =
+        inputs.iter().map(|a| probe_command(orig_py, script, a)).collect();
+    let mirror_cmds: Vec<TestCommand> =
+        inputs.iter().map(|a| probe_command(venv_py, script, a)).collect();
+    let o1 = execute_all(&orig_src, &orig_src, &orig_cmds).map_err(|e| e.to_string())?;
+    let o2 = execute_all(worktree, worktree, &mirror_cmds).map_err(|e| e.to_string())?;
+    Ok(o1
+        .iter()
+        .zip(o2.iter())
+        .map(|(a, b)| (output_value(&a.stdout), output_value(&b.stdout)))
+        .collect())
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -484,7 +393,12 @@ pub struct MirrorArgs {
 
 pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     let run_id = &a.run_id;
-    // Load recon artifacts.
+    // Load recon artifacts. Unit keys are UnitIds
+    // (`<lang>:<repo-rel>[#<symbol>]`); pre-rollout dag.json files with bare
+    // stems (`id` or `module`) still read: the scheduler keys on the frozen
+    // `id` opaquely and every per-unit lookup goes through the units compat
+    // shims. Branch/worktree/bundle names use the sanitized form (`:` is
+    // illegal in git refs, `/` nests paths) while the store keeps the UnitId.
     let dag_text = std::fs::read_to_string(a.recon_out.join("dag.json")).map_err(|e| e.to_string())?;
     let dag_json: serde_json::Value =
         serde_json::from_str(&dag_text).map_err(|e| e.to_string())?;
@@ -492,14 +406,27 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         .map_err(|e| e.to_string())?;
     let units_json = dag_json["units"].as_array().cloned().unwrap_or_default();
     let mut depends: HashMap<String, Vec<String>> = HashMap::new();
+    // `module` audit stems (new writes) double as the old-reader key: prefer
+    // `id`, fall back to `module` for pre-rollout dag files.
+    let mut dag_module: HashMap<String, String> = HashMap::new();
     for u in &units_json {
-        depends.insert(
-            u["id"].as_str().unwrap_or("").to_string(),
-            u["depends_on"]
-                .as_array()
-                .map(|v| v.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
-                .unwrap_or_default(),
-        );
+        let id = u["id"]
+            .as_str()
+            .or_else(|| u["module"].as_str())
+            .unwrap_or("")
+            .to_string();
+        if !id.is_empty() {
+            if let Some(m) = u["module"].as_str() {
+                dag_module.insert(id.clone(), m.to_string());
+            }
+            depends.insert(
+                id,
+                u["depends_on"]
+                    .as_array()
+                    .map(|v| v.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default(),
+            );
+        }
     }
     // Scheduler works over this DAG: leaf-first order, ready = deps passed.
     let unit_dag = UnitDag {
@@ -507,7 +434,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             .iter()
             .map(|id| rustsmith_adapters::Unit {
                 id: id.clone(),
-                module: id.clone(),
+                module: dag_module.get(id).cloned().unwrap_or_else(|| crate::units::unit_stem(id).to_string()),
                 depends_on: depends.get(id).cloned().unwrap_or_default(),
             })
             .collect(),
@@ -517,29 +444,32 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         std::fs::read_to_string(a.recon_out.join("PORTING.md")).map_err(|e| e.to_string())?;
     let manifest_text =
         std::fs::read_to_string(a.recon_out.join("manifest.json")).map_err(|e| e.to_string())?;
+    // v1-compat upgrade: current recon output is v1 (string invocation);
+    // native v2 (TestCommand invocation) grades through the same runner.
     let manifest: rustsmith_core::Manifest =
-        serde_json::from_str(&manifest_text).map_err(|e| e.to_string())?;
-    // Fixture + template: frozen fixture if recon wrote one, else detect.
-    // The template manifest lists every file the port needs (no hardcodes).
-    let kind = resolve_fixture(&a.recon_out, &a.repo)?;
-    let tspec = load_template(&a.template)?;
-    // Template/fixture cross-check: a crc template against a strsimpy repo
-    // (or vice versa) is a refused misconfiguration, never a weird run.
-    if tspec.package != kind.package() {
-        return Err(format!("template package {} does not match fixture {}", tspec.package, kind.package()));
+        rustsmith_core::parse_manifest_json(&manifest_text).map_err(|e| e.to_string())?;
+
+    // Package + template: identity comes from the frozen facts.json (written
+    // by recon from the repo itself), the template manifest lists every file
+    // the port needs. A template for another package is a refused
+    // misconfiguration, never a weird run.
+    let package = crate::repo::facts_package(&a.recon_out)?;
+    let tspec = units::load_template(&a.template)?;
+    if tspec.package != package {
+        return Err(format!("template package {} does not match repo package {package}", tspec.package));
     }
-    if tspec.src_layout != kind.src_layout() {
-        return Err(format!("template layout does not match fixture {}", kind.package()));
+    let layout_src = crate::repo::is_src_layout(&a.repo, &package);
+    if tspec.src_layout != layout_src {
+        return Err(format!("template layout does not match repo package {package}"));
     }
-    // Keep an orig-src copy for differential grading (src-layout vs flat).
-    let orig_src = if kind.src_layout() {
+    // Keep an orig-src copy for differential grading (src-layout stages `src`,
+    // flat stages the whole tree so the package dir resolves via `cwd`).
+    let orig_src = if layout_src {
         a.repo.join("src")
     } else {
         a.repo.clone()
     };
-    let recon_modules = crate::fixture::read_recon_modules(&a.recon_out);
-    let manifest_inv = manifest.invocation.clone();
-
+    let recon_modules = units::read_recon_modules(&a.recon_out);
     // Init fork from the original (full copy minus .git), run branch.
     if a.fork.exists() {
         std::fs::remove_dir_all(&a.fork).map_err(|e| e.to_string())?;
@@ -553,14 +483,25 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     std::fs::write(a.fork.join(".gitignore"), "worktree-*\n.bundles/\n.grade-venv/\norig_src/\n__pycache__/\ntarget/\n*.so\n").map_err(|e| e.to_string())?;
     git(&a.fork, &["add", "-A"])?;
     git(&a.fork, &["commit", "-qm", "seed from original"])?;
+    // Run language comes from the frozen recon (`build.languages`, new) with
+    // `build.language` (pre-rollout) as compat fallback — never a literal.
+    let mirror_lang = crate::units::read_recon_build_languages(&a.recon_out)
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
     store
-        .create_run(run_id, &a.repo.display().to_string(), "python", "mirror")
+        .create_run(run_id, &a.repo.display().to_string(), &mirror_lang, "mirror")
         .map_err(|e| e.to_string())?;
     ev(store, run_id, "mirror_start", serde_json::json!({"units": order}));
     for id in &order {
         let deps = depends.get(id).cloned().unwrap_or_default();
         store
-            .create_unit(id, run_id, "mirror", &serde_json::json!({"module": id}).to_string())
+            .create_unit(
+                id,
+                run_id,
+                "mirror",
+                &serde_json::json!({"module": crate::units::unit_stem(id)}).to_string(),
+            )
             .map_err(|e| e.to_string())?;
         store
             .set_unit_depends(id, &serde_json::to_string(&deps).unwrap())
@@ -573,7 +514,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     ensure_grade_venv(&venv)?;
 
     // Scheduler: leaf-first over the DAG; ready = all deps passed.
-    // Parallel cap MAX_PARALLEL bounds independent units (fixture runs serialized).
+    // Parallel cap MAX_PARALLEL bounds independent units (runs serialize here).
     let _ = MAX_PARALLEL;
     for u in &unit_dag.units {
         let id = &u.id;
@@ -586,30 +527,55 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         }
         store.set_unit_status(id, "running").map_err(|e| e.to_string())?;
         ev(store, run_id, "unit_start", serde_json::json!({"unit": id}));
-        // Worktree on branch unit/<id>.
+        // Worktree on branch unit/<sanitized id>: raw UnitIds contain `:` (and
+        // `/`), both illegal in git refs. The store keeps the canonical UnitId.
+        let wt_name = crate::units::unit_fs_name(id);
         let wt = sandbox
-            .alloc_worktree(&a.fork, run_id, id)
+            .alloc_worktree(&a.fork, run_id, &wt_name)
             .map_err(|e| e.to_string())?;
         store
             .set_unit_worktree(id, wt.as_str())
             .map_err(|e| e.to_string())?;
         // Bundle (held-out blind: no held-out input exists on this path).
         // Orig source + task come from the template manifest, never hardcodes.
-        let bundle_dir = a.fork.join(format!(".bundles/{id}"));
+        let bundle_dir = a.fork.join(format!(".bundles/{wt_name}"));
         let (orig_rel, _) =
-            crate::fixture::unit_sources(&tspec, &recon_modules, id)?;
+            crate::units::unit_sources(&tspec, &recon_modules, id)?;
         let orig_file = a.repo.join(&orig_rel);
         let orig_source =
             std::fs::read_to_string(&orig_file).unwrap_or_else(|_| String::from("// empty"));
         assemble_bundle(
             &bundle_dir,
             id,
-            id,
+            &u.module,
             &depends.get(id).cloned().unwrap_or_default(),
             &porting_md,
             &orig_source,
             "frozen-oracle(read-only)",
         )?;
+        // Canonical scaffold audit: the bridge is the authority on port
+        // scaffolds, so resolve this unit through `bridge.scaffold()` and
+        // freeze the resulting file list next to the bundle. Units the bridge
+        // cannot scaffold fall back to the template compat mapping recorded
+        // here; materialization below still follows the template task.
+        let bridge = MaturinBridge;
+        let decl = crate::units::unit_decl_for_scaffold(id, &orig_rel);
+        let scaffold_note = match bridge.scaffold(&decl) {
+            Ok(files) => serde_json::json!({
+                "scaffolded": true,
+                "files": files.iter().map(|(p, _)| p).collect::<Vec<_>>(),
+            }),
+            Err(e) => serde_json::json!({
+                "scaffolded": false,
+                "fallback": "template",
+                "reason": e.to_string(),
+            }),
+        };
+        std::fs::write(
+            bundle_dir.join("scaffold.json"),
+            serde_json::to_string_pretty(&scaffold_note).unwrap(),
+        )
+        .map_err(|e| e.to_string())?;
         // M8 slice-3: live worker-command turn (additive). Prompt = stable
         // prefix + PORTING.md + unit bundle, written to prompt.txt; worker
         // stdout usage recorded as tokens (never evidence). Files still come
@@ -630,7 +596,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         }
         // Worker stub task (real subprocess via Agent): materialize the unit,
         // then commit on its branch so the merge carries the files.
-        let task = crate::fixture::unit_task(&tspec, &a.template, id)?;
+        let task = crate::units::unit_task(&tspec, &a.template, id)?;
         let spec = UnitSpec {
             unit_id: id.clone(),
             worktree: wt.clone(),
@@ -648,51 +614,35 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         }
         store.set_unit_status(id, "gated").map_err(|e| e.to_string())?;
         // Grade in the worktree: build + oracle + heldout + differential.
+        // Configure (bridge.prepare) is empty for maturin; build installs the
+        // extension into the grade venv; grading/parsing is runner-owned.
         let wt_path = wt.as_std_path();
         build_ext(wt_path, &venv)?;
-        let got = run_oracle_in_venv(&venv, wt_path, &manifest_inv)?;
+        let got = run_oracle_in_venv(&venv, wt_path, &manifest)?;
         // Gates.
-        let hashes = Oracle::current_hashes(&manifest, wt_path);
+        let runner = PytestRunner;
+        let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
         // NOTE: worktree pyproject was replaced (maturin) — section-hash covers
         // test config only (ADR-002), so packaging change does not trip tamper.
         let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
         let parity = gates::oracle_parity(&got);
         let rate = rate_of(&got);
-        let held_rate = {
-            // Run held-out suite against the worktree build via the venv.
-            let py = grade_venv_python(&venv);
-            let o = std::process::Command::new(&py)
-                .args(["-m", "pytest"])
-                .arg(&a.heldout)
-                .args(["-q", "--tb=no"])
-                .env("PY_COLORS", "0")
-                .output()
-                .map_err(|e| e.to_string())?;
-            let t = format!(
-                "{}\n{}",
-                String::from_utf8_lossy(&o.stdout),
-                String::from_utf8_lossy(&o.stderr)
-            );
-            parse_heldout_rate(&t)
-        };
+        // Held-out suite against the worktree build via the venv runner.
+        let held_rate = run_heldout_in_venv(&venv, wt_path, &a.heldout)?;
         let div = gates::heldout_divergence(rate, held_rate, 0.05);
-        // Stage orig_src for the differential's PYTHONPATH.
+        // Stage orig_src for the differential probes (resolved via cwd).
         std::fs::create_dir_all(wt_path.join("orig_src")).map_err(|e| e.to_string())?;
         copy_tree(&orig_src, &wt_path.join("orig_src"))?;
         let diff_pairs = differential_pairs_for(
-            &kind,
-            &PathBuf::from("python3"),
+            &package,
+            &PathBuf::from(PytestRunner::python_program()),
             &grade_venv_python(&venv),
             wt_path,
         )?;
         let _ = std::fs::remove_dir_all(wt_path.join("orig_src"));
-        let diff = gates::differential(
-            &diff_pairs
-                .iter()
-                .map(|(a, b)| (a.clone(), b.clone()))
-                .collect::<Vec<_>>(),
-            0.0,
-        );
+        // Exact-equality behind the per-observable tolerance: the default path
+        // passes 0.0/None, preserving legacy math byte-for-byte.
+        let diff = gates::differential(&diff_pairs, 0.0, None);
         for (g, v) in [
             (Gate::OracleIntegrity, &integrity),
             (Gate::OracleParity, &parity),
@@ -730,7 +680,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         let (r1, r2) = assign_reviewers(None, &providers);
         record_review(store, run_id, id, &format!("unit {id} diff"), r1, r2)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
-        let (_, deletes) = crate::fixture::unit_sources(&tspec, &recon_modules, id)?;
+        let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
         merge_unit(&a.fork, wt.as_str(), id, &deletes)?;
         let sha = git(&a.fork, &["rev-parse", "HEAD"])?;
         store.set_unit_commit(id, &sha).map_err(|e| e.to_string())?;
@@ -741,8 +691,8 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
 
     // Whole-repo grade on the run branch (rebuild from merged sources first).
     build_ext(&a.fork, &venv)?;
-    let got = run_oracle_in_venv(&venv, &a.fork, &manifest_inv)?;
-    let hashes = Oracle::current_hashes(&manifest, &a.fork);
+    let got = run_oracle_in_venv(&venv, &a.fork, &manifest)?;
+    let hashes = Oracle::current_hashes(&manifest, &a.fork, &PytestRunner);
     let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
     let parity = gates::oracle_parity(&got);
     if !integrity.passed {
@@ -754,22 +704,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     if !parity.passed {
         return Err("whole-repo grade failed".into());
     }
-    let held_rate_all = {
-        let py = grade_venv_python(&venv);
-        let o = std::process::Command::new(&py)
-            .args(["-m", "pytest"])
-            .arg(&a.heldout)
-            .args(["-q", "--tb=no"])
-            .env("PY_COLORS", "0")
-            .output()
-            .map_err(|e| e.to_string())?;
-        let t = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        );
-        parse_heldout_rate(&t)
-    };
+    let held_rate_all = run_heldout_in_venv(&venv, &a.fork, &a.heldout)?;
     let whole_div = rate_of(&got) - held_rate_all;
     // Held-out divergence over threshold halts the run (SPEC 10.3).
     let wdiv = gates::heldout_divergence(rate_of(&got), held_rate_all, 0.05);
@@ -891,7 +826,9 @@ fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -
     // Merge worker branch with --no-commit, delete the mirrored
     // original-language modules (template manifest), then commit ONCE:
     // merge + deletion land in the same commit so interface drift surfaces now.
-    let wt_branch = format!("unit/{unit_id}");
+    // Branch names are sanitized (UnitIds contain `:`/`/`, illegal in git
+    // refs); this matches the `alloc_worktree` name in `run_mirror`.
+    let wt_branch = format!("unit/{}", crate::units::unit_fs_name(unit_id));
     git(fork, &["merge", "--no-commit", "--no-ff", &wt_branch])?;
     for t in deletes {
         if fork.join(t).exists() {
@@ -1061,5 +998,64 @@ mod tests {
         }
         assert!(!text.contains("heldout_tests_never_here"));
         assert!(text.contains("mirror-v1"));
+    }
+    #[test]
+    fn grade_routing_rebinds_onto_venv_python() {
+        use rustsmith_adapters::select_composite;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pkgmod.py"), "VALUE = 1\n").unwrap();
+        let (composite, _) = select_composite(dir.path()).unwrap();
+        let cx = BuildCtx {
+            tree: dir.path(),
+            build_dir: dir.path(),
+            release: false,
+        };
+        // Routing originates from the runner: interpreter literal owned by
+        // `PytestRunner::python_program`, argv opens with `-m pytest`.
+        let invocation = composite.runner.invocation(&cx);
+        assert!(!invocation.is_empty(), "runner must freeze an invocation");
+        for cmd in &invocation {
+            assert_eq!(cmd.program, PytestRunner::python_program());
+            assert!(
+                cmd.args.len() >= 2 && cmd.args[0] == "-m" && cmd.args[1] == "pytest",
+                "oracle invocation must be `-m pytest ...`, got {:?}",
+                cmd.args
+            );
+        }
+        // Grade rebinding swaps only the interpreter onto the venv python.
+        let venv = tempfile::tempdir().unwrap();
+        let venv_py = grade_venv_python(venv.path());
+        assert!(
+            venv_py.ends_with("bin/python"),
+            "grade interpreter must be the venv python"
+        );
+        let rebound = PytestRunner::bind_venv(&invocation, &venv_py);
+        assert_eq!(rebound.len(), invocation.len());
+        for (orig, bound) in invocation.iter().zip(rebound.iter()) {
+            assert_eq!(
+                bound.program,
+                venv_py.to_string_lossy().into_owned(),
+                "rebound command must run under the venv interpreter"
+            );
+            assert_eq!(bound.args, orig.args, "rebinding keeps argv");
+            assert_eq!(bound.cwd, orig.cwd, "rebinding keeps cwd");
+            assert!(
+                !bound.env_set.iter().any(|(k, _)| k == "PYTHONPATH"),
+                "installed extension must win: no PYTHONPATH survives"
+            );
+        }
+    }
+
+    #[test]
+    fn differential_none_tols_preserves_exact_equality() {
+        // Mirror + optimize grade with `tolerance = 0.0, tols = None`: any
+        // textual drift fails (no silent float slop on exact outputs).
+        let drift = vec![("1.000".to_string(), "1.005".to_string())];
+        assert!(
+            !gates::differential(&drift, 0.0, None).passed,
+            "0.0/None must reject 1.000 vs 1.005"
+        );
+        let identical = vec![("1.000".to_string(), "1.000".to_string())];
+        assert!(gates::differential(&identical, 0.0, None).passed);
     }
 }

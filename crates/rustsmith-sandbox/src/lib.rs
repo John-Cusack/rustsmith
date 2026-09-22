@@ -1,6 +1,11 @@
 use camino::Utf8PathBuf;
-use rustsmith_core::{GradedResult, Manifest};
+use rustsmith_core::{
+    AdapterError, Cwd, GradedResult, ImageSpec, Manifest, RunOutput, TestCommand, TestRunner,
+};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -9,12 +14,20 @@ pub enum SandboxError {
     Io(#[from] std::io::Error),
     #[error("docker: {0}")]
     Docker(String),
-    #[error("pytest: {0}")]
-    Pytest(String),
+    #[error("runner: {0}")]
+    Runner(String),
+    /// Host fallback is a Python-only escape hatch. Refusing it for any other
+    /// runner is load-bearing: a host run could resolve the tree's absolute
+    /// build-dir binaries to system installs and pass against the wrong binary.
+    #[error("host fallback refused: {0}")]
+    HostFallbackRefused(String),
 }
 
-pub const RUN_IMAGE: &str = "rustsmith-run:0.1.0";
-pub const GRADING_IMAGE: &str = "rustsmith-grading:0.1.0";
+impl From<AdapterError> for SandboxError {
+    fn from(e: AdapterError) -> Self {
+        SandboxError::Runner(e.to_string())
+    }
+}
 
 pub struct Sandbox {
     pub containers_dir: PathBuf,
@@ -25,35 +38,50 @@ impl Sandbox {
         Self { containers_dir }
     }
 
-    /// Build run + grading images from `containers/`. Returns (run, grading) tags.
-    /// Pins base digests via the Dockerfiles themselves.
-    pub fn ensure_images(&self) -> Result<(String, String), SandboxError> {
-        let run_dockerfile = self.containers_dir.join("run.Dockerfile");
-        let grading_dockerfile = self.containers_dir.join("grading.Dockerfile");
-        for f in [&run_dockerfile, &grading_dockerfile] {
-            if !f.exists() {
-                return Err(SandboxError::Docker(format!("missing {}", f.display())));
-            }
+    /// Build the grading image described by `spec` and return its tag.
+    /// The Dockerfile is rendered (`FROM <base>` plus a package-install layer
+    /// when `packages` is non-empty); the tag is derived from the spec so
+    /// different toolchains never share one.
+    pub fn ensure_images(&self, spec: &ImageSpec) -> Result<String, SandboxError> {
+        let tag = image_tag(spec);
+        let dir = tempfile::tempdir()?;
+        let dockerfile = dir.path().join("Dockerfile");
+        let mut text = format!("FROM {}\n", spec.base);
+        if !spec.packages.is_empty() {
+            text.push_str(&format!(
+                "RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*\n",
+                spec.packages.join(" ")
+            ));
         }
-        build_image(&run_dockerfile, RUN_IMAGE)?;
-        build_image(&grading_dockerfile, GRADING_IMAGE)?;
-        Ok((RUN_IMAGE.into(), GRADING_IMAGE.into()))
+        std::fs::write(&dockerfile, text)?;
+        build_image(&dockerfile, &tag)?;
+        Ok(tag)
     }
 
-    /// Ephemeral graded run: `--network=none`, read-only oracle mount + artifact copy.
-    /// Never mounts `store.db` or any held-out path (enforced: no such args exist).
+    /// Ephemeral graded run: `--network=none`, read-only mounts plus writable
+    /// overlays for `image.writable`. Never mounts `store.db` or any held-out
+    /// path (enforced: no such args exist).
+    ///
+    /// Docker infra failure falls back to a host run ONLY for the `pytest`
+    /// runner (cross-track contract: `PytestRunner::id() == "pytest"`); every
+    /// other runner gets [`SandboxError::HostFallbackRefused`]. The fallback
+    /// marks stdout so audit can see it. It is never silent.
     pub fn grading_run(
         &self,
         manifest: &Manifest,
         artifact: &Path,
+        build_dir: &Path,
+        runner: &dyn TestRunner,
+        image: &ImageSpec,
+        image_tag: &str,
     ) -> Result<GradedResult, SandboxError> {
-        grading_run_impl(manifest, artifact)
+        grading_run_impl(manifest, artifact, build_dir, runner, image, image_tag)
     }
 
     /// Prove a path is absent inside the grading image (held-out blindness check).
-    pub fn grading_image_lacks(&self, pattern: &str) -> Result<bool, SandboxError> {
+    pub fn grading_image_lacks(&self, image_tag: &str, pattern: &str) -> Result<bool, SandboxError> {
         let out = std::process::Command::new("docker")
-            .args(["run", "--rm", "--network=none", GRADING_IMAGE, "sh", "-c", &format!("find / -name '{pattern}' 2>/dev/null | head -5")])
+            .args(["run", "--rm", "--network=none", image_tag, "sh", "-c", &format!("find / -name '{pattern}' 2>/dev/null | head -5")])
             .output()
             .map_err(|e| SandboxError::Docker(e.to_string()))?;
         if !out.status.success() {
@@ -82,221 +110,459 @@ fn build_image(dockerfile: &Path, tag: &str) -> Result<(), SandboxError> {
     Ok(())
 }
 
-fn grading_run_impl(manifest: &Manifest, artifact: &Path) -> Result<GradedResult, SandboxError> {
-    // Prefer real container execution; fall back to host pytest only if docker is
-    // unavailable (still reports the fallback in stdout so audit can see it).
-    let docker_ok = std::process::Command::new("docker")
-        .args(["image", "inspect", GRADING_IMAGE])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if docker_ok {
-        if let Ok(r) = docker_grading_run(manifest, artifact) {
-            return Ok(r);
-        }
-        // Fall through to host run on docker execution failure.
+/// Deterministic tag: sanitized base + FNV-1a over packages/writable
+/// (hand-rolled so one tag needs no new dependency).
+fn image_tag(spec: &ImageSpec) -> String {
+    let base: String = spec
+        .base
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in spec
+        .packages
+        .iter()
+        .chain(spec.writable.iter())
+        .flat_map(|s| s.bytes())
+    {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x100000001b3);
     }
-    host_grading_run(manifest, artifact, true)
+    format!("rustsmith-{base}-{h:016x}")
 }
 
-fn docker_grading_run(manifest: &Manifest, artifact: &Path) -> Result<GradedResult, SandboxError> {
-    // Copy artifact test files + src into a staging dir, mount read-only.
+fn grading_run_impl(
+    manifest: &Manifest,
+    artifact: &Path,
+    build_dir: &Path,
+    runner: &dyn TestRunner,
+    image: &ImageSpec,
+    image_tag: &str,
+) -> Result<GradedResult, SandboxError> {
+    match docker_grading_run(manifest, artifact, build_dir, runner, image, image_tag) {
+        Ok(r) => Ok(r),
+        // Only docker-infra failures consult the fallback policy; a `Runner`
+        // grading error is deterministic and propagates untouched.
+        Err(SandboxError::Docker(_)) if runner.id() == "pytest" => {
+            let mut r = host_grading_run(manifest, artifact, build_dir, runner)?;
+            r.stdout.insert_str(
+                0,
+                "[grading_run: host fallback, docker unavailable]\n",
+            );
+            Ok(r)
+        }
+        Err(SandboxError::Docker(e)) => Err(SandboxError::HostFallbackRefused(format!(
+            "runner '{}': {e}",
+            runner.id()
+        ))),
+        Err(e) => Err(e),
+    }
+}
+
+fn docker_grading_run(
+    manifest: &Manifest,
+    artifact: &Path,
+    build_dir: &Path,
+    runner: &dyn TestRunner,
+    image: &ImageSpec,
+    image_tag: &str,
+) -> Result<GradedResult, SandboxError> {
+    // Stage the tree; an out-of-tree build dir is staged alongside it. Both
+    // mounts stay read-only; each `writable` entry gets its own rw bind
+    // mount on the matching root (finer mounts win over the ro parent), so
+    // e.g. CTest can write `Testing/` without seeing the rest writable.
     let stage = tempfile::tempdir()?;
-    let stage_path = stage.path().join("artifact");
-    copy_dir(artifact, &stage_path)?;
-    let mut agg = GradedResult {
-        exit_code: 0,
-        passed: 0,
-        failed: 0,
-        skipped: vec![],
-        xfailed: vec![],
-        deselected: vec![],
-        stdout: String::new(),
-    };
+    let stage_tree = stage.path().join("artifact");
+    copy_dir(artifact, &stage_tree)?;
+    let out_of_tree = build_dir != artifact;
+    let stage_build = stage.path().join("build");
+    if out_of_tree {
+        copy_dir(build_dir, &stage_build)?;
+    }
+    let mut runs = Vec::with_capacity(manifest.invocation.len());
     for cmd in &manifest.invocation {
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        let pytest_args = parts.iter().skip(1).cloned().collect::<Vec<_>>().join(" ");
-        // Inside image workdir is /artifact; PYTHONPATH=/artifact/src for src-layout.
-        let inner = format!("cd /artifact && PYTHONPATH=/artifact/src:$PYTHONPATH PY_COLORS=0 python3 -m pytest {pytest_args} -v -rs -rxX --tb=short 2>&1");
-        let out = std::process::Command::new("docker")
-            .args([
-                "run",
-                "--rm",
-                "--network=none",
-                "--tmpfs",
-                "/tmp",
-                "--tmpfs",
-                "/var/tmp",
-                "-v",
-                &format!("{}:/artifact:ro", stage_path.display()),
-            ])
-            .arg(GRADING_IMAGE)
-            .args(["sh", "-c", &inner])
+        let mut docker = Command::new("docker");
+        docker.args([
+            "run",
+            "--rm",
+            "--network=none",
+            "--tmpfs",
+            "/tmp",
+            "--tmpfs",
+            "/var/tmp",
+            "-v",
+            &format!("{}:/artifact:ro", stage_tree.display()),
+        ]);
+        if out_of_tree {
+            docker.args(["-v", &format!("{}:/build:ro", stage_build.display())]);
+        }
+        let (writable_root, writable_prefix) =
+            if matches!(cmd.cwd, Cwd::BuildDir) && out_of_tree {
+                (&stage_build, "/build")
+            } else {
+                (&stage_tree, "/artifact")
+            };
+        for w in &image.writable {
+            let host = writable_root.join(w);
+            std::fs::create_dir_all(&host)?;
+            docker.args(["-v", &format!("{}:{writable_prefix}/{w}:rw", host.display())]);
+        }
+        docker.args(["--workdir", &container_cwd(&cmd.cwd, out_of_tree)]);
+        for (k, v) in &cmd.env_set {
+            docker.args(["-e", &format!("{k}={v}")]);
+        }
+        docker.arg(image_tag);
+        // No shell: `env -u` covers env_remove, then launcher/program/argv.
+        if !cmd.env_remove.is_empty() {
+            docker.arg("env");
+            for k in &cmd.env_remove {
+                docker.args(["-u", k]);
+            }
+        }
+        docker.args(container_argv(cmd, artifact, build_dir, out_of_tree));
+        // Every spawn sets cwd (the container workdir is set above; the
+        // client itself runs from the staging dir for determinism).
+        docker.current_dir(stage.path());
+        let out = docker
             .output()
             .map_err(|e| SandboxError::Docker(e.to_string()))?;
-        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-        let r = crate_parse(&stdout, out.status.code().unwrap_or(-1));
-        if r.failed > 0 {
-            agg.exit_code = r.exit_code;
-        } else if r.exit_code != 0 && agg.exit_code == 0 {
-            agg.exit_code = r.exit_code;
+        let code = out.status.code().unwrap_or(-1);
+        // 125/126/127 are docker's own "could not run it" statuses; anything
+        // else is the test command's verdict, even when nonzero.
+        if (125..=127).contains(&code) || out.status.code().is_none() {
+            return Err(SandboxError::Docker(format!(
+                "docker run failed (status {code}): {}",
+                String::from_utf8_lossy(&out.stderr)
+            )));
         }
-        agg.passed += r.passed;
-        agg.failed += r.failed;
-        agg.skipped.extend(r.skipped);
-        agg.xfailed.extend(r.xfailed);
-        agg.deselected.extend(r.deselected);
-        agg.stdout.push_str(&format!("$ docker {cmd}\n{stdout}\n"));
+        // Writes propagate back through the bind mounts; collect from staging.
+        let mut artifacts = collect_from(&stage_tree, cmd);
+        if out_of_tree {
+            artifacts.extend(collect_from(&stage_build, cmd));
+        }
+        runs.push(RunOutput {
+            exit_code: code,
+            stdout: format!(
+                "$ {}\n{}",
+                requested_argv(cmd).join(" "),
+                String::from_utf8_lossy(&out.stdout)
+            ),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            artifacts,
+        });
     }
-    agg.skipped.sort();
-    agg.xfailed.sort();
-    agg.deselected.sort();
+    let graded = runner.grade(&runs)?;
     // Keep staging dir alive until done (tempdir drops here).
     let _ = stage.keep();
-    Ok(agg)
+    Ok(graded)
 }
 
+/// Host execution of the manifest invocation. Only reachable through the
+/// `pytest` fallback in [`grading_run_impl`]; every other runner refuses
+/// the host above instead of silently grading the wrong binaries.
 fn host_grading_run(
     manifest: &Manifest,
     artifact: &Path,
-    mark_fallback: bool,
+    build_dir: &Path,
+    runner: &dyn TestRunner,
 ) -> Result<GradedResult, SandboxError> {
-    let mut agg = GradedResult {
-        exit_code: 0,
-        passed: 0,
-        failed: 0,
-        skipped: vec![],
-        xfailed: vec![],
-        deselected: vec![],
-        stdout: String::new(),
-    };
-    if mark_fallback {
-        agg.stdout.push_str("[grading_run: host fallback, docker unavailable]\n");
-    }
+    let mut runs = Vec::with_capacity(manifest.invocation.len());
     for cmd in &manifest.invocation {
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        let args: Vec<&str> = parts.into_iter().skip(1).collect();
-        let r = host_pytest(artifact, &args)?;
-        if r.failed > 0 {
-            agg.exit_code = r.exit_code;
-        } else if r.exit_code != 0 && agg.exit_code == 0 {
-            agg.exit_code = r.exit_code;
-        }
-        agg.passed += r.passed;
-        agg.failed += r.failed;
-        agg.skipped.extend(r.skipped);
-        agg.xfailed.extend(r.xfailed);
-        agg.deselected.extend(r.deselected);
-        agg.stdout.push_str(&format!("$ {} {}\n{}\n", "pytest", args.join(" "), r.stdout));
+        runs.push(execute_one(cmd, artifact, build_dir)?);
     }
-    agg.skipped.sort();
-    agg.xfailed.sort();
-    agg.deselected.sort();
-    Ok(agg)
+    Ok(runner.grade(&runs)?)
 }
 
-fn host_pytest(repo_root: &Path, args: &[&str]) -> Result<GradedResult, SandboxError> {
-    let mut cmd = std::process::Command::new("python3");
-    cmd.arg("-m").arg("pytest");
-    for a in args {
-        cmd.arg(a);
+fn container_cwd(cwd: &Cwd, out_of_tree: bool) -> String {
+    match cwd {
+        Cwd::Tree => "/artifact".to_string(),
+        Cwd::BuildDir if out_of_tree => "/build".to_string(),
+        Cwd::BuildDir => "/artifact".to_string(),
+        Cwd::Rel(r) => format!("/artifact/{r}"),
     }
-    cmd.arg("-v").arg("-rs").arg("-rxX").arg("--tb=short");
-    cmd.current_dir(repo_root);
-    let src = repo_root.join("src");
-    if src.is_dir() {
-        let mut pp: std::ffi::OsString = src.into_os_string();
-        if let Some(old) = std::env::var_os("PYTHONPATH") {
-            pp.push(":");
-            pp.push(old);
-        }
-        cmd.env("PYTHONPATH", pp);
-    }
-    cmd.env("PY_COLORS", "0");
-    let out = cmd.output().map_err(|e| SandboxError::Pytest(e.to_string()))?;
-    let stdout = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    Ok(crate_parse(&stdout, out.status.code().unwrap_or(-1)))
 }
 
-fn crate_parse(stdout: &str, code: i32) -> GradedResult {
-    // Minimal local parser mirroring oracle's (sandbox must not depend on oracle).
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    let mut skipped = Vec::new();
-    for line in stdout.lines() {
-        let t = line.trim();
-        if t.contains("::") && t.contains(" PASSED") {
-            passed += 1;
-        } else if t.contains("::") && (t.contains(" FAILED") || t.contains(" ERROR")) {
-            failed += 1;
-        } else if t.contains("::") && t.contains(" SKIPPED") {
-            if let Some(id) = t.split_whitespace().next() {
-                skipped.push(id.to_string());
+/// Remap an absolute host path into the container. Paths under the graded
+/// tree/build point at the staged copies; system pins pass through for the
+/// image toolchain to provide.
+fn remap(p: &str, artifact: &Path, build_dir: &Path, out_of_tree: bool) -> String {
+    let path = Path::new(p);
+    if let Ok(rel) = path.strip_prefix(artifact) {
+        return format!("/artifact/{}", rel.display());
+    }
+    if out_of_tree {
+        if let Ok(rel) = path.strip_prefix(build_dir) {
+            return format!("/build/{}", rel.display());
+        }
+    }
+    p.to_string()
+}
+
+fn container_argv(
+    cmd: &TestCommand,
+    artifact: &Path,
+    build_dir: &Path,
+    out_of_tree: bool,
+) -> Vec<String> {
+    let mut argv = Vec::new();
+    if let Some(l) = &cmd.launcher {
+        argv.push(remap(&l.program, artifact, build_dir, out_of_tree));
+        argv.push(l.np_flag.clone());
+        argv.push(l.np.to_string());
+        argv.extend(l.extra.iter().cloned());
+    }
+    // Bare names resolve inside the image PATH; absolute pins are remapped.
+    let prog = if cmd.program.contains('/') {
+        remap(&cmd.program, artifact, build_dir, out_of_tree)
+    } else {
+        cmd.program.clone()
+    };
+    argv.push(prog);
+    for a in &cmd.args {
+        if a.starts_with('/') {
+            argv.push(remap(a, artifact, build_dir, out_of_tree));
+        } else {
+            argv.push(a.clone());
+        }
+    }
+    argv
+}
+
+/// The command as requested (host spelling), for the `$` record line.
+/// The container-resolved spelling lives in [`container_argv`].
+fn requested_argv(cmd: &TestCommand) -> Vec<String> {
+    let mut argv = Vec::new();
+    if let Some(l) = &cmd.launcher {
+        argv.push(l.program.clone());
+        argv.push(l.np_flag.clone());
+        argv.push(l.np.to_string());
+        argv.extend(l.extra.iter().cloned());
+    }
+    argv.push(cmd.program.clone());
+    argv.extend(cmd.args.iter().cloned());
+    argv
+}
+
+fn resolve_cwd(tree: &Path, build_dir: &Path, cwd: &Cwd) -> PathBuf {
+    match cwd {
+        Cwd::Tree => tree.to_path_buf(),
+        Cwd::BuildDir => build_dir.to_path_buf(),
+        Cwd::Rel(r) => tree.join(r),
+    }
+}
+
+/// Resolve `program` to the absolute binary that is actually spawned.
+/// Paths containing `/` are used verbatim (the runner pins absolute
+/// build-dir binaries there); bare names are looked up on `PATH` left to
+/// right, and the resolved absolute path is what gets spawned and recorded.
+fn resolve_program(program: &str) -> PathBuf {
+    if program.contains('/') {
+        return PathBuf::from(program);
+    }
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let cand = dir.join(program);
+            if cand.is_file() {
+                return cand;
             }
         }
     }
-    let (sp, sf, ss, _, _) = summary_counts(stdout);
-    if passed == 0 && failed == 0 {
-        passed = sp;
-        failed = sf;
-    } else {
-        if sp > passed {
-            passed = sp;
-        }
-        if sf > failed {
-            failed = sf;
-        }
-    }
-    if skipped.is_empty() && ss > 0 {
-        for i in 0..ss {
-            skipped.push(format!("skipped[{i}]"));
-        }
-    }
-    skipped.sort();
-    GradedResult {
-        exit_code: code,
-        passed,
-        failed,
-        skipped,
-        xfailed: vec![],
-        deselected: vec![],
-        stdout: stdout.to_string(),
-    }
+    PathBuf::from(program)
 }
 
-fn summary_counts(s: &str) -> (u32, u32, u32, u32, u32) {
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    let mut skipped = 0u32;
-    for line in s.lines() {
-        let l = line.to_lowercase();
-        if !(l.contains("passed") || l.contains("failed") || l.contains("skipped")) {
+fn execute_one(
+    cmd: &TestCommand,
+    tree: &Path,
+    build_dir: &Path,
+) -> Result<RunOutput, SandboxError> {
+    let dir = resolve_cwd(tree, build_dir, &cmd.cwd);
+    let program = resolve_program(&cmd.program);
+    let mut argv: Vec<String> = Vec::new();
+    if let Some(l) = &cmd.launcher {
+        argv.push(l.program.clone());
+        argv.push(l.np_flag.clone());
+        argv.push(l.np.to_string());
+        argv.extend(l.extra.iter().cloned());
+    }
+    argv.push(program.display().to_string());
+    argv.extend(cmd.args.iter().cloned());
+    let mut child = Command::new(&argv[0]);
+    child.args(&argv[1..]);
+    // Every spawn sets cwd via TestCommand.cwd.
+    child.current_dir(&dir);
+    for (k, v) in &cmd.env_set {
+        child.env(k, v);
+    }
+    for k in &cmd.env_remove {
+        child.env_remove(k);
+    }
+    let (exit_code, so, se) =
+        spawn_capture(&mut child, cmd.timeout_secs).map_err(SandboxError::Io)?;
+    let mut artifacts = collect_from(tree, cmd);
+    if build_dir != tree {
+        artifacts.extend(collect_from(build_dir, cmd));
+    }
+    // The `$` invocation line is recorded here (absolute program) because
+    // `grade(&[RunOutput])` never sees the commands; the runner parses what
+    // follows and appends stderr itself.
+    let mut stdout = format!("$ {}\n", argv.join(" "));
+    stdout.push_str(&String::from_utf8_lossy(&so));
+    Ok(RunOutput {
+        exit_code,
+        stdout,
+        stderr: String::from_utf8_lossy(&se).into_owned(),
+        artifacts,
+    })
+}
+
+/// Exit code for a command killed after `timeout_secs`.
+const TIMEOUT_EXIT_CODE: i32 = 124;
+
+fn spawn_capture(
+    cmd: &mut Command,
+    timeout_secs: Option<u32>,
+) -> std::io::Result<(i32, Vec<u8>, Vec<u8>)> {
+    use std::io::Read;
+    use std::process::Stdio;
+    if timeout_secs.is_none() {
+        let out = cmd.output()?;
+        return Ok((
+            out.status.code().unwrap_or(-1),
+            out.stdout,
+            out.stderr,
+        ));
+    }
+    let limit = Duration::from_secs(u64::from(timeout_secs.unwrap_or(0)));
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    let read_out = child.stdout.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            buf
+        })
+    });
+    let read_err = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            buf
+        })
+    });
+    let start = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait()? {
+            Some(s) => break s,
+            None => {
+                if start.elapsed() >= limit {
+                    timed_out = true;
+                    let _ = child.kill();
+                    break child.wait()?;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    };
+    let so = read_out
+        .map(|h| h.join().unwrap_or_default())
+        .unwrap_or_default();
+    let se = read_err
+        .map(|h| h.join().unwrap_or_default())
+        .unwrap_or_default();
+    if timed_out {
+        return Ok((TIMEOUT_EXIT_CODE, so, se));
+    }
+    Ok((status.code().unwrap_or(-1), so, se))
+}
+
+/// Match `path` (slash-separated, relative) against a `collect` glob.
+/// Supports `*`/`?` within a segment and `**` across segments.
+fn glob_match(pattern: &str, path: &str) -> bool {
+    let pat: Vec<&str> = pattern.split('/').collect();
+    let segs: Vec<&str> = path.split('/').collect();
+    match_segs(&pat, &segs)
+}
+
+fn match_segs(pat: &[&str], segs: &[&str]) -> bool {
+    if pat.is_empty() {
+        return segs.is_empty();
+    }
+    if pat[0] == "**" {
+        return (0..=segs.len()).any(|i| match_segs(&pat[1..], &segs[i..]));
+    }
+    if segs.is_empty() || !match_seg(pat[0], segs[0]) {
+        return false;
+    }
+    match_segs(&pat[1..], &segs[1..])
+}
+
+fn match_seg(pat: &str, s: &str) -> bool {
+    let p: Vec<char> = pat.chars().collect();
+    let c: Vec<char> = s.chars().collect();
+    let (mut pi, mut si, mut star, mut mark) = (0usize, 0usize, None, 0usize);
+    while si < c.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == c[si]) {
+            pi += 1;
+            si += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = Some(pi);
+            mark = si;
+            pi += 1;
+        } else if let Some(st) = star {
+            pi = st + 1;
+            mark += 1;
+            si = mark;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+/// Gather `cmd.collect` artifact globs under `root` (keys are root-relative
+/// paths). Bounded: 64 files, 8 MiB each.
+fn collect_from(root: &Path, cmd: &TestCommand) -> BTreeMap<String, Vec<u8>> {
+    const MAX_FILES: usize = 64;
+    const MAX_BYTES: u64 = 8 << 20;
+    let mut out = BTreeMap::new();
+    if cmd.collect.is_empty() {
+        return out;
+    }
+    for f in walkdir_simple(root).unwrap_or_default() {
+        if !f.is_file() {
             continue;
         }
-        let toks: Vec<&str> = l
-            .split(|c: char| c == ',' || c == ' ' || c == '=')
-            .filter(|t| !t.is_empty())
-            .collect();
-        let mut i = 0;
-        while i < toks.len() {
-            if let Ok(n) = toks[i].parse::<u32>() {
-                if i + 1 < toks.len() {
-                    match toks[i + 1] {
-                        w if w.starts_with("passed") => passed = passed.max(n),
-                        w if w.starts_with("failed") => failed = failed.max(n),
-                        w if w.starts_with("skipped") => skipped = skipped.max(n),
-                        _ => {}
-                    }
-                }
+        let rel = match f.strip_prefix(root) {
+            Ok(r) => r.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+        if rel.is_empty() {
+            continue;
+        }
+        if !cmd.collect.iter().any(|p| glob_match(p, &rel)) {
+            continue;
+        }
+        if f.metadata().map(|m| m.len() > MAX_BYTES).unwrap_or(true) {
+            continue;
+        }
+        if let Ok(bytes) = std::fs::read(&f) {
+            out.insert(rel, bytes);
+            if out.len() >= MAX_FILES {
+                return out;
             }
-            i += 1;
         }
     }
-    (passed, failed, skipped, 0, 0)
+    out
 }
 
 fn copy_dir(src: &Path, dst: &Path) -> Result<(), SandboxError> {
@@ -481,5 +747,233 @@ mod tests {
     fn cgroup_fallback_logged() {
         let r = apply_limits(std::process::id(), &CgroupLimits { cpu_shares: 1024, mem_bytes: 512 << 20 }).unwrap();
         assert!(r.contains("fallback") || r.contains("no delegation"));
+    }
+    #[test]
+    fn collect_glob_star_star_does_not_cross_without_it() {
+        assert!(glob_match("Testing/**/*.xml", "Testing/a/b.xml"));
+        assert!(glob_match("Testing/**/*.xml", "Testing/b.xml"));
+        assert!(!glob_match("Testing/*.xml", "Testing/a/b.xml"));
+        assert!(glob_match("*.log", "run.log"));
+        assert!(!glob_match("*.log", "a/run.log"));
+        assert!(glob_match("**/*.log", "a/run.log"));
+        assert!(glob_match("out-?.txt", "out-1.txt"));
+        assert!(!glob_match("out-?.txt", "out-12.txt"));
+    }
+}
+
+#[cfg(test)]
+mod polyglot_regression_tests {
+    use super::*;
+    use rustsmith_core::{
+        AdapterError, Baseline, BuildCtx, Cwd, GradedResult, Manifest, ObservableSpec,
+        Observation, OracleFile, TestCommand, TestRunner, MANIFEST_VERSION,
+    };
+    use std::collections::BTreeMap;
+
+    fn graded_fixture(passed: u32, failed: u32, marker: &str) -> GradedResult {
+        GradedResult {
+            exit_code: 0,
+            passed,
+            failed,
+            skipped: Vec::new(),
+            xfailed: Vec::new(),
+            deselected: Vec::new(),
+            stdout: marker.to_string(),
+            outcomes: BTreeMap::new(),
+        }
+    }
+
+    fn simple_cmd(program: &str, args: &[&str], cwd: Cwd) -> TestCommand {
+        TestCommand {
+            program: program.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            cwd,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        }
+    }
+
+    /// In-test mock: scripted runner, no toolchain, no network.
+    struct MockRunner {
+        id: &'static str,
+        commands: Vec<TestCommand>,
+        graded: GradedResult,
+    }
+
+    impl TestRunner for MockRunner {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn invocation(&self, _cx: &BuildCtx) -> Vec<TestCommand> {
+            self.commands.clone()
+        }
+        fn grade(&self, _runs: &[RunOutput]) -> Result<GradedResult, AdapterError> {
+            Ok(self.graded.clone())
+        }
+        fn observe(
+            &self,
+            _runs: &[RunOutput],
+            _specs: &[ObservableSpec],
+        ) -> Vec<Observation> {
+            Vec::new()
+        }
+        fn oracle_files(&self, _repo: &Path) -> Result<Vec<OracleFile>, AdapterError> {
+            Ok(Vec::new())
+        }
+        fn normalize_for_hash(&self, _rel: &str, _bytes: &[u8]) -> Option<Vec<u8>> {
+            None
+        }
+        fn heldout(&self, _suite: &Path, _cx: &BuildCtx) -> Vec<TestCommand> {
+            Vec::new()
+        }
+        fn config_hash(&self, _cx: &BuildCtx) -> Result<String, AdapterError> {
+            Ok("mock-config".to_string())
+        }
+    }
+
+    fn manifest_with(commands: Vec<TestCommand>, runner_id: &str) -> Manifest {
+        Manifest {
+            version: MANIFEST_VERSION,
+            runner: runner_id.to_string(),
+            languages: Vec::new(),
+            prepare: Vec::new(),
+            invocation: commands,
+            config_hash: "cfg".to_string(),
+            observables: Vec::new(),
+            files: Vec::new(),
+            baseline: Baseline {
+                test_count: 0,
+                skipped: Vec::new(),
+                xfailed: Vec::new(),
+                deselected: Vec::new(),
+            },
+        }
+    }
+
+    /// A tag that can never exist, so `docker run` always reports infra
+    /// failure (exit 125) and the test never needs a real image or daemon.
+    /// When docker is not even installed the spawn itself fails the same way.
+    const BOGUS_IMAGE: &str = "rustsmith-nonexistent-test-image:0";
+
+    fn image_spec() -> ImageSpec {
+        ImageSpec {
+            base: "scratch".to_string(),
+            packages: Vec::new(),
+            writable: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn host_fallback_refused_for_ctest() {
+        let dir = tempfile::tempdir().unwrap();
+        let artifact = dir.path().join("artifact");
+        let build = dir.path().join("build");
+        std::fs::create_dir_all(&artifact).unwrap();
+        std::fs::create_dir_all(&build).unwrap();
+        // Non-empty invocation forces a real `docker run` attempt, which the
+        // bogus image guarantees to fail as infra error.
+        let runner = MockRunner {
+            id: "ctest",
+            commands: vec![simple_cmd("/bin/true", &[], Cwd::Tree)],
+            graded: graded_fixture(9, 0, "must-not-surface"),
+        };
+        let manifest = manifest_with(runner.commands.clone(), "ctest");
+        let sandbox = Sandbox::new(dir.path().join("containers"));
+        let err = sandbox
+            .grading_run(&manifest, &artifact, &build, &runner, &image_spec(), BOGUS_IMAGE)
+            .unwrap_err();
+        match err {
+            SandboxError::HostFallbackRefused(msg) => {
+                assert!(msg.contains("ctest"), "refusal names runner, got {msg}")
+            }
+            other => panic!("ctest must refuse the host, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn host_fallback_marks_stdout_for_pytest() {
+        let dir = tempfile::tempdir().unwrap();
+        let artifact = dir.path().join("artifact");
+        let build = dir.path().join("build");
+        std::fs::create_dir_all(&artifact).unwrap();
+        std::fs::create_dir_all(&build).unwrap();
+        let runner = MockRunner {
+            id: "pytest",
+            commands: vec![simple_cmd("/bin/true", &[], Cwd::Tree)],
+            graded: graded_fixture(7, 2, "sentinel-graded"),
+        };
+        let manifest = manifest_with(runner.commands.clone(), "pytest");
+        let sandbox = Sandbox::new(dir.path().join("containers"));
+        let out = sandbox
+            .grading_run(&manifest, &artifact, &build, &runner, &image_spec(), BOGUS_IMAGE)
+            .unwrap();
+        // Fallback is never silent: the audit marker leads, the grade shape
+        // (counts plus sentinel body) survives untouched.
+        assert!(
+            out.stdout
+                .starts_with("[grading_run: host fallback, docker unavailable]\n"),
+            "fallback marker first, got {:?}",
+            out.stdout
+        );
+        assert!(out.stdout.contains("sentinel-graded"));
+        assert_eq!(out.passed, 7);
+        assert_eq!(out.failed, 2);
+    }
+
+    #[test]
+    fn executor_honours_cwd_resolves_program_collects_and_splits_streams() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        let build = dir.path().join("build");
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::create_dir_all(&build).unwrap();
+        std::fs::write(build.join("result.xml"), b"<ok/>").unwrap();
+        std::fs::write(tree.join("tree.txt"), b"unrelated").unwrap();
+        let cmd = TestCommand {
+            program: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "pwd; echo build-out; echo build-err >&2".to_string(),
+            ],
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: vec!["*.xml".to_string()],
+        };
+        let run = execute_one(&cmd, &tree, &build).unwrap();
+        assert_eq!(run.exit_code, 0);
+        // cwd comes from TestCommand.cwd: pwd reports the build dir.
+        assert!(
+            run.stdout
+                .lines()
+                .any(|l| l.trim_end().ends_with("build")),
+            "pwd should report the BuildDir, got {}",
+            run.stdout
+        );
+        // Bare program resolves to an absolute path in the `$` record line.
+        let header = run.stdout.lines().next().unwrap_or("");
+        assert!(header.starts_with("$ "), "record line, got {header:?}");
+        assert!(header.contains('/'), "program resolved absolute, got {header:?}");
+        assert!(
+            !header.starts_with("$ sh "),
+            "bare name must not survive, got {header:?}"
+        );
+        // stdout/stderr stay separate (body only: the `$` record line echoes the
+        // command text itself, which names both streams).
+        let body = run.stdout.lines().skip(1).collect::<Vec<_>>().join("\n");
+        assert!(body.contains("build-out"));
+        assert!(!body.contains("build-err"));
+        assert!(run.stderr.contains("build-err"));
+        assert!(!run.stderr.contains("build-out"));
+        assert_eq!(
+            run.artifacts.get("result.xml").map(Vec::as_slice),
+            Some(b"<ok/>".as_slice())
+        );
+        assert!(!run.artifacts.contains_key("tree.txt"));
     }
 }

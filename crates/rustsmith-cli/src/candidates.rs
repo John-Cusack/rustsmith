@@ -360,11 +360,32 @@ pub fn apply_round0_manual_hex(work: &Path) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
 
+    fn template_under_test() -> std::path::PathBuf {
+        // Templates under mirror/ are data; the first package in the content
+        // table (sorted) owns the deterministic-transform conformance tree.
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut pkgs = crate::repo_content::packages();
+        pkgs.sort();
+        root.join("../../mirror").join(&pkgs[0])
+    }
+
+    fn copy_template_files(tpl: &std::path::Path, dst: &std::path::Path) {
+        // File list comes from the template manifest itself (no hardcodes).
+        let v: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(tpl.join("template.json")).unwrap(),
+        )
+        .unwrap();
+        for e in v["files"].as_array().unwrap() {
+            let src = tpl.join(e[0].as_str().unwrap());
+            let out = dst.join(e[1].as_str().unwrap());
+            std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+            std::fs::copy(src, out).unwrap();
+        }
+    }
+
     #[test]
     fn anchors_hit_exactly_once_on_template() {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        // Template lives two levels up in mirror/crc (workspace-adjacent fixture).
-        let lib = std::fs::read_to_string(root.join("../../mirror/crc/src/lib.rs"));
+        let lib = std::fs::read_to_string(template_under_test().join("src/lib.rs"));
         if let Ok(text) = lib {
             for needle in [
                 "use pyo3::types::{PyBytes, PyDict, PyList};",
@@ -380,14 +401,7 @@ mod tests {
     #[test]
     fn slice_patch_applies_and_compiles_shape() {
         let dir = tempfile::tempdir().unwrap();
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let tpl = root.join("../../mirror/crc");
-        for f in ["Cargo.toml", "pyproject.toml", "src/lib.rs", "crc/__init__.py"] {
-            let src = tpl.join(f);
-            let dst = dir.path().join(f);
-            std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
-            std::fs::copy(src, dst).unwrap();
-        }
+        copy_template_files(&template_under_test(), dir.path());
         let files = apply_slice_by_8(dir.path()).unwrap();
         assert!(files.contains(&"src/slice8.rs".to_string()));
         assert!(dir.path().join("src/slice8.rs").exists());
@@ -402,14 +416,7 @@ mod tests {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let tpl = root.join("../../mirror/crc");
-        for f in ["Cargo.toml", "pyproject.toml", "src/lib.rs", "crc/__init__.py"] {
-            let src = tpl.join(f);
-            let dst = dir.path().join(f);
-            std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
-            std::fs::copy(src, dst).unwrap();
-        }
+        copy_template_files(&template_under_test(), dir.path());
         apply_slice_by_8(dir.path()).unwrap();
         let st = std::process::Command::new("cargo")
             .args(["test", "--manifest-path"])

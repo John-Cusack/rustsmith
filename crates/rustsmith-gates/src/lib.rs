@@ -1,4 +1,4 @@
-use rustsmith_core::{Baseline, FileHash, GradedResult, Manifest};
+use rustsmith_core::{Baseline, FileHash, GradedResult, Manifest, ObservableSpec, Outcome};
 use serde_json::json;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +48,52 @@ pub fn oracle_integrity(
             false,
             json!({"reason":"deselect_mismatch","expected":base.deselected,"got":got.deselected}),
         );
+    }
+    // Outcomes key-set check: counts alone miss same-count-different-tests
+    // (e.g. one test renamed while the total is unchanged). When the runner
+    // populated `outcomes`, its keys must account for every non-deselected
+    // baseline test, and the skip/xfail vectors must equal the Skip/XFail
+    // keys in the map. Empty maps (legacy fixtures) skip this check.
+    if !got.outcomes.is_empty() {
+        let mut skip_keys: Vec<String> = got
+            .outcomes
+            .iter()
+            .filter(|(_, o)| **o == Outcome::Skip)
+            .map(|(id, _)| id.clone())
+            .collect();
+        skip_keys.sort();
+        if skip_keys != got.skipped {
+            return verdict(
+                false,
+                json!({"reason":"skip_mismatch","expected":got.skipped,"got":skip_keys}),
+            );
+        }
+        let mut xfail_keys: Vec<String> = got
+            .outcomes
+            .iter()
+            .filter(|(_, o)| **o == Outcome::XFail)
+            .map(|(id, _)| id.clone())
+            .collect();
+        xfail_keys.sort();
+        if xfail_keys != got.xfailed {
+            return verdict(
+                false,
+                json!({"reason":"xfail_mismatch","expected":got.xfailed,"got":xfail_keys}),
+            );
+        }
+        if got.deselected.iter().any(|d| got.outcomes.contains_key(d)) {
+            return verdict(
+                false,
+                json!({"reason":"deselect_overlap","deselected":got.deselected}),
+            );
+        }
+        if got.total_outcomes() + got.deselected.len() != base.test_count as usize {
+            return verdict(
+                false,
+                json!({"reason":"count_mismatch","expected":base.test_count,"got":got.total_outcomes() + got.deselected.len(),
+                       "outcomes":got.total_outcomes(),"deselected":got.deselected.len()}),
+            );
+        }
     }
     let mut want: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
     for f in &manifest.files {
@@ -112,30 +158,76 @@ pub fn heldout_divergence(visible_rate: f64, heldout_rate: f64, threshold: f64) 
 }
 
 /// Differential: each (original, ported) pair must match within tolerance.
-pub fn differential(pairs: &[(String, String)], tolerance: f64) -> GateVerdict {
-    if tolerance == 0.0 {
+/// `tols` carries optional per-observable tolerances (`rel_tol`/`abs_tol`
+/// from `ObservableSpec`, frozen in the manifest; ADR-007 review §4 item 3):
+/// when `Some` and non-empty, entry `i` governs pair `i` (shorter slices
+/// fall back to `tolerance` for the tail). `None` (or an empty slice) runs
+/// the legacy single-`tolerance` path verbatim, so fixtures graded with
+/// `tolerance = 0.0` see byte-identical math.
+pub fn differential(
+    pairs: &[(String, String)],
+    tolerance: f64,
+    tols: Option<&[ObservableSpec]>,
+) -> GateVerdict {
+    // Empty and absent slices both run the legacy path, so fixtures graded
+    // with `tolerance = 0.0` see byte-identical math either way.
+    let specs: &[ObservableSpec] = tols.unwrap_or(&[]);
+    if specs.is_empty() {
+        if tolerance == 0.0 {
+            for (i, (a, b)) in pairs.iter().enumerate() {
+                if a != b {
+                    return verdict(
+                        false,
+                        json!({"reason":"mismatch","index":i,"original":a,"ported":b}),
+                    );
+                }
+            }
+            return verdict(true, json!({"compared":pairs.len()}));
+        }
+        // Numeric tolerance path: try parse as f64.
         for (i, (a, b)) in pairs.iter().enumerate() {
-            if a != b {
-                return verdict(
-                    false,
-                    json!({"reason":"mismatch","index":i,"original":a,"ported":b}),
-                );
+            if a == b {
+                continue;
+            }
+            match (a.parse::<f64>(), b.parse::<f64>()) {
+                (Ok(x), Ok(y)) => {
+                    let denom = x.abs().max(1.0);
+                    if ((x - y).abs() / denom) > tolerance {
+                        return verdict(
+                            false,
+                            json!({"reason":"tolerance_exceeded","index":i,"original":a,"ported":b}),
+                        );
+                    }
+                }
+                _ => {
+                    return verdict(
+                        false,
+                        json!({"reason":"mismatch","index":i,"original":a,"ported":b}),
+                    )
+                }
             }
         }
         return verdict(true, json!({"compared":pairs.len()}));
     }
-    // Numeric tolerance path: try parse as f64.
+    // Per-observable path: |x - y| <= abs_tol + rel_tol * max(|x|, |y|, 1.0).
+    // (`specs` is non-empty here; a short slice falls back to `tolerance`
+    // for the tail.)
     for (i, (a, b)) in pairs.iter().enumerate() {
         if a == b {
             continue;
         }
+        let (rel_tol, abs_tol) = specs
+            .get(i)
+            .map(|s| (s.rel_tol, s.abs_tol))
+            .unwrap_or((tolerance, 0.0));
         match (a.parse::<f64>(), b.parse::<f64>()) {
             (Ok(x), Ok(y)) => {
-                let denom = x.abs().max(1.0);
-                if ((x - y).abs() / denom) > tolerance {
+                let allowed = abs_tol + rel_tol * x.abs().max(y.abs()).max(1.0);
+                if (x - y).abs() > allowed {
                     return verdict(
                         false,
-                        json!({"reason":"tolerance_exceeded","index":i,"original":a,"ported":b}),
+                        json!({"reason":"tolerance_exceeded","index":i,"original":a,"ported":b,
+                               "rel_tol":rel_tol,"abs_tol":abs_tol}),
                     );
                 }
             }
@@ -273,7 +365,10 @@ pub fn causal_attribution(gain_with: f64, gain_without: f64, floor: f64) -> Gate
 #[derive(Debug, Clone)]
 pub struct ResourceSnapshot {
     pub rss_bytes: u64,
-    pub alloc_count: u64,
+    /// Python-level allocation peak (tracemalloc). `None` when the profiler
+    /// is unavailable (ADR-003: no perf/valgrind here); the alloc leg of
+    /// `no_regression_widened` is then skipped, never failed.
+    pub alloc_count: Option<u64>,
     pub binary_bytes: u64,
     pub compile_secs: f64,
 }
@@ -304,8 +399,12 @@ pub fn no_regression_widened(
     if rss > 5.0 {
         return verdict(false, json!({"reason": "rss_regression", "delta_pct": rss}));
     }
-    let alloc = pct(base.alloc_count, got.alloc_count);
-    if alloc > 10.0 {
+    let alloc: Option<f64> = match (base.alloc_count, got.alloc_count) {
+        (Some(a), Some(b)) => Some(pct(a, b)),
+        // Profiler unavailable on either side: skip the alloc leg (ADR-003).
+        _ => None,
+    };
+    if alloc.is_some_and(|a| a > 10.0) {
         return verdict(false, json!({"reason": "alloc_regression", "delta_pct": alloc}));
     }
     let bin = pct(base.binary_bytes, got.binary_bytes);
@@ -368,13 +467,12 @@ pub fn optimization_scope(
     original_branch_count: usize,
     allowlisted_deps: &[String],
 ) -> GateVerdict {
+    // NOTE: build-file normalization (build manifests etc.) is owned by the
+    // runner's `normalize_for_hash` (ADR-002); this gate only rejects frozen
+    // test/bench paths.
     for f in &diff.files {
-        if f.contains("test/") || f.contains("bench") || f == "pyproject.toml" {
-            // NOTE: pyproject build-section edits are owned by the port (ADR-002),
-            // but Stage-2 candidates must not touch test/bench files at all.
-            if f.contains("test/") || f.contains("bench") {
-                return verdict(false, json!({"reason": "touches_frozen_file", "file": f}));
-            }
+        if f.contains("test/") || f.contains("bench") {
+            return verdict(false, json!({"reason": "touches_frozen_file", "file": f}));
         }
     }
     // Structural special-case detector: added SHAPE branches (input size /
@@ -417,9 +515,27 @@ mod tests {
     use camino::Utf8PathBuf;
 
     fn man(files: Vec<(&str, &str)>, base: Baseline) -> Manifest {
+        use rustsmith_core::{Cwd, TestCommand};
         Manifest {
-            version: 1,
-            invocation: vec!["pytest test/unit".into(), "pytest test/integration".into()],
+            version: 2,
+            runner: "pytest".into(),
+            languages: vec!["python".into()],
+            prepare: vec![],
+            invocation: vec!["pytest test/unit", "pytest test/integration"]
+                .into_iter()
+                .map(|s| TestCommand {
+                    program: "sh".into(),
+                    args: vec!["-c".into(), s.into()],
+                    cwd: Cwd::Tree,
+                    env_set: vec![],
+                    env_remove: vec![],
+                    launcher: None,
+                    timeout_secs: None,
+                    collect: vec![],
+                })
+                .collect(),
+            config_hash: String::new(),
+            observables: vec![],
             files: files
                 .into_iter()
                 .map(|(p, h)| FileHash {
@@ -448,6 +564,7 @@ mod tests {
             xfailed: vec![],
             deselected: vec![],
             stdout: String::new(),
+            outcomes: Default::default(),
         };
         let tree = vec![FileHash {
             path: Utf8PathBuf::from("test/test_x.py"),
@@ -479,6 +596,7 @@ mod tests {
             xfailed: vec![],
             deselected: vec![],
             stdout: String::new(),
+            outcomes: Default::default(),
         };
         assert!(!oracle_integrity(&m, &[], &base, &got).passed);
         // count drift
@@ -490,8 +608,55 @@ mod tests {
             xfailed: vec![],
             deselected: vec![],
             stdout: String::new(),
+            outcomes: Default::default(),
         };
         assert!(!oracle_integrity(&m, &[], &base, &got2).passed);
+    }
+    #[test]
+    fn integrity_catches_same_count_different_tests() {
+        use std::collections::BTreeMap;
+        // Baseline: 2 passed + 1 skipped. Every legacy check (count, skip,
+        // xfail, deselect vectors) passes below; only the outcomes key set
+        // reveals the drift, which pre-fix code missed.
+        let base = Baseline {
+            test_count: 3,
+            skipped: vec!["test_ghost".to_string()],
+            xfailed: vec![],
+            deselected: vec![],
+        };
+        let m = man(vec![], base.clone());
+        let mut outcomes = BTreeMap::new();
+        outcomes.insert("test_a".to_string(), Outcome::Pass);
+        outcomes.insert("test_renamed".to_string(), Outcome::Pass);
+        let mut got = GradedResult::from_outcomes(0, outcomes, String::new());
+        // Claim the baseline skip list while the map holds no Skip entry:
+        // same count (3), same vectors, different test identities.
+        got.skipped = vec!["test_ghost".to_string()];
+        assert_eq!(got.total(), base.test_count);
+        assert!(!oracle_integrity(&m, &[], &base, &got).passed);
+        // Consistent map + vectors pass.
+        let mut outcomes_ok = BTreeMap::new();
+        outcomes_ok.insert("test_a".to_string(), Outcome::Pass);
+        outcomes_ok.insert("test_b".to_string(), Outcome::Pass);
+        outcomes_ok.insert("test_ghost".to_string(), Outcome::Skip);
+        let got_ok = GradedResult::from_outcomes(0, outcomes_ok, String::new());
+        assert!(oracle_integrity(&m, &[], &base, &got_ok).passed);
+    }
+
+    #[test]
+    fn differential_per_observable_tol() {
+        let pairs = vec![("1.000".to_string(), "1.005".to_string())];
+        // Legacy path: 0.0 tolerance demands exact equality.
+        assert!(!differential(&pairs, 0.0, None).passed);
+        // Per-observable 1% relative tolerance accepts the same pair.
+        let spec = ObservableSpec {
+            test_glob: "*".into(),
+            source: "stdout".into(),
+            regex: ".*".into(),
+            rel_tol: 0.01,
+            abs_tol: 0.0,
+        };
+        assert!(differential(&pairs, 0.0, Some(&[spec])).passed);
     }
 
     #[test]
@@ -504,6 +669,7 @@ mod tests {
             xfailed: vec![],
             deselected: vec![],
             stdout: String::new(),
+            outcomes: Default::default(),
         };
         assert!(oracle_parity(&ok).passed);
         let bad = GradedResult { failed: 1, ..ok.clone() };
@@ -560,15 +726,19 @@ mod tests {
 
     #[test]
     fn widened_regression_catches_rss_for_speed() {
-        let base = ResourceSnapshot { rss_bytes: 100_000, alloc_count: 1_000, binary_bytes: 1_000_000, compile_secs: 10.0 };
+        let base = ResourceSnapshot { rss_bytes: 100_000, alloc_count: Some(1_000), binary_bytes: 1_000_000, compile_secs: 10.0 };
         // Plant: 8% faster but 3x RSS.
-        let got = ResourceSnapshot { rss_bytes: 300_000, alloc_count: 900, binary_bytes: 1_000_000, compile_secs: 10.0 };
+        let got = ResourceSnapshot { rss_bytes: 300_000, alloc_count: Some(900), binary_bytes: 1_000_000, compile_secs: 10.0 };
         let v = no_regression_widened(&base, &got, true, true);
         assert!(!v.passed);
         assert_eq!(v.detail["reason"], "rss_regression");
         // Clean candidate passes.
-        let ok = ResourceSnapshot { rss_bytes: 101_000, alloc_count: 950, binary_bytes: 1_000_000, compile_secs: 10.0 };
+        let ok = ResourceSnapshot { rss_bytes: 101_000, alloc_count: Some(950), binary_bytes: 1_000_000, compile_secs: 10.0 };
         assert!(no_regression_widened(&base, &ok, true, true).passed);
+        // Profiler unavailable on either side: alloc leg skipped, never failed.
+        let no_prof = ResourceSnapshot { rss_bytes: 101_000, alloc_count: None, binary_bytes: 1_000_000, compile_secs: 10.0 };
+        assert!(no_regression_widened(&base, &no_prof, true, true).passed);
+        assert!(no_regression_widened(&no_prof, &no_prof, true, true).passed);
     }
 
     #[test]

@@ -1,0 +1,1319 @@
+{
+  "packages": {
+    "crc": {
+      "differential": {
+        "argvs": [
+          [
+            "Crc8.CCITT",
+            "313233343536373839"
+          ],
+          [
+            "Crc8.CCITT",
+            ""
+          ],
+          [
+            "Crc8.SAEJ1850",
+            "68656c6c6f"
+          ],
+          [
+            "Crc16.XMODEM",
+            "313233343536373839"
+          ],
+          [
+            "Crc16.MODBUS",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Crc32.CRC32",
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+          ],
+          [
+            "Crc8.BLUETOOTH",
+            "48656c6c6f20576f726c6421"
+          ],
+          [
+            "Crc16.KERMIT",
+            "616263"
+          ]
+        ],
+        "script": "\nimport sys\nconfig = sys.argv[1]\ndata_hex = sys.argv[2]\ndata = bytes.fromhex(data_hex)\nfrom crc import Calculator\nimport importlib\nmods = {'Crc8': __import__('crc', fromlist=['Crc8']).Crc8,\n        'Crc16': __import__('crc', fromlist=['Crc16']).Crc16,\n        'Crc32': __import__('crc', fromlist=['Crc32']).Crc32}\ncat, member = config.split('.')\ncalc = Calculator(getattr(mods[cat], member))\nprint(calc.checksum(data))\n::"
+      },
+      "heldout_descriptors": {
+        "adversarial_shapes": [
+          "empty",
+          "singleton",
+          "all-identical",
+          "all-distinct",
+          "max-length",
+          "pathological-order"
+        ],
+        "coverage_complement": [
+          "refin/refout combos not in visible",
+          "width 16/32/64 paths"
+        ],
+        "distribution": "crc checksum bytes; sizes 0B..64KB; values uniform + structured",
+        "heldout_sizes": [
+          1,
+          7,
+          63,
+          511,
+          4096,
+          65536
+        ],
+        "identity_sensitive_repeats": [
+          "equal-but-not-identical bytes objects (catches identity-keyed caches)"
+        ],
+        "visible_sizes": [
+          0,
+          3,
+          10,
+          256,
+          1024
+        ]
+      },
+      "heldout_suites": [
+        {
+          "content": "\"\"\"Held-out: Calculator property + differential (host-only).\"\"\"\nfrom crc import Calculator, Crc8\n\n\ndef test_property_incremental_equals_oneshot():\n    calc = Calculator(Crc8.CCITT)\n    data = b\"123456789\"\n    assert calc.checksum(data) == _incremental(Crc8.CCITT, [data[:4], data[4:]])\n\n\ndef test_property_empty_matches_init_xor_final():\n    cfg = Crc8.CCITT.value\n    calc = Calculator(Crc8.CCITT)\n    assert calc.checksum(b\"\") == (cfg.init_value ^ cfg.final_xor_value) & _mask(cfg.width)\n\n\ndef test_differential_known_vectors():\n    calc = Calculator(Crc8.CCITT)\n    assert calc.checksum(b\"123456789\") == 0xF4\n    assert calc.checksum(b\"\") == 0x00\n\n\ndef test_fuzz_bytes_never_raises():\n    calc = Calculator(Crc8.CCITT)\n    for n in [0, 1, 7, 64, 1024]:\n        calc.checksum(bytes((i * 31) & 0xFF for i in range(n)))\n\n\ndef _incremental(cfg, chunks):\n    from crc import Register\n    r = Register(cfg)\n    r.init()\n    for c in chunks:\n        r.update(c)\n    return r.digest()\n\n\ndef _mask(width):\n    return (1 << width) - 1 if width < 64 else (1 << 64) - 1\n",
+          "name": "test_heldout_calculator.py"
+        },
+        {
+          "content": "\"\"\"Held-out: Register/TableBasedRegister agreement + adversarial shapes (host-only).\"\"\"\nfrom crc import Register, TableBasedRegister, Crc8, Crc16, Crc32\n\n\ndef test_register_agrees_table():\n    for cfg in [Crc8.CCITT, Crc16.XMODEM, Crc32.CRC32]:\n        for data in [b\"\", b\"a\", b\"123456789\", bytes(256), bytes([0] * 64), bytes(range(256))]:\n            r1, r2 = Register(cfg), TableBasedRegister(cfg)\n            r1.init()\n            r2.init()\n            r1.update(data)\n            r2.update(data)\n            assert r1.digest() == r2.digest(), (cfg, data[:8])\n\n\ndef test_adversarial_shapes():\n    from crc import Calculator\n    calc = Calculator(Crc8.CCITT)\n    assert isinstance(calc.checksum(b\"\\x00\" * 128), int)\n    assert isinstance(calc.checksum(bytes([0xFF] * 128)), int)\n    assert isinstance(calc.checksum(bytes(range(256)) * 4), int)\n\n\ndef test_identity_sensitive_repeats():\n    # Equal-but-not-identical inputs must agree (catches identity-keyed caches).\n    from crc import Calculator\n    calc = Calculator(Crc8.CCITT)\n    a = b\"123456789\"\n    b = bytes([49, 50, 51, 52, 53, 54, 55, 56, 57])\n    assert a == b and (a is not b)\n    assert calc.checksum(a) == calc.checksum(b)\n",
+          "name": "test_heldout_register.py"
+        },
+        {
+          "content": "\"\"\"Held-out: pinned absolute values on disjoint inputs (host-only).\"\"\"\nfrom crc import Calculator, Crc8, Crc16, Crc32\n\n\ndef test_pinned_abc():\n    assert Calculator(Crc8.CCITT).checksum(b\"abc\") == 0x5F\n    assert Calculator(Crc8.BLUETOOTH).checksum(b\"abc\") == 0xAA\n    assert Calculator(Crc16.XMODEM).checksum(b\"abc\") == 0x9DD6\n    assert Calculator(Crc16.MODBUS).checksum(b\"abc\") == 0x5749\n    assert Calculator(Crc32.CRC32).checksum(b\"abc\") == 0x352441C2\n\n\ndef test_pinned_range():\n    assert Calculator(Crc8.CCITT).checksum(bytes(range(256))) == 0x14\n    assert Calculator(Crc16.XMODEM).checksum(bytes(range(256))) == 0x7E55\n    assert Calculator(Crc32.CRC32).checksum(bytes(range(256))) == 0x29058C73\n\n\ndef test_pinned_fox():\n    assert Calculator(Crc8.CCITT).checksum(b\"The quick brown fox jumps over the lazy dog\") == 0xC1\n    assert Calculator(Crc32.CRC32).checksum(b\"The quick brown fox jumps over the lazy dog\") == 0x414FA339\n",
+          "name": "test_heldout_pinned.py"
+        }
+      ],
+      "hotspot_descriptors": [
+        "empty:b''",
+        "tiny:b'abc'",
+        "digits:string.digits",
+        "medium:256B-sequential",
+        "large:64KB-random"
+      ],
+      "porting_rules": [
+        {
+          "example": "Example: `Crc8::CCITT.width == 8` → `config.width: u8 == 8`",
+          "original": "Original (Python): `Configuration(width=8)` plain int",
+          "rust": "Rust: `width: u8` with `debug_assert!(width <= 64)`",
+          "title": "u8 width field"
+        },
+        {
+          "example": "Example: `0x07u64 & 0xFF` for width 8",
+          "original": "Original (Python): `polynomial=0x07` int",
+          "rust": "Rust: `polynomial: u64` masked to width",
+          "title": "polynomial as int"
+        },
+        {
+          "example": "Example: `Register::new(cfg)` masks init",
+          "original": "Original (Python): `init_value=0x00` int",
+          "rust": "Rust: `init_value: u64` masked on construct",
+          "title": "init_value width-masked"
+        },
+        {
+          "example": "Example: `digest() ^ final_xor`",
+          "original": "Original (Python): `final_xor_value` int",
+          "rust": "Rust: `final_xor_value: u64` applied in `digest()`",
+          "title": "final_xor width-masked"
+        },
+        {
+          "example": "Example: `checksum(b\"123456789\")` → `checksum(&[u8])`",
+          "original": "Original (Python): `bytes | bytearray | memoryview`",
+          "rust": "Rust: `&[u8]` borrow, no copy",
+          "title": "bytes input"
+        },
+        {
+          "example": "Example: `checksum(\"abc\")` fails to compile",
+          "original": "Original (Python): `str` raises `TypeError`",
+          "rust": "Rust: type system rejects `&str` at compile time",
+          "title": "str never accepted"
+        },
+        {
+          "example": "Example: `checksum(0x31)` == `checksum(b\"1\")`",
+          "original": "Original (Python): `int` yields one big-endian byte (`data.to_bytes(1, \"big\")`)",
+          "rust": "Rust: `u8` by value overload `fn checksum_u8(&self, v: u8) -> u64`",
+          "title": "int input single-byte"
+        },
+        {
+          "example": "Example: `checksum(\"abc\")` fails to compile",
+          "original": "Original (Python): `str`/`float` raise `TypeError` (`test_throws_exception_for_unsupported_input_type`)",
+          "rust": "Rust: type system rejects `&str`/`f64` at compile time",
+          "title": "str/float rejected"
+        },
+        {
+          "example": "Example: generator of `bytes` chunks",
+          "original": "Original (Python): iterable of bytes-like consumed chunk-wise (`_bytes_generator`)",
+          "rust": "Rust: `impl IntoIterator<Item = impl AsRef<[u8]>>`",
+          "title": "generator input"
+        },
+        {
+          "example": "Example: `vec![49,50] as &[u8]`",
+          "original": "Original (Python): iterable of ints via `_bytes_generator` (`bytes(e)` per element)",
+          "rust": "Rust: `&[u8]` after collecting `u8` values",
+          "title": "list of ints"
+        },
+        {
+          "example": "Example: `digest() -> u64`",
+          "original": "Original (Python): never `None`; always int",
+          "rust": "Rust: return `u64`, never `Option` on success path",
+          "title": "None digest"
+        },
+        {
+          "example": "Example: `reverse_input: false`",
+          "original": "Original (Python): `reverse_input: bool`",
+          "rust": "Rust: `bool` bit in `Configuration`",
+          "title": "bool flags"
+        },
+        {
+          "example": "Example: `Crc8::CCITT: Configuration`",
+          "original": "Original (Python): `@dataclass Configuration`",
+          "rust": "Rust: `#[derive(Clone, Copy, Debug)] struct Configuration`",
+          "title": "dataclass Configuration"
+        },
+        {
+          "example": "Example: `Crc8::Ccitt.config()`",
+          "original": "Original (Python): `class Crc8(enum.Enum)` with configs",
+          "rust": "Rust: `enum Crc8 { Ccitt, ... }` + `fn config(self)`",
+          "title": "enum catalogs"
+        },
+        {
+          "example": "Example: `create_table(0x07, 8) -> [u64; 256]`",
+          "original": "Original (Python): `list[int]` length 256 per width",
+          "rust": "Rust: `[u64; 256]` stack array",
+          "title": "table list"
+        },
+        {
+          "example": "Example: `value &= mask(width)`",
+          "original": "Original (Python): `self._value: int`",
+          "rust": "Rust: `value: u64` masked to width after each update",
+          "title": "register value int"
+        },
+        {
+          "example": "Example: `impl Register for BasicRegister`",
+          "original": "Original (Python): `abc.ABC` `AbstractRegister`",
+          "rust": "Rust: `trait Register { init/update/digest }`",
+          "title": "abstract base"
+        },
+        {
+          "example": "Example: `polynomial: u64`",
+          "original": "Original (Python): `Optional[int]` never used; always set",
+          "rust": "Rust: plain `u64`, no `Option`",
+          "title": "optional poly"
+        },
+        {
+          "example": "Example: `assert_eq!(digest(), 0xF4)`",
+          "original": "Original (Python): `digest()` returns int, never bytes",
+          "rust": "Rust: `digest() -> u64`",
+          "title": "bytes return"
+        },
+        {
+          "example": "Example: vectors in `test_crc.py`",
+          "original": "Original (Python): `string.digits` test vectors",
+          "rust": "Rust: `b\"123456789\"` byte strings in tests",
+          "title": "str digits fixture"
+        },
+        {
+          "example": "Example: `Crc16::CCITT`",
+          "original": "Original (Python): width 16 still int",
+          "rust": "Rust: `u16` logical, stored `u64`",
+          "title": "width 16 types"
+        },
+        {
+          "example": "Example: `Crc32::ISO_HDLC`",
+          "original": "Original (Python): width 32 int",
+          "rust": "Rust: `u32` logical, stored `u64`",
+          "title": "width 32 types"
+        },
+        {
+          "example": "Example: `Crc64::XZ`",
+          "original": "Original (Python): width 64 int",
+          "rust": "Rust: `u64` native",
+          "title": "width 64 types"
+        },
+        {
+          "example": "Example: `mask = if w==64 {!0} else {(1<<w)-1}`",
+          "original": "Original (Python): ints unbounded; masked by `& ((1<<w)-1)`",
+          "rust": "Rust: `u64` + explicit mask; width>64 rejected",
+          "title": "no bigint"
+        },
+        {
+          "example": "Example: `enum AnyRegister`",
+          "original": "Original (Python): no dynamic subclasses in crc",
+          "rust": "Rust: `enum` closed dispatch, no `dyn Trait`",
+          "title": "no subclasses"
+        },
+        {
+          "example": "Example: `calc.checksum(b\"abc\")`",
+          "original": "Original (Python): `Calculator.checksum(data)` method",
+          "rust": "Rust: `fn checksum(&self, data: &[u8]) -> u64`",
+          "title": "callable checksum"
+        },
+        {
+          "example": "Example: `assert!(calc.verify(b\"123456789\", 0xF4))`",
+          "original": "Original (Python): `verify(data, expected) -> bool`",
+          "rust": "Rust: `fn verify(&self, data: &[u8], expected: u64) -> bool`",
+          "title": "verify bool"
+        },
+        {
+          "example": "Example: `reg.init(); reg.update(b\"ab\")`",
+          "original": "Original (Python): `Register.init()` resets to init_value",
+          "rust": "Rust: `fn init(&mut self)`",
+          "title": "init/reset"
+        },
+        {
+          "example": "Example: split updates equal one-shot",
+          "original": "Original (Python): `update(data)` appends incrementally",
+          "rust": "Rust: `fn update(&mut self, data: &[u8])`",
+          "title": "update chunks"
+        },
+        {
+          "example": "Example: `d1 == reg.digest()` twice",
+          "original": "Original (Python): `digest()` callable repeatedly",
+          "rust": "Rust: `fn digest(&self) -> u64` takes `&self`",
+          "title": "digest idempotent"
+        },
+        {
+          "example": "Example: slice-by-8 later, mirror first",
+          "original": "Original (Python): byte-at-a-time table lookup",
+          "rust": "Rust: `value = table[((value>>shift)^b) as usize] ^ (value<<8)`",
+          "title": "table-driven update"
+        },
+        {
+          "example": "Example: `BasicRegister::update`",
+          "original": "Original (Python): `Register` bit loop when no table",
+          "rust": "Rust: `for _ in 0..8 { msb check; shift; xor poly }`",
+          "title": "bit-by-bit fallback"
+        },
+        {
+          "example": "Example: `checksum(2.0)` errs, `checksum(0x31)` ok",
+          "original": "Original (Python): `raise TypeError` for str/float (int is valid single byte)",
+          "rust": "Rust: compile-time rejection of `&str`/`f64`; `u8` accepted",
+          "title": "unsupported type"
+        },
+        {
+          "example": "Example: `width == 0` errors",
+          "original": "Original (Python): `ValueError` on bad width/poly",
+          "rust": "Rust: `thiserror::Error::InvalidConfig(&'static str)`",
+          "title": "value range"
+        },
+        {
+          "example": "Example: no `Result` in loop",
+          "original": "Original (Python): hot loop never raises",
+          "rust": "Rust: hot `update` is infallible (`fn update(&mut self, ...)`)",
+          "title": "no exceptions for hot path"
+        },
+        {
+          "example": "Example: validate once, not per byte",
+          "original": "Original (Python): validated in `Configuration.__post_init__`",
+          "rust": "Rust: `Configuration::new(...) -> Result<Self, ConfigError>`",
+          "title": "config validation once"
+        },
+        {
+          "example": "Example: `crc table --width 8`",
+          "original": "Original (Python): `argparse` error exit 2",
+          "rust": "Rust: `clap` with same subcommands/messages",
+          "title": "CLI bad args"
+        },
+        {
+          "example": "Example: `checksum(b\"\") == (init ^ final) & mask`",
+          "original": "Original (Python): `checksum(b\"\")` returns init^final",
+          "rust": "Rust: same, no special-case",
+          "title": "empty input valid"
+        },
+        {
+          "example": "Example: core crate has no `std::fs`",
+          "original": "Original (Python): pure computation, no IO",
+          "rust": "Rust: no `io::Error` in core API",
+          "title": "no IO errors"
+        },
+        {
+          "example": "Example: `0x{:02X}` formatting",
+          "original": "Original (Python): `test_generate_template` asserts template shape",
+          "rust": "Rust: `fn generate_template(width) -> String` same shape",
+          "title": "template errors"
+        },
+        {
+          "example": "Example: unstable-digest vectors preserved",
+          "original": "Original (Python): regression `test_unstable_digest` pins values",
+          "rust": "Rust: same vectors as `#[test]`",
+          "title": "digest stability"
+        },
+        {
+          "example": "Example: `debug_assert!(width <= 64)`",
+          "original": "Original (Python): no `assert` in hot path",
+          "rust": "Rust: `#![deny(clippy::panic)]` in lib; `debug_assert` only",
+          "title": "no panic in lib"
+        },
+        {
+          "example": "Example: `Configuration::new(0, ...)` errs",
+          "original": "Original (Python): width 0 invalid",
+          "rust": "Rust: `ConfigError::Width`",
+          "title": "width 0 rejected"
+        },
+        {
+          "example": "Example: `poly & mask`",
+          "original": "Original (Python): poly masked, never errors",
+          "rust": "Rust: mask, never error (mirror semantics)",
+          "title": "poly overflow"
+        },
+        {
+          "example": "Example: refin=true cases",
+          "original": "Original (Python): `reverse_input/output` bools",
+          "rust": "Rust: bools preserved; bit-reflect helper `reflect(v, w)`",
+          "title": "reverse flags"
+        },
+        {
+          "example": "Example: incremental digest equals one-shot",
+          "original": "Original (Python): applied in `digest`, not `update`",
+          "rust": "Rust: same ordering",
+          "title": "xorout applied once"
+        },
+        {
+          "example": "Example: `& mask` after `<< 8`",
+          "original": "Original (Python): values masked to width explicitly",
+          "rust": "Rust: mask after every shift",
+          "title": "no silent truncation"
+        },
+        {
+          "example": "Example: `[package] name = \"crc\"`",
+          "original": "Original (Python): package `crc` under `src/crc`",
+          "rust": "Rust: crate `crc_rs`? NO — keep `crc`",
+          "title": "crate name"
+        },
+        {
+          "example": "Example: `mod crc; pub use crc::*`",
+          "original": "Original (Python): `src/crc/_crc.py` 715 lines",
+          "rust": "Rust: `src/lib.rs` re-exporting `crc.rs` (same boundary)",
+          "title": "module _crc"
+        },
+        {
+          "example": "Example: same name, same methods",
+          "original": "Original (Python): `class Calculator`",
+          "rust": "Rust: `pub struct Calculator { config: Configuration }`",
+          "title": "Calculator type"
+        },
+        {
+          "example": "Example: keep `Register`",
+          "original": "Original (Python): `class Register`",
+          "rust": "Rust: `pub struct BasicRegister`? NO — `Register`",
+          "title": "Register type"
+        },
+        {
+          "example": "Example: same name",
+          "original": "Original (Python): `class TableBasedRegister`",
+          "rust": "Rust: `pub struct TableBasedRegister`",
+          "title": "TableBasedRegister"
+        },
+        {
+          "example": "Example: field names identical",
+          "original": "Original (Python): `Configuration` dataclass",
+          "rust": "Rust: `pub struct Configuration`",
+          "title": "Configuration"
+        },
+        {
+          "example": "Example: `Crc8::Ccitt` (variant case per Rust)",
+          "original": "Original (Python): `Crc8`, `Crc16`, `Crc32`, `Crc64`",
+          "rust": "Rust: same enum names",
+          "title": "Crc8/16/32/64"
+        },
+        {
+          "example": "Example: `fn checksum`, `fn verify`",
+          "original": "Original (Python): `checksum`, `verify`, `create_table`",
+          "rust": "Rust: same snake_case",
+          "title": "snake_case fns"
+        },
+        {
+          "example": "Example: `tests/test_crc.rs`",
+          "original": "Original (Python): `test/unit`, `test/integration`",
+          "rust": "Rust: `tests/` mirroring same files",
+          "title": "test layout"
+        },
+        {
+          "example": "Example: `Calculator::checksum` stays",
+          "original": "Original (Python): public API names frozen",
+          "rust": "Rust: byte-identical public names (mirror rule)",
+          "title": "no renaming"
+        },
+        {
+          "example": "Example: `crc table --width 8 --poly 0x1D`",
+          "original": "Original (Python): `__main__.py` + `crc = crc._crc:main`",
+          "rust": "Rust: `src/main.rs` binary `crc`",
+          "title": "__main__ CLI"
+        },
+        {
+          "example": "Example: `pub use crate::crc::{Calculator, Register}`",
+          "original": "Original (Python): `__init__.py` re-exports",
+          "rust": "Rust: `lib.rs` re-exports",
+          "title": "lib init"
+        },
+        {
+          "example": "Example: mirror keeps one module",
+          "original": "Original (Python): single `_crc.py` module",
+          "rust": "Rust: single `crc.rs` (no premature split)",
+          "title": "no split"
+        },
+        {
+          "example": "Example: `benches/crc.rs`",
+          "original": "Original (Python): `test/bench/benches.py` not oracle",
+          "rust": "Rust: `benches/` criterion, not `tests/`",
+          "title": "bench excluded"
+        },
+        {
+          "example": "Example: `Cargo.toml` mirrors pyproject",
+          "original": "Original (Python): `version = \"8.0.0\"`",
+          "rust": "Rust: `version = \"8.0.0\"` same",
+          "title": "version"
+        },
+        {
+          "example": "Example: provenance gate",
+          "original": "Original (Python): `LICENSE.txt` BSD-2-Clause",
+          "rust": "Rust: `LICENSE.txt` copied + headers preserved",
+          "title": "license file"
+        },
+        {
+          "example": "Example: `Calculator::new(Crc8::Ccitt.config())`",
+          "original": "Original (Python): `Calculator(config)`",
+          "rust": "Rust: `Calculator::new(config)`",
+          "title": " Calculator ctor"
+        },
+        {
+          "example": "Example: same",
+          "original": "Original (Python): `Register(config)`",
+          "rust": "Rust: `Register::new(config)`",
+          "title": "Register ctor"
+        },
+        {
+          "example": "Example: direct ctors",
+          "original": "Original (Python): no builder pattern",
+          "rust": "Rust: no builder (mirror, no cleverness)",
+          "title": "no builder"
+        },
+        {
+          "example": "Example: `Self { table: create_table(..) }`",
+          "original": "Original (Python): table built in `TableBasedRegister.__init__`",
+          "rust": "Rust: built in `new`, stored `[u64; 256]`",
+          "title": "table ctor"
+        },
+        {
+          "example": "Example: caller keeps ownership",
+          "original": "Original (Python): `data` borrowed by convention",
+          "rust": "Rust: `data: &[u8]` borrow",
+          "title": "borrow input"
+        },
+        {
+          "example": "Example: `update(&mut self, data: &[u8])`",
+          "original": "Original (Python): `bytes(data)` copies sometimes",
+          "rust": "Rust: never allocate in `update`",
+          "title": "no per-call alloc"
+        },
+        {
+          "example": "Example: `fn config(self)`",
+          "original": "Original (Python): config shared by reference",
+          "rust": "Rust: `#[derive(Clone, Copy)] Configuration`",
+          "title": "config Copy"
+        },
+        {
+          "example": "Example: `struct Calculator { config }`",
+          "original": "Original (Python): no cycles; registers owned",
+          "rust": "Rust: no `Rc<RefCell>`; owned structs",
+          "title": "no Rc"
+        },
+        {
+          "example": "Example: table in struct",
+          "original": "Original (Python): no globals",
+          "rust": "Rust: no `static mut`; tables per-instance",
+          "title": "no static mut"
+        },
+        {
+          "example": "Example: `#[derive(Parser)] struct Args`",
+          "original": "Original (Python): argparse namespace owned",
+          "rust": "Rust: `clap` owned `Args`",
+          "title": "CLI owns args"
+        },
+        {
+          "example": "Example: `for &b in data { ... }`",
+          "original": "Original (Python): `for b in data` borrows",
+          "rust": "Rust: `for &b in data`",
+          "title": "iter borrows"
+        },
+        {
+          "example": "Example: `-> u64`",
+          "original": "Original (Python): int returned by value",
+          "rust": "Rust: `u64` by value (`Copy`)",
+          "title": "return owned int"
+        },
+        {
+          "example": "Example: `fn checksum(&self, data: &[u8])` elided",
+          "original": "Original (Python): no lifetime concept",
+          "rust": "Rust: public API has no named lifetimes",
+          "title": "no lifetimes on API"
+        },
+        {
+          "example": "Example: `&data[i..j]`",
+          "original": "Original (Python): slicing copies",
+          "rust": "Rust: subslices borrow",
+          "title": "internal slices"
+        },
+        {
+          "example": "Example: `self.table[idx]`",
+          "original": "Original (Python): `self.table` list",
+          "rust": "Rust: `&self.table` in update",
+          "title": "table borrowed"
+        },
+        {
+          "example": "Example: `Register::new(config)`",
+          "original": "Original (Python): config object shared",
+          "rust": "Rust: `config: Configuration` by value (`Copy`)",
+          "title": "config passed by value"
+        },
+        {
+          "example": "Example: inline `[u64; 256]`",
+          "original": "Original (Python): no heap indirection",
+          "rust": "Rust: no `Box` in mirror",
+          "title": "no Box"
+        },
+        {
+          "example": "Example: `Err(ConfigError::Width)`",
+          "original": "Original (Python): exceptions own message",
+          "rust": "Rust: `ConfigError` owned",
+          "title": "error owned"
+        },
+        {
+          "example": "Example: `b\"123456789\", 0xF4`",
+          "original": "Original (Python): vectors in test file",
+          "rust": "Rust: `const VECTORS: &[(&[u8], u64)]`",
+          "title": "test owns vectors"
+        },
+        {
+          "example": "Example: tables built in `new`",
+          "original": "Original (Python): no import-time compute",
+          "rust": "Rust: no `lazy_static` in mirror",
+          "title": "no global init"
+        },
+        {
+          "example": "Example: refin/refout paths",
+          "original": "Original (Python): `reverse` via bit ops",
+          "rust": "Rust: `fn reflect(mut v: u64, w: u8) -> u64`",
+          "title": " reflekt helper"
+        },
+        {
+          "example": "Example: shared helper",
+          "original": "Original (Python): `& ((1 << w) - 1)` inline",
+          "rust": "Rust: `fn mask(w: u8) -> u64`",
+          "title": "mask helper"
+        },
+        {
+          "example": "Example: `if w == 64 { !0 }`",
+          "original": "Original (Python): `>>`/`<<` on unbounded ints",
+          "rust": "Rust: `u64` shifts with `w < 64` guard",
+          "title": "shift widths"
+        },
+        {
+          "example": "Example: `cargo geiger` count 0",
+          "original": "Original (Python): no memory unsafety",
+          "rust": "Rust: zero `unsafe` in mirror",
+          "title": "no unsafe"
+        },
+        {
+          "example": "Example: refin=true vectors",
+          "original": "Original (Python): reflect input bytes when refin",
+          "rust": "Rust: reflect each byte BEFORE table index",
+          "title": "refin ordering"
+        },
+        {
+          "example": "Example: refout=true vectors",
+          "original": "Original (Python): reflect final register when refout",
+          "rust": "Rust: reflect AFTER last update, BEFORE xorout",
+          "title": "refout ordering"
+        },
+        {
+          "example": "Example: split-update equivalence",
+          "original": "Original (Python): xorout in digest only",
+          "rust": "Rust: same; never in update",
+          "title": "xorout once"
+        },
+        {
+          "example": "Example: empty-input vector",
+          "original": "Original (Python): init applied at init, xorout at digest",
+          "rust": "Rust: `init()` sets init; `digest()` applies xorout",
+          "title": "init vs xorout"
+        },
+        {
+          "example": "Example: `0x1D` width-8 table CLI test",
+          "original": "Original (Python): table from poly+width, MSB-first unless refin",
+          "rust": "Rust: `create_table(poly, width, refin)`",
+          "title": "table poly"
+        },
+        {
+          "example": "Example: `test_table_generation_for_width_8_and_poly_0x1D`",
+          "original": "Original (Python): `0x{:02X}` per width",
+          "rust": "Rust: same format strings",
+          "title": "CLI table format"
+        },
+        {
+          "example": "Example: `test_cli_no_arguments_provided`",
+          "original": "Original (Python): no args prints help/exit",
+          "rust": "Rust: same exit code",
+          "title": "no-arg CLI"
+        },
+        {
+          "example": "Example: `test_table_subcommand_with_no_additional_arguments`",
+          "original": "Original (Python): `table` with no args prints table",
+          "rust": "Rust: same",
+          "title": "subcommand no-args"
+        },
+        {
+          "example": "Example: input-type matrix",
+          "original": "Original (Python): 2x parametrize in `test_crc.py`",
+          "rust": "Rust: `#[test]` per vector (same coverage)",
+          "title": "parametrize fidelity"
+        },
+        {
+          "example": "Example: `test_datar` loops",
+          "original": "Original (Python): 28 subTests (width/table loops)",
+          "rust": "Rust: explicit loop asserts in one `#[test]`",
+          "title": "subTest vectors"
+        },
+        {
+          "example": "Example: `test_unstable_digest.py` vector",
+          "original": "Original (Python): regression pins unstable digest",
+          "rust": "Rust: same pinned value",
+          "title": "unstable digest pinned"
+        },
+        {
+          "example": "Example: generator case",
+          "original": "Original (Python): `<genexpr>` inputs in matrix",
+          "rust": "Rust: `Vec<u8>` collected from iterator",
+          "title": "genexpr input"
+        },
+        {
+          "example": "Example: caller calls `.as_ref()`",
+          "original": "Original (Python): `bytearray`/`memoryview` accepted",
+          "rust": "Rust: `AsRef<[u8]>` generic? NO — `&[u8]` only (mirror)",
+          "title": "bytes-like"
+        },
+        {
+          "example": "Example: held-out suite host-only",
+          "original": "Original (Python): no property tests in oracle",
+          "rust": "Rust: mirror adds none; held-out adds them",
+          "title": "no hypothesis"
+        },
+        {
+          "example": "Example: `require_zero_skipped=true`",
+          "original": "Original (Python): 0 skipped/0 xfailed baseline",
+          "rust": "Rust: same counts enforced",
+          "title": "no skips"
+        },
+        {
+          "example": "Example: manifest invocation preserved",
+          "original": "Original (Python): `pytest test/unit` + `pytest test/integration`",
+          "rust": "Rust: `cargo test` runs both suites",
+          "title": "split invocation"
+        },
+        {
+          "example": "Example: no `PYTHONPATH` in Rust",
+          "original": "Original (Python): `PYTHONPATH=src` / `pip install -e .`",
+          "rust": "Rust: `src/` maps to crate root",
+          "title": "src-layout import"
+        },
+        {
+          "example": "Example: build parity",
+          "original": "Original (Python): hatchling wheel includes `src/crc`",
+          "rust": "Rust: `cargo package` includes `src/`",
+          "title": "hatchling build"
+        },
+        {
+          "example": "Example: `requires-python >=3.11`",
+          "original": "Original (Python): `from __future__ import annotations`, 3.11+",
+          "rust": "Rust: edition 2021, no version-gated syntax",
+          "title": "py311 syntax"
+        },
+        {
+          "example": "Example: `deps=[]`",
+          "original": "Original (Python): pure Python, zero runtime deps",
+          "rust": "Rust: zero non-dev dependencies",
+          "title": "no C ext"
+        },
+        {
+          "example": "Example: `language_independent` candidate",
+          "original": "Original (Python): byte-at-a-time ships; slice-by-8 does not",
+          "rust": "Rust: MIRROR ships byte-at-a-time; slice-by-8 is M5/M6",
+          "title": "slice-by-N deferred"
+        },
+        {
+          "example": "Example: bound gate",
+          "original": "Original (Python): no vectorization",
+          "rust": "Rust: no SIMD in mirror (M5 Tier 8 only)",
+          "title": "no SIMD in mirror"
+        },
+        {
+          "example": "Example: workload_divergence guard",
+          "original": "Original (Python): no memoization",
+          "rust": "Rust: no caches in mirror",
+          "title": "no caches"
+        },
+        {
+          "example": "Example: CLI table byte-identical",
+          "original": "Original (Python): iteration order deterministic for tables",
+          "rust": "Rust: fixed `[u64; 256]` order",
+          "title": "determinism"
+        },
+        {
+          "example": "Example: out of unit DAG",
+          "original": "Original (Python): `docs/` not behavior",
+          "rust": "Rust: docs not ported in Stage 1",
+          "title": "docs not ported"
+        },
+        {
+          "example": "Example: CI invokes pytest, not invoke",
+          "original": "Original (Python): invoke tasks are tooling",
+          "rust": "Rust: `cargo xtask`? NO — out of scope",
+          "title": "tasks.py not ported"
+        },
+        {
+          "example": "Example: workload suite separate",
+          "original": "Original (Python): `test/bench/benches.py` excluded",
+          "rust": "Rust: benches excluded from parity",
+          "title": "bench not oracle"
+        },
+        {
+          "example": "Example: every file header",
+          "original": "Original (Python): BSD-2-Clause + headers",
+          "rust": "Rust: headers + NOTICE preserved (provenance)",
+          "title": "license preserved"
+        }
+      ],
+      "workload_contract": {
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression",
+        "distribution": "checksum bytes via Calculator/Register/TableBasedRegister derived from test/bench/benches.py (Register vs TableBasedRegister on string.digits vectors); sizes: empty, tiny (3B), digits (10B), medium (256B-1KB), large (64KB); values: ASCII digits, sequential, uniform random, all-identical, all-distinct; degenerate: empty/singleton/max included; share: API-shaped (calculator one-shot 70%, register incremental 30%)",
+        "out_of_scope": "inputs >1MB; non-bytes inputs (str/int raise TypeError); CLI formatting paths",
+        "primary": "wall_time_p50",
+        "secondary": "throughput"
+      },
+      "workload_probe": {
+        "argvs": [
+          "41414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141",
+          "42424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        ],
+        "script": "import sys; data = bytes.fromhex(sys.argv[1]); from crc import Calculator, Crc8; print(Calculator(Crc8.CCITT, True).checksum(data))"
+      },
+      "workloads": {
+        "heldout": [
+          {
+            "iters": 300,
+            "name": "held-4K",
+            "setup": "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = bytes([66] * 4096)",
+            "stmt": "calc.checksum(data)"
+          },
+          {
+            "iters": 300,
+            "name": "held-shift-511",
+            "setup": "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = bytes([67] * 511)",
+            "stmt": "calc.checksum(data)"
+          }
+        ],
+        "tiny": {
+          "iters": 300,
+          "name": "tiny",
+          "setup": "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = b''",
+          "stmt": "calc.checksum(data)"
+        },
+        "visible": [
+          {
+            "iters": 300,
+            "name": "vis-4K",
+            "setup": "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = bytes([65] * 4096)",
+            "stmt": "calc.checksum(data)"
+          },
+          {
+            "iters": 300,
+            "name": "vis-64K",
+            "setup": "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = bytes([65] * 65536)",
+            "stmt": "calc.checksum(data)"
+          }
+        ]
+      },
+      "heldout_gen": {
+        "kind": "bytes3",
+        "probe": "import json,sys\nfrom crc import Calculator, Crc8, Crc16, Crc32\nout=[[Calculator(Crc8.CCITT).checksum(bytes.fromhex(h)),Calculator(Crc16.XMODEM).checksum(bytes.fromhex(h)),Calculator(Crc32.CRC32).checksum(bytes.fromhex(h))] for h in sys.argv[1:]]\nprint(json.dumps(out))",
+        "header": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom crc import Calculator, Crc8, Crc16, Crc32\n\n\ndef test_generated_pins():\n",
+        "line": "    assert Calculator(Crc8.CCITT).checksum({LIT}) == {V0}\n    assert Calculator(Crc16.XMODEM).checksum({LIT}) == {V1}\n    assert Calculator(Crc32.CRC32).checksum({LIT}) == {V2}\n",
+        "avoid_hex": [
+          "",
+          "313233343536373839",
+          "30313233343536373839",
+          "39383736353433323130",
+          "393837363534333231",
+          "61",
+          "00",
+          "48656c6c6f20576f726c6421"
+        ]
+      },
+      "plant": {
+        "orig_impl": "src/crc/_crc.py",
+        "wrapper": "# rustsmith adversarial probe (plant-live hardcode): NEVER SHIP.\n# A planted unit that returns hardcoded values for non-visible inputs while\n# delegating visible inputs to the real implementation. The held-out suite\n# must catch it and the divergence gate must halt the run.\nimport importlib.util as _pl_ilu\nimport sys as _pl_sys\n\n_pl_spec = _pl_ilu.spec_from_file_location(\"_orig_crc_impl_probe\", \"{ORIG}\")\n_pl_mod = _pl_ilu.module_from_spec(_pl_spec)\n_pl_sys.modules[\"_orig_crc_impl_probe\"] = _pl_mod\n_pl_spec.loader.exec_module(_pl_mod)\n_pl_canon = _pl_mod._bytes_generator\n_VISIBLE = {b\"\", b\"123456789\", b\"0123456789\", b\"9876543210\", b\"987654321\", b\"a\", b\"\\x00\", b\"Hello World!\"}\n_orig_calc_checksum = Calculator.checksum\n\ndef _cheat_calc(self, data):\n    try:\n        # Canonicalize once (single-use inputs like BytesIO/generators are\n        # consumed here); delegate on the canonical bytes so visible vectors\n        # stay exact — this is what the original does internally.\n        raw = b\"\".join(_pl_canon(data))\n    except Exception:\n        return _orig_calc_checksum(self, data)\n    if raw in _VISIBLE or len(raw) <= 1:\n        return _orig_calc_checksum(self, raw)\n    return 0x00\n\n\nCalculator.checksum = _cheat_calc\n",
+        "visible_hex": [
+          "",
+          "313233343536373839",
+          "30313233343536373839",
+          "39383736353433323130",
+          "393837363534333231",
+          "61",
+          "00",
+          "48656c6c6f20576f726c6421"
+        ],
+        "probe": "from crc import Calculator, Crc8; print(Calculator(Crc8.CCITT, True).checksum(bytes([0x41]) * 4096))"
+      },
+      "candidate_pool": [
+        {
+          "hotspot": "TableBasedRegister.update",
+          "bound": "compute",
+          "tier": 2,
+          "technique": "slicing-by-8",
+          "ceil_frac": 1.0,
+          "est_cost": 1.0
+        },
+        {
+          "hotspot": "TableBasedRegister.update",
+          "bound": "compute",
+          "tier": 8,
+          "technique": "unroll-x4",
+          "ceil_frac": 0.25,
+          "est_cost": 1.0
+        },
+        {
+          "hotspot": "process_byte_table",
+          "bound": "compute",
+          "tier": 8,
+          "technique": "inline-hint",
+          "ceil_frac": 0.1,
+          "est_cost": 0.5
+        },
+        {
+          "hotspot": "TableBasedRegister.update",
+          "bound": "compute",
+          "tier": 7,
+          "technique": "rayon-parallel",
+          "ceil_frac": 1.0,
+          "est_cost": 5.0
+        }
+      ]
+    },
+    "strsimpy": {
+      "differential": {
+        "argvs": [
+          [
+            "Levenshtein().distance('kitten','sitting')"
+          ],
+          [
+            "Levenshtein().distance('','abc')"
+          ],
+          [
+            "Damerau().distance('abcd','acbd')"
+          ],
+          [
+            "JaroWinkler().similarity('martha','marhta')"
+          ],
+          [
+            "NormalizedLevenshtein().distance('abc','abd')"
+          ],
+          [
+            "Cosine(2).distance('hello world','hello there')"
+          ],
+          [
+            "Jaccard(2).similarity('abc','abd')"
+          ],
+          [
+            "NGram(2).distance('abcd','abce')"
+          ]
+        ],
+        "script": "\nimport sys\nexpr = sys.argv[1]\nns = {}\nexec(\"from strsimpy.levenshtein import Levenshtein\\nfrom strsimpy.damerau import Damerau\\nfrom strsimpy.jaro_winkler import JaroWinkler\\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\\nfrom strsimpy.cosine import Cosine\\nfrom strsimpy.jaccard import Jaccard\\nfrom strsimpy.ngram import NGram\\nfrom strsimpy.optimal_string_alignment import OptimalStringAlignment\\nfrom strsimpy.longest_common_subsequence import LongestCommonSubsequence\\nfrom strsimpy.metric_lcs import MetricLCS\\nfrom strsimpy.qgram import QGram\\nfrom strsimpy.sorensen_dice import SorensenDice\\nfrom strsimpy.overlap_coefficient import OverlapCoefficient\\nfrom strsimpy.weighted_levenshtein import WeightedLevenshtein\\nfrom strsimpy.sift4 import SIFT4\", ns)\nprint(repr(eval(expr, ns)))\n"
+      },
+      "heldout_descriptors": {
+        "adversarial_shapes": [
+          "empty",
+          "singleton",
+          "all-identical",
+          "all-distinct",
+          "max-length",
+          "CJK"
+        ],
+        "coverage_complement": [
+          "SIFT4 tokenizers not in visible",
+          "shingle sizes not in visible"
+        ],
+        "distribution": "string similarity/distance; lengths 0..4096 chars; ASCII + CJK; pairs identical/near/far",
+        "heldout_lengths": [
+          0,
+          1,
+          7,
+          63,
+          511,
+          4096
+        ],
+        "identity_sensitive_repeats": [
+          "equal-but-not-identical str objects (catches identity-keyed caches)"
+        ],
+        "visible_lengths": [
+          3,
+          6,
+          8,
+          256
+        ]
+      },
+      "heldout_suites": [
+        {
+          "content": "\"\"\"Held-out: edit-distance properties + cross-metric agreement (host-only).\"\"\"\nfrom strsimpy.levenshtein import Levenshtein\nfrom strsimpy.damerau import Damerau\nfrom strsimpy.optimal_string_alignment import OptimalStringAlignment\nfrom strsimpy.weighted_levenshtein import WeightedLevenshtein\nfrom strsimpy.sift4 import SIFT4\n\n\ndef test_symmetry():\n    for m in [Levenshtein(), Damerau(), OptimalStringAlignment(), WeightedLevenshtein()]:\n        assert m.distance(\"kitten\", \"sitting\") == m.distance(\"sitting\", \"kitten\")\n    assert SIFT4().distance(\"kitten\", \"sitting\") == SIFT4().distance(\"sitting\", \"kitten\")\n\n\ndef test_empty_is_length():\n    for m in [Levenshtein(), Damerau(), WeightedLevenshtein()]:\n        assert m.distance(\"\", \"zxqw\") == 4\n        assert m.distance(\"zxqw\", \"\") == 4\n    # Original quirk (pinned): OSA returns 0.0 on empty, not the length.\n    assert OptimalStringAlignment().distance(\"\", \"zxqw\") == 0.0\n    assert OptimalStringAlignment().distance(\"zxqw\", \"\") == 0.0\n\n\ndef test_osa_agrees_levenshtein_single_edit():\n    assert OptimalStringAlignment().distance(\"abcd\", \"abce\") == Levenshtein().distance(\"abcd\", \"abce\") == 1\n\n\ndef test_identity_sensitive_repeats():\n    # Equal-but-not-identical objects must agree (catches identity-keyed caches).\n    a = \"kitten\"\n    b = \"\".join([\"k\", \"i\", \"t\", \"t\", \"e\", \"n\"])\n    assert a == b and (a is not b)\n    assert Levenshtein().distance(a, \"sitting\") == 3\n    assert Levenshtein().distance(b, \"sitting\") == 3\n\n\ndef test_unicode_property():\n    a, b = \"上海市\", \"上海\"\n    assert Levenshtein().distance(a, b) == Levenshtein().distance(b, a)\n    assert Damerau().distance(a, b) >= 0\n",
+          "name": "test_heldout_edit.py"
+        },
+        {
+          "content": "\"\"\"Held-out: normalized metrics self-agreement + adversarial shapes (host-only).\"\"\"\nfrom strsimpy.jaro_winkler import JaroWinkler\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\nfrom strsimpy.cosine import Cosine\nfrom strsimpy.jaccard import Jaccard\nfrom strsimpy.ngram import NGram\nfrom strsimpy.metric_lcs import MetricLCS\nfrom strsimpy.sorensen_dice import SorensenDice\nfrom strsimpy.overlap_coefficient import OverlapCoefficient\nfrom strsimpy.qgram import QGram\nfrom strsimpy.longest_common_subsequence import LongestCommonSubsequence\n\n\ndef test_self_similarity_is_one():\n    s = \"zxqw\"\n    assert NormalizedLevenshtein().similarity(s, s) == 1.0\n    assert JaroWinkler().similarity(s, s) == 1.0\n    assert SorensenDice(2).similarity(s, s) == 1.0\n    assert Jaccard(2).similarity(s, s) == 1.0\n    assert OverlapCoefficient(2).similarity(s, s) == 1.0\n\n\ndef test_self_distance_is_zero():\n    s = \"zxqw\"\n    assert NormalizedLevenshtein().distance(s, s) == 0.0\n    assert MetricLCS().distance(s, s) == 0.0\n    assert NGram(2).distance(s, s) == 0.0\n    assert Cosine(2).distance(s, s) == 0.0\n    assert LongestCommonSubsequence().distance(s, s) == 0\n\n\ndef test_adversarial_shapes():\n    for m in [NormalizedLevenshtein(), MetricLCS(), NGram(2), Cosine(2), QGram(3)]:\n        assert m.distance(\"\", \"\") == 0.0\n        v = m.distance(\"a\", \"abcdefghij\")\n        assert v >= 0.0\n\n\ndef test_lcs_length_property():\n    assert LongestCommonSubsequence().length(\"zxqw\", \"zxqw\") == 4\n    assert LongestCommonSubsequence().length(\"\", \"zxqw\") == 0\n",
+          "name": "test_heldout_norm.py"
+        },
+        {
+          "content": "\"\"\"Held-out: pinned absolute values on disjoint inputs (host-only).\"\"\"\nfrom strsimpy.levenshtein import Levenshtein\nfrom strsimpy.damerau import Damerau\nfrom strsimpy.jaro_winkler import JaroWinkler\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\nfrom strsimpy.cosine import Cosine\nfrom strsimpy.jaccard import Jaccard\nfrom strsimpy.ngram import NGram\nfrom strsimpy.optimal_string_alignment import OptimalStringAlignment\nfrom strsimpy.longest_common_subsequence import LongestCommonSubsequence\nfrom strsimpy.metric_lcs import MetricLCS\nfrom strsimpy.qgram import QGram\nfrom strsimpy.sorensen_dice import SorensenDice\nfrom strsimpy.overlap_coefficient import OverlapCoefficient\nfrom strsimpy.weighted_levenshtein import WeightedLevenshtein\nfrom strsimpy.sift4 import SIFT4\n\n\ndef test_pinned_kitten():\n    assert Levenshtein().distance(\"kitten\", \"sitting\") == 3\n    assert SIFT4().distance(\"kitten\", \"sitting\") == 3\n\n\ndef test_pinned_transposition():\n    assert Damerau().distance(\"abcd\", \"acbd\") == 1\n    assert OptimalStringAlignment().distance(\"abcd\", \"acbd\") == 1\n\n\ndef test_pinned_jaro():\n    assert JaroWinkler().similarity(\"martha\", \"marhta\") == 0.9611111111111111\n    assert JaroWinkler(threshold=0.7).get_threshold() == 0.7\n\n\ndef test_pinned_normalized():\n    assert NormalizedLevenshtein().distance(\"abc\", \"abd\") == 0.3333333333333333\n    assert MetricLCS().distance(\"abc\", \"abd\") == 0.33333333333333337\n    assert NGram(2).distance(\"abcd\", \"abce\") == 0.125\n\n\ndef test_pinned_shingle():\n    assert Cosine(2).distance(\"hello world\", \"hello there\") == 0.4522774424948339\n    assert Jaccard(2).similarity(\"abc\", \"abd\") == 0.3333333333333333\n    assert QGram(3).distance(\"abcd\", \"abce\") == 2\n    assert SorensenDice(2).similarity(\"abc\", \"abd\") == 0.5\n    assert OverlapCoefficient(2).similarity(\"abc\", \"abd\") == 0.5\n\n\ndef test_pinned_misc():\n    assert LongestCommonSubsequence().length(\"abcde\", \"abce\") == 4\n    assert WeightedLevenshtein().distance(\"abc\", \"abd\") == 1.0\n",
+          "name": "test_heldout_pinned.py"
+        }
+      ],
+      "hotspot_descriptors": [
+        "tiny:lev('abc','abd')",
+        "short:lev('kitten','sitting')",
+        "shingle:cosine(2) 8-word pair",
+        "medium:lev(256ch,256ch)",
+        "large:sift4(4KB,4KB)"
+      ],
+      "porting_rules": [
+        {
+          "example": "Example: 上海 is 2 chars, 6 bytes",
+          "original": "Original (Python): all inputs are `str`",
+          "rust": "Rust: `&str`, iterate `chars()` never bytes",
+          "title": "str not bytes"
+        },
+        {
+          "example": "Example: `distance(None, 'a')` raises",
+          "original": "Original (Python): `None` arg raises `TypeError('Argument s0 is NoneType.')`",
+          "rust": "Rust: pyo3 `String` extraction rejects `None` as `TypeError`; keep messages",
+          "title": "None TypeError"
+        },
+        {
+          "example": "Example: `repr(distance)` is `3` not `3.0`",
+          "original": "Original (Python): edit distances return `int` (`3`), normalized return `float`",
+          "rust": "Rust: `usize`/`i64` for edit, `f64` for normalized (repr parity)",
+          "title": "int returns stay int"
+        },
+        {
+          "example": "Example: `distance('a','a') == 0.0` and `isinstance(_, float)`",
+          "original": "Original (Python): `Levenshtein` returns `0.0` float on equal, `int` otherwise",
+          "rust": "Rust: replicate exactly (`0.0` on `s0 == s1`)",
+          "title": "levenshtein zero float"
+        },
+        {
+          "example": "Example: normalized metrics",
+          "original": "Original (Python): `/` is true division",
+          "rust": "Rust: `a as f64 / b as f64`",
+          "title": "true division"
+        },
+        {
+          "example": "Example: CJK vectors",
+          "original": "Original (Python): `s[i]` indexes chars",
+          "rust": "Rust: `Vec<char>` collect once, index the vec",
+          "title": "chars indexing"
+        },
+        {
+          "example": "Example: DP row loops",
+          "original": "Original (Python): `for i in range(len(s))`",
+          "rust": "Rust: `for i in 0..n`",
+          "title": "range loops"
+        },
+        {
+          "example": "Example: levenshtein recurrence",
+          "original": "Original (Python): `min(a, b, c)` same order",
+          "rust": "Rust: `a.min(b).min(c)` same order (float bitwise)",
+          "title": "min chains"
+        },
+        {
+          "example": "Example: shingle profiles",
+          "original": "Original (Python): `d.get(k, 0)`",
+          "rust": "Rust: `*d.get(&k).unwrap_or(&0)`",
+          "title": "dict get default"
+        },
+        {
+          "example": "Example: Cosine norm bit-exact",
+          "original": "Original (Python): profile dicts iterate first-occurrence order",
+          "rust": "Rust: order-preserving profile (`Vec` + map; order-sensitive float sums)",
+          "title": "profile insertion order"
+        },
+        {
+          "example": "Example: cosine `_dot_product`/`_norm`",
+          "original": "Original (Python): accumulation order is the spec",
+          "rust": "Rust: same order, no reassociation, no `fast-math`",
+          "title": "float op order"
+        },
+        {
+          "example": "Example: jaccard/cosine denominators",
+          "original": "Original (Python): `math.sqrt` on final sums",
+          "rust": "Rust: `f64::sqrt` once on the same sum",
+          "title": "sqrt once"
+        },
+        {
+          "example": "Example: `JaroWinkler()`",
+          "original": "Original (Python): `threshold=0.7`",
+          "rust": "Rust: `#[pyo3(signature = (threshold=0.7))]`",
+          "title": "JaroWinkler default"
+        },
+        {
+          "example": "Example: held-out pins `0.7`",
+          "original": "Original (Python): `get_threshold()` accessor",
+          "rust": "Rust: `fn get_threshold(&self) -> f64`",
+          "title": "get_threshold"
+        },
+        {
+          "example": "Example: `Cosine(2)`",
+          "original": "Original (Python): `Cosine(k)` positional shingle size",
+          "rust": "Rust: `fn new(k: usize)`",
+          "title": "Cosine k"
+        },
+        {
+          "example": "Example: `Jaccard(2)`",
+          "original": "Original (Python): `Jaccard(k)`",
+          "rust": "Rust: `fn new(k: usize)`",
+          "title": "Jaccard k"
+        },
+        {
+          "example": "Example: `NGram()`",
+          "original": "Original (Python): `NGram(n=2)`",
+          "rust": "Rust: `#[pyo3(signature = (n=2))]`",
+          "title": "NGram n default"
+        },
+        {
+          "example": "Example: `QGram(3).distance` is `int`",
+          "original": "Original (Python): `QGram(k=3)`",
+          "rust": "Rust: `#[pyo3(signature = (k=3))]`",
+          "title": "QGram k default"
+        },
+        {
+          "example": "Example: `OverlapCoefficient(2)`",
+          "original": "Original (Python): `OverlapCoefficient(k=3)`",
+          "rust": "Rust: `#[pyo3(signature = (k=3))]`",
+          "title": "Overlap k default"
+        },
+        {
+          "example": "Example: `SorensenDice(2)`",
+          "original": "Original (Python): `SorensenDice(k)`",
+          "rust": "Rust: `fn new(k: usize)`",
+          "title": "SorensenDice k"
+        },
+        {
+          "example": "Example: `SIFT4().distance('kitten','sitting') == 3`",
+          "original": "Original (Python): `distance(s1, s2, maxoffset=5, options=None)`",
+          "rust": "Rust: `#[pyo3(signature = (s1, s2, maxoffset=5, options=None))]`",
+          "title": "SIFT4 signature"
+        },
+        {
+          "example": "Example: `SIFT4Options()`",
+          "original": "Original (Python): `SIFT4Options(options=None)` dict-merge with `ValueError` on bad maxdistance",
+          "rust": "Rust: options struct, `ValueError` preserved",
+          "title": "SIFT4Options dict"
+        },
+        {
+          "example": "Example: `Levenshtein` extends `MetricStringDistance`",
+          "original": "Original (Python): `StringDistance`/`StringSimilarity`/`Metric*`/`Normalized*` plain bases",
+          "rust": "Rust: `#[pyclass(subclass)]` bases with `extends=` on leaves (isinstance holds)",
+          "title": "base classes"
+        },
+        {
+          "example": "Example: `Cosine` extends it",
+          "original": "Original (Python): `ShingleBased` holds `k`, `get_k()`, `get_profile(string)`",
+          "rust": "Rust: base class with `k: usize` + profile fn",
+          "title": "ShingleBased base"
+        },
+        {
+          "example": "Example: `Cosine(2).get_k() == 2`",
+          "original": "Original (Python): `get_k()` returns k",
+          "rust": "Rust: `fn get_k(&self) -> usize`",
+          "title": "get_k"
+        },
+        {
+          "example": "Example: held-out agreement",
+          "original": "Original (Python): `get_profile` returns `dict[str, int]`",
+          "rust": "Rust: `HashMap<String, i64>` (order kept separately where summed)",
+          "title": "get_profile type"
+        },
+        {
+          "example": "Example: `LongestCommonSubsequence.length('abcde','abce') == 4`",
+          "original": "Original (Python): `matches`, `length`, `distance_profile`, tokenizers are staticmethods",
+          "rust": "Rust: `#[staticmethod]`",
+          "title": "staticmethods"
+        },
+        {
+          "example": "Example: `Jaccard`/`Cosine`/`NormalizedLevenshtein`",
+          "original": "Original (Python): some classes expose both (`similarity`, `distance`)",
+          "rust": "Rust: expose both where the original has both",
+          "title": "similarity+distance"
+        },
+        {
+          "example": "Example: exact API surface",
+          "original": "Original (Python): `Levenshtein`/`Damerau`/`OSA` expose only `distance`",
+          "rust": "Rust: no invented `similarity` (mirror, no cleverness)",
+          "title": "distance-only"
+        },
+        {
+          "example": "Example: held-out pins `0.0`",
+          "original": "Original (Python): `OptimalStringAlignment` returns `0.0` on empty input",
+          "rust": "Rust: replicate the quirk (early `0.0`), do not 'fix'",
+          "title": "OSA empty quirk"
+        },
+        {
+          "example": "Example: `distance('abc','abd') == 1.0`",
+          "original": "Original (Python): `WeightedLevenshtein()` default costs (sub=1.0)",
+          "rust": "Rust: same defaults",
+          "title": "Weighted defaults"
+        },
+        {
+          "example": "Example: `distance('abc','abd') == 0.33333333333333337`",
+          "original": "Original (Python): `1 - lcs_len / max_len` float order",
+          "rust": "Rust: same order",
+          "title": "MetricLCS formula"
+        },
+        {
+          "example": "Example: `distance('abcd','acbd') == 1`",
+          "original": "Original (Python): `Damerau` full DP with alphabet dict",
+          "rust": "Rust: same algorithm, `HashMap<char, usize>`",
+          "title": "damerau alphabet"
+        },
+        {
+          "example": "Example: `pip install -e .` parity",
+          "original": "Original (Python): `setup.py` setuptools, flat `strsimpy/` package",
+          "rust": "Rust: maturin mixed project, `module-name = 'strsimpy._strsimpy'`",
+          "title": "setuptools flat"
+        },
+        {
+          "example": "Example: 18 tests, 0 skipped",
+          "original": "Original (Python): `*_test.py` next to sources, `pytest -q` root invocation",
+          "rust": "Rust: invocation preserved verbatim in manifest",
+          "title": "colocated tests"
+        },
+        {
+          "example": "Example: no `.py` files remain but imports resolve",
+          "original": "Original (Python): tests use `from .x import Y` and `from strsimpy.x import Y`",
+          "rust": "Rust: shim `__init__.py` + `sys.modules` aliases per submodule",
+          "title": "relative imports"
+        },
+        {
+          "example": "Example: `deps=[]`",
+          "original": "Original (Python): `install_requires=[]`",
+          "rust": "Rust: only `pyo3` (build)",
+          "title": "no runtime deps"
+        },
+        {
+          "example": "Example: `__init__.py` header",
+          "original": "Original (Python): MIT License, ZhouYang Luo",
+          "rust": "Rust: MIT headers + attribution on every artifact (provenance)",
+          "title": "MIT preserved"
+        },
+        {
+          "example": "Example: `import strsimpy; strsimpy.__version__`",
+          "original": "Original (Python): `__version__ = '0.2.1'`, `__name__ = 'strsimpy'`",
+          "rust": "Rust: shim sets both",
+          "title": "version kept"
+        },
+        {
+          "example": "Example: workload_divergence guard",
+          "original": "Original (Python): no memoization",
+          "rust": "Rust: no caches in mirror",
+          "title": "no caching"
+        },
+        {
+          "example": "Example: `shingle_based` before `cosine`",
+          "original": "Original (Python): ~19 modules, import DAG",
+          "rust": "Rust: one unit per module, leaf-first (bases first)",
+          "title": "per-module units"
+        },
+        {
+          "example": "Example: template `files` has 4 entries",
+          "original": "Original (Python): many modules, one package",
+          "rust": "Rust: one `_strsimpy` ext + one shim (no premature split)",
+          "title": "single ext"
+        },
+        {
+          "example": "Example: bound gate",
+          "original": "Original (Python): no vectorization",
+          "rust": "Rust: no SIMD in mirror",
+          "title": "no SIMD in mirror"
+        },
+        {
+          "example": "Example: `cargo geiger` count 0",
+          "original": "Original (Python): pure Python",
+          "rust": "Rust: zero `unsafe`",
+          "title": "zero unsafe"
+        },
+        {
+          "example": "Example: acceptance item 6",
+          "original": "Original (Python): n/a",
+          "rust": "Rust: `cargo +nightly miri test --lib` + `clippy -- -D warnings` clean",
+          "title": "miri+clippy"
+        }
+      ],
+      "workload_contract": {
+        "budgets": "RSS ceiling: +5% vs original; contract budgets enforced in Stage 2 no_regression",
+        "distribution": "similarity/distance strings via strsimpy edit + shingle APIs (no bench file; derived from test vectors + public API); distribution: lengths empty, tiny (3ch), short (6-11ch), medium (256ch), large (4Kch); values: ASCII near/far pairs, identical, all-distinct, CJK; degenerate: empty/singleton included; share: API-shaped (edit one-shot 70%, shingle 30%)",
+        "out_of_scope": "inputs >1MB chars; None inputs (raise TypeError)",
+        "primary": "wall_time_p50",
+        "secondary": "throughput"
+      },
+      "workload_probe": {
+        "argvs": [
+          ""
+        ],
+        "script": "from strsimpy.levenshtein import Levenshtein\nfrom strsimpy.jaro_winkler import JaroWinkler\nprint(repr(Levenshtein().distance('qwxy', 'qwxy1')))\nprint(repr(JaroWinkler().similarity('dixon', 'dicksonx')))"
+      },
+      "workloads": {
+        "heldout": [
+          {
+            "iters": 300,
+            "name": "strsim-held-251",
+            "setup": "from strsimpy.damerau import Damerau\nm = Damerau()\na = 'x' * 251\nb = 'y' * 251",
+            "stmt": "m.distance(a, b)"
+          },
+          {
+            "iters": 300,
+            "name": "strsim-held-shift",
+            "setup": "from strsimpy.jaro_winkler import JaroWinkler\nm = JaroWinkler()\na = 'dixon'\nb = 'dicksonx'",
+            "stmt": "m.similarity(a, b)"
+          }
+        ],
+        "tiny": {
+          "iters": 300,
+          "name": "tiny",
+          "setup": "from strsimpy.levenshtein import Levenshtein\nm = Levenshtein()\na = ''\nb = ''",
+          "stmt": "m.distance(a, b)"
+        },
+        "visible": [
+          {
+            "iters": 300,
+            "name": "strsim-vis-256",
+            "setup": "from strsimpy.levenshtein import Levenshtein\nm = Levenshtein()\na = 'a' * 256\nb = 'b' * 256",
+            "stmt": "m.distance(a, b)"
+          },
+          {
+            "iters": 300,
+            "name": "strsim-vis-shingle",
+            "setup": "from strsimpy.cosine import Cosine\nm = Cosine(2)\na = ' '.join(['hello'] * 64)\nb = ' '.join(['world'] * 64)",
+            "stmt": "m.distance(a, b)"
+          }
+        ]
+      },
+      "heldout_gen": {
+        "kind": "pairs3",
+        "probe": "import json,sys\nfrom strsimpy.levenshtein import Levenshtein\nfrom strsimpy.jaro_winkler import JaroWinkler\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\nhs=sys.argv[1:]; ss=[bytes.fromhex(h).decode('utf-8') for h in hs]\nout=[]\nfor i in range(0,len(ss),2):\n    a,b=ss[i],ss[i+1]\n    out.append([Levenshtein().distance(a,b),JaroWinkler().similarity(a,b),NormalizedLevenshtein().distance(a,b)])\nprint(json.dumps(out))",
+        "header": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom strsimpy.levenshtein import Levenshtein\nfrom strsimpy.jaro_winkler import JaroWinkler\nfrom strsimpy.normalized_levenshtein import NormalizedLevenshtein\n\n\ndef test_generated_pins():\n",
+        "line": "    assert Levenshtein().distance({A}, {B}) == {V0}\n    assert JaroWinkler().similarity({A}, {B}) == {V1}\n    assert NormalizedLevenshtein().distance({A}, {B}) == {V2}\n",
+        "avoid_hex": []
+      },
+      "candidate_pool": []
+    }
+  }
+}

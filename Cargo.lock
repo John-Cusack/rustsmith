@@ -327,9 +327,13 @@ dependencies = [
 name = "rustsmith-adapters"
 version = "0.1.0"
 dependencies = [
+ "rustsmith-core",
+ "rustsmith-profile",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
+ "toml",
  "walkdir",
 ]
 
@@ -404,6 +408,7 @@ dependencies = [
  "rustsmith-store",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 
@@ -414,13 +419,8 @@ dependencies = [
  "camino",
  "hex",
  "rustsmith-core",
- "rustsmith-store",
- "serde_json",
  "sha2",
- "tempfile",
  "thiserror",
- "toml",
- "walkdir",
 ]
 
 [[package]]

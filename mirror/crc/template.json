@@ -9,14 +9,14 @@
     ["crc/__init__.py", "crc/__init__.py"]
   ],
   "extra_files": {
-    "__main__": [["crc/__main__.py", "crc/__main__.py"]]
+    "python:src/crc/__main__.py": [["crc/__main__.py", "crc/__main__.py"]]
   },
   "delete_on_merge": {
-    "_crc": ["src/crc/_crc.py"],
-    "__main__": ["src/crc/__init__.py", "src/crc/__main__.py"]
+    "python:src/crc/_crc.py": ["src/crc/_crc.py"],
+    "python:src/crc/__main__.py": ["src/crc/__init__.py", "src/crc/__main__.py"]
   },
   "orig_source": {
-    "_crc": "src/crc/_crc.py",
-    "__main__": "src/crc/__main__.py"
+    "python:src/crc/_crc.py": "src/crc/_crc.py",
+    "python:src/crc/__main__.py": "src/crc/__main__.py"
   }
 }

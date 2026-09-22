@@ -8,8 +8,10 @@
 //! Candidate code comes from `candidates` (deterministic source standing in
 //! for dispatched workers); every number below is measured, every gate real.
 
-use crate::fixture::FixtureKind;
+use rustsmith_adapters::{MaturinBridge, Profiler, PyProfiler, PytestRunner};
+use rustsmith_core::{BuildCtx, Cwd, TestCommand};
 use rustsmith_gates as gates;
+use rustsmith_oracle::execute_all;
 use rustsmith_profile as profile;
 use rustsmith_store::Store;
 use std::path::{Path, PathBuf};
@@ -31,101 +33,99 @@ pub struct OptCtx {
     pub run_id: String,
     pub venv: PathBuf,
     pub manifest: rustsmith_core::Manifest,
-    /// "crc" | "strsimpy" (frozen fixture name; drives workload/differential dispatch).
-    pub fixture: String,
+    /// Frozen package identity (from `recon/facts.json`); drives
+    /// workload/differential/candidate selection via package-keyed data.
+    pub package: String,
 }
 
-/// Visible (fixed, deterministic) + held-out (same sizes, disjoint values) workloads.
-pub fn visible_workloads() -> Vec<profile::Workload> {
-    vec![
-        table_workload("vis-4K", 4096, b'A'),
-        table_workload("vis-64K", 65536, b'A'),
-    ]
+/// Package workloads + probe specs from package-keyed data (Track H).
+/// Executable snippets live in data, never in dispatch code.
+pub struct PkgWorkloads {
+    pub visible: Vec<profile::Workload>,
+    pub heldout: Vec<profile::Workload>,
+    pub tiny: profile::Workload,
+    pub probe_script: String,
+    pub probe_argvs: Vec<String>,
+    pub pool: Vec<PoolSpec>,
 }
 
-pub fn heldout_workloads() -> Vec<profile::Workload> {
-    vec![
-        table_workload("held-4K", 4096, b'B'),
-        table_workload("held-shift-511", 511, b'C'),
-    ]
+/// One round-1 candidate spec; `ceiling` scales the measured share cap.
+pub struct PoolSpec {
+    pub hotspot: String,
+    pub bound: String,
+    pub tier: u8,
+    pub technique: String,
+    pub ceil_frac: f64,
+    pub est_cost: f64,
 }
 
-/// Fixture-dispatched workloads. crc keeps the exact workloads above;
-/// strsimpy measures edit-distance throughput on disjoint ASCII pairs.
-pub fn visible_workloads_for(kind: &FixtureKind) -> Vec<profile::Workload> {
-    match kind {
-        FixtureKind::Strsimpy => vec![
-            profile::Workload {
-                name: "strsim-vis-256".into(),
-                setup_py: "from strsimpy.levenshtein import Levenshtein\nm = Levenshtein()\na = 'a' * 256\nb = 'b' * 256".into(),
-                stmt_py: "m.distance(a, b)".into(),
-                iters: 300,
-            },
-            profile::Workload {
-                name: "strsim-vis-shingle".into(),
-                setup_py: "from strsimpy.cosine import Cosine\nm = Cosine(2)\na = ' '.join(['hello'] * 64)\nb = ' '.join(['world'] * 64)".into(),
-                stmt_py: "m.distance(a, b)".into(),
-                iters: 300,
-            },
-        ],
-        _ => visible_workloads(),
+fn workload_of(v: &serde_json::Value) -> Result<profile::Workload, String> {
+    Ok(profile::Workload {
+        name: v["name"].as_str().unwrap_or("").to_string(),
+        setup: v["setup"].as_str().unwrap_or("").to_string(),
+        stmt: v["stmt"].as_str().unwrap_or("").to_string(),
+        iters: v["iters"].as_u64().unwrap_or(0) as usize,
+    })
+}
+
+/// Load executable workloads + probe specs for `package`.
+pub fn workloads_for(package: &str) -> Result<PkgWorkloads, String> {
+    let entry = crate::repo_content::entry(package)?;
+    let w = &entry["workloads"];
+    let visible: Vec<profile::Workload> = w["visible"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(workload_of)
+        .collect::<Result<_, _>>()?;
+    let heldout: Vec<profile::Workload> = w["heldout"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(workload_of)
+        .collect::<Result<_, _>>()?;
+    if visible.is_empty() || heldout.is_empty() {
+        return Err(format!("no workloads for package '{package}'"));
     }
+    let pool: Vec<PoolSpec> = entry["candidate_pool"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|c| PoolSpec {
+            hotspot: c["hotspot"].as_str().unwrap_or("").to_string(),
+            bound: c["bound"].as_str().unwrap_or("").to_string(),
+            tier: c["tier"].as_u64().unwrap_or(0) as u8,
+            technique: c["technique"].as_str().unwrap_or("").to_string(),
+            ceil_frac: c["ceil_frac"].as_f64().unwrap_or(0.0),
+            est_cost: c["est_cost"].as_f64().unwrap_or(0.0),
+        })
+        .collect();
+    Ok(PkgWorkloads {
+        visible,
+        heldout,
+        tiny: workload_of(&w["tiny"])?,
+        probe_script: entry["workload_probe"]["script"].as_str().unwrap_or("").to_string(),
+        probe_argvs: entry["workload_probe"]["argvs"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect(),
+        pool,
+    })
 }
 
-pub fn heldout_workloads_for(kind: &FixtureKind) -> Vec<profile::Workload> {
-    match kind {
-        FixtureKind::Strsimpy => vec![
-            profile::Workload {
-                name: "strsim-held-251".into(),
-                setup_py: "from strsimpy.damerau import Damerau\nm = Damerau()\na = 'x' * 251\nb = 'y' * 251".into(),
-                stmt_py: "m.distance(a, b)".into(),
-                iters: 300,
-            },
-            profile::Workload {
-                name: "strsim-held-shift".into(),
-                setup_py: "from strsimpy.jaro_winkler import JaroWinkler\nm = JaroWinkler()\na = 'dixon'\nb = 'dicksonx'".into(),
-                stmt_py: "m.similarity(a, b)".into(),
-                iters: 300,
-            },
-        ],
-        _ => heldout_workloads(),
-    }
+/// Report label derived from the loaded workload names (data, not literals).
+pub fn workload_label(wl: &PkgWorkloads) -> String {
+    let vis: Vec<&str> = wl.visible.iter().map(|w| w.name.as_str()).collect();
+    let held: Vec<&str> = wl.heldout.iter().map(|w| w.name.as_str()).collect();
+    format!("{} + heldout ({})", vis.join("/"), held.join("/"))
 }
 
-pub fn tiny_workload_for(kind: &FixtureKind) -> profile::Workload {
-    match kind {
-        FixtureKind::Strsimpy => profile::Workload {
-            name: "tiny".into(),
-            setup_py: "from strsimpy.levenshtein import Levenshtein\nm = Levenshtein()\na = ''\nb = ''".into(),
-            stmt_py: "m.distance(a, b)".into(),
-            iters: 300,
-        },
-        _ => profile::Workload {
-            name: "tiny".into(),
-            setup_py: "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = b''".into(),
-            stmt_py: "calc.checksum(data)".into(),
-            iters: 300,
-        },
-    }
-}
-
-fn fixture_of(ctx_fixture: &str) -> FixtureKind {
-    match ctx_fixture {
-        "strsimpy" => FixtureKind::Strsimpy,
-        _ => FixtureKind::Crc,
-    }
-}
-
-fn table_workload(name: &str, size: usize, fill: u8) -> profile::Workload {
-    profile::Workload {
-        name: name.into(),
-        setup_py: format!(
-            "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT, True)\ndata = bytes([{fill}] * {size})"
-        ),
-        stmt_py: "calc.checksum(data)".into(),
-        iters: 300,
-    }
-}
 
 fn py_env(_venv_py: &Path, use_venv: bool, orig_src: &Path) -> (Vec<(String, String)>, Vec<&'static str>) {
     if use_venv {
@@ -215,60 +215,249 @@ pub fn grade_candidate(
     // alternating samples share the thermal/frequency window; minute-scale
     // ramps cannot masquerade as gains).
     let parent_py = m::grade_venv_python(parent_venv);
-    let kind = fixture_of(&ctx.fixture);
-    let vis = visible_workloads_for(&kind);
-    let held = heldout_workloads_for(&kind);
-    let (parent_stats, got) = measure_interleaved(&parent_py, &venv_py, &vis[0])?;
-    let (parent_held, got_held) = measure_interleaved(&parent_py, &venv_py, &held[0])?;
+    let wl = workloads_for(&ctx.package)?;
+    let (parent_stats, got) = measure_interleaved(&parent_py, &venv_py, &wl.visible[0])?;
+    let (parent_held, got_held) = measure_interleaved(&parent_py, &venv_py, &wl.heldout[0])?;
     let det_gain = gain_frac(parent_stats.cpu_per_op, got.cpu_per_op);
     let held_gain = gain_frac(parent_held.cpu_per_op, got_held.cpu_per_op);
     let vis_gain = det_gain;
     let divergence = vis_gain - held_gain;
 /// Alternating parent/candidate samples (7 each) sharing one thermal window.
 /// Medians of interleaved samples; gains computed from contemporaneous pairs.
+/// Timed commands come from the profiler; each child is reaped with `wait4`
+/// (kernel CPU + peak RSS, no perf dependency per ADR-003). Interpreter
+/// startup is calibrated once per tour and subtracted, so per-op times
+/// exclude it. The profiler harness prints no tracemalloc peak, so
+/// `alloc_peak` is honestly `None` (gates skip the alloc leg) rather than a
+/// fabricated zero.
 fn measure_interleaved(
     parent_py: &Path,
     cand_py: &Path,
     w: &profile::Workload,
 ) -> Result<(profile::CpuStats, profile::CpuStats), String> {
-    let e_set: Vec<(String, String)> = vec![];
-    let e_rm: Vec<&str> = vec!["PYTHONPATH"];
-    let (mut pc, mut cc, mut pw, mut cw, mut pa, mut ca) = (vec![], vec![], vec![], vec![], vec![], vec![]);
+    let core_w = rustsmith_core::Workload {
+        name: w.name.clone(),
+        setup: w.setup.clone(),
+        stmt: w.stmt.clone(),
+        iters: w.iters,
+    };
+    if core_w.iters == 0 {
+        return Err("workload iters must be nonzero".into());
+    }
+    let parent = PyProfiler { repo: PathBuf::from("."), python: parent_py.to_path_buf() };
+    let cand = PyProfiler { repo: PathBuf::from("."), python: cand_py.to_path_buf() };
+    // `repo` is only the `cwd` anchor here (the `-c` workload is
+    // location-independent); the venv roots always exist.
+    let proot = venv_root(parent_py);
+    let croot = venv_root(cand_py);
+    let p_start = startup_cpu(parent_py, &proot)?;
+    let c_start = startup_cpu(cand_py, &croot)?;
+    let (mut pc, mut cc, mut pw, mut cw) = (vec![], vec![], vec![], vec![]);
     let (mut pr, mut cr) = (0u64, 0u64);
     for _ in 0..7 {
-        let p = profile::measure_once(parent_py, w, &e_set, &e_rm).map_err(|e| e.to_string())?;
-        let c = profile::measure_once(cand_py, w, &e_set, &e_rm).map_err(|e| e.to_string())?;
-        pc.push(p.cpu_per_op);
-        cc.push(c.cpu_per_op);
-        pw.push(p.wall_per_op);
-        cw.push(c.wall_per_op);
-        pr = pr.max(p.rss_kb);
-        cr = cr.max(c.rss_kb);
-        pa.push(p.alloc_peak as f64);
-        ca.push(c.alloc_peak as f64);
+        let p = timed_sample(&parent, &core_w, &proot, p_start)?;
+        let c = timed_sample(&cand, &core_w, &croot, c_start)?;
+        pc.push(p.0);
+        cc.push(c.0);
+        pw.push(p.1);
+        cw.push(c.1);
+        pr = pr.max(p.2);
+        cr = cr.max(c.2);
     }
     let med = |mut xs: Vec<f64>| {
         xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         xs[xs.len() / 2]
     };
     Ok((
-        profile::CpuStats {
-            cpu_per_op: med(pc),
-            wall_per_op: med(pw),
-            rss_kb: pr,
-            alloc_peak: med(pa) as u64,
-        },
-        profile::CpuStats {
-            cpu_per_op: med(cc),
-            wall_per_op: med(cw),
-            rss_kb: cr,
-            alloc_peak: med(ca) as u64,
-        },
+        profile::CpuStats { cpu_per_op: med(pc), wall_per_op: med(pw), rss_kb: pr, alloc_peak: None },
+        profile::CpuStats { cpu_per_op: med(cc), wall_per_op: med(cw), rss_kb: cr, alloc_peak: None },
     ))
 }
-    // Gate 1: oracle integrity + parity (full suite in the venv).
-    let hashes = rustsmith_oracle::Oracle::current_hashes(&ctx.manifest, cand_dir);
-    let suite = m::run_oracle_in_venv(venv, cand_dir, &ctx.manifest.invocation)?;
+/// Venv root anchoring a venv interpreter (`<venv>/bin/python`).
+/// Falls back to `.` (the `-c` workload resolves nothing from the tree).
+fn venv_root(python: &Path) -> PathBuf {
+    python
+        .parent()
+        .and_then(|b| b.parent())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+/// Interpreter-only startup CPU via `wait4` (calibration baseline).
+fn startup_cpu(python: &Path, root: &Path) -> Result<f64, String> {
+    let cmd = TestCommand {
+        program: python.display().to_string(),
+        args: vec!["-c".to_string(), "pass".to_string()],
+        cwd: Cwd::Tree,
+        env_set: Vec::new(),
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: Some(120),
+        collect: Vec::new(),
+    };
+    let s = run_timed_wait4(&cmd, root)?;
+    Ok(s.user_secs + s.sys_secs)
+}
+/// One profiler sample: (cpu_per_op, wall_per_op, rss_kb).
+/// CPU is parent-measured `wait4` time minus startup; wall is the harness's
+/// in-process elapsed (both startup-free); RSS is the kernel peak.
+fn timed_sample(
+    profiler: &PyProfiler,
+    w: &rustsmith_core::Workload,
+    root: &Path,
+    startup: f64,
+) -> Result<(f64, f64, u64), String> {
+    let cmd = profiler.timed(w);
+    let s = run_timed_wait4(&cmd, root)?;
+    if s.exit_code != 0 {
+        return Err(format!("timed harness failed: {}", s.stdout.trim()));
+    }
+    let wall_total = parse_elapsed(&s.stdout)?;
+    let cpu = (s.user_secs + s.sys_secs - startup).max(0.0) / w.iters as f64;
+    Ok((cpu, wall_total / w.iters as f64, s.maxrss_kb))
+}
+/// Parse the profiler harness's `elapsed=<secs>` line.
+fn parse_elapsed(stdout: &str) -> Result<f64, String> {
+    for line in stdout.lines() {
+        let t = line.trim();
+        if let Some(v) = t.strip_prefix("elapsed=") {
+            if let Ok(f) = v.trim().parse::<f64>() {
+                return Ok(f);
+            }
+        }
+    }
+    Err(format!("timed harness printed no elapsed line: {stdout:?}"))
+}
+/// Parent-measured execution of a profiler `timed` command via `wait4(2)`:
+/// precise per-child CPU + peak RSS without perf/valgrind (ADR-003).
+/// Raw syscalls are declared locally, like rustsmith-sandbox's flock.
+struct TimedSample {
+    exit_code: i32,
+    stdout: String,
+    user_secs: f64,
+    sys_secs: f64,
+    maxrss_kb: u64,
+}
+#[cfg(unix)]
+#[repr(C)]
+struct Timeval {
+    tv_sec: i64,
+    tv_usec: i64,
+}
+#[cfg(unix)]
+#[repr(C)]
+struct Rusage {
+    ru_utime: Timeval,
+    ru_stime: Timeval,
+    ru_maxrss: i64,
+    _rest: [i64; 13],
+}
+#[cfg(unix)]
+const _: () = assert!(std::mem::size_of::<Rusage>() == 144);
+#[cfg(unix)]
+unsafe extern "C" {
+    fn wait4(pid: i32, status: *mut i32, options: i32, rusage: *mut Rusage) -> i32;
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+/// Reap one command with `wait4`, capturing stdout to a temp file (no pipe
+/// discipline issues across the raw reap). `cwd` always comes from the
+/// command; a set `timeout_secs` polls with `WNOHANG` and kills past it.
+fn run_timed_wait4(cmd: &TestCommand, tree: &Path) -> Result<TimedSample, String> {
+    #[cfg(not(unix))]
+    {
+        let _ = (cmd, tree);
+        return Err("run_timed_wait4 unavailable off unix".into());
+    }
+    #[cfg(unix)]
+    {
+        if cmd.launcher.is_some() {
+            return Err("run_timed_wait4: launcher prefix not supported".into());
+        }
+        let cwd = match &cmd.cwd {
+            Cwd::Tree => tree.to_path_buf(),
+            Cwd::BuildDir => tree.to_path_buf(),
+            Cwd::Rel(r) => tree.join(r),
+        };
+        let tag = format!(
+            "rs-timed-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|t| t.as_nanos())
+                .unwrap_or(0),
+        );
+        let out_path = std::env::temp_dir().join(format!("{tag}.out"));
+        let out_f = std::fs::File::create(&out_path).map_err(|e| format!("timed capture: {e}"))?;
+        let mut c = std::process::Command::new(&cmd.program);
+        c.args(&cmd.args);
+        c.current_dir(&cwd);
+        for (k, v) in &cmd.env_set {
+            c.env(k, v);
+        }
+        for k in &cmd.env_remove {
+            c.env_remove(k);
+        }
+        c.stdout(out_f);
+        c.stderr(std::process::Stdio::null());
+        let child = c.spawn().map_err(|e| format!("spawn {}: {e}", cmd.program))?;
+        let pid = child.id() as i32;
+        // wait4 reaps the child; the std handle has nothing left to wait on.
+        std::mem::forget(child);
+        const WNOHANG: i32 = 1;
+        const SIGKILL: i32 = 9;
+        let deadline = cmd
+            .timeout_secs
+            .map(|t| std::time::Instant::now() + std::time::Duration::from_secs(u64::from(t).max(1)));
+        let mut status = 0i32;
+        let mut ru = Rusage {
+            ru_utime: Timeval { tv_sec: 0, tv_usec: 0 },
+            ru_stime: Timeval { tv_sec: 0, tv_usec: 0 },
+            ru_maxrss: 0,
+            _rest: [0; 13],
+        };
+        loop {
+            let r = unsafe { wait4(pid, &mut status, WNOHANG, &mut ru) };
+            if r == pid {
+                break;
+            }
+            if r < 0 {
+                let _ = std::fs::remove_file(&out_path);
+                return Err(format!("wait4 {}: {r}", cmd.program));
+            }
+            if deadline.map(|d| std::time::Instant::now() >= d).unwrap_or(false) {
+                unsafe {
+                    kill(pid, SIGKILL);
+                }
+                let r2 = unsafe { wait4(pid, &mut status, 0, &mut ru) };
+                let _ = std::fs::remove_file(&out_path);
+                if r2 < 0 {
+                    return Err(format!("wait4 {}: {r2}", cmd.program));
+                }
+                return Err(format!(
+                    "command timed out after {}s: {}",
+                    cmd.timeout_secs.unwrap_or(0),
+                    cmd.program
+                ));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let stdout = std::fs::read_to_string(&out_path).unwrap_or_default();
+        let _ = std::fs::remove_file(&out_path);
+        use std::os::unix::process::ExitStatusExt;
+        let exit_status: std::process::ExitStatus = ExitStatusExt::from_raw(status);
+        let exit_code = exit_status.code().unwrap_or(-1);
+        Ok(TimedSample {
+            exit_code,
+            stdout,
+            user_secs: ru.ru_utime.tv_sec as f64 + ru.ru_utime.tv_usec as f64 / 1e6,
+            sys_secs: ru.ru_stime.tv_sec as f64 + ru.ru_stime.tv_usec as f64 / 1e6,
+            maxrss_kb: ru.ru_maxrss.max(0) as u64,
+        })
+    }
+}
+    // Gate 1: oracle integrity + parity (full suite in the venv, runner-graded).
+    let runner = PytestRunner;
+    let hashes = rustsmith_oracle::Oracle::current_hashes(&ctx.manifest, cand_dir, &runner);
+    let suite = m::run_oracle_in_venv(venv, cand_dir, &ctx.manifest)?;
     let integrity =
         gates::oracle_integrity(&ctx.manifest, &hashes, &ctx.manifest.baseline, &suite);
     let parity = gates::oracle_parity(&suite);
@@ -278,14 +467,15 @@ fn measure_interleaved(
     // Gate 4: differential incl. workload pairs (original vs candidate).
     stage_orig_src(cand_dir, parent_dir)?;
     let mut pairs = m::differential_pairs_for(
-        &kind,
-        &PathBuf::from("python3"),
+        &ctx.package,
+        &PathBuf::from(PytestRunner::python_program()),
         &m::grade_venv_python(venv),
         cand_dir,
     )?;
-    pairs.extend(workload_pairs_for(&kind, &venv_py, parent_dir, cand_dir)?);
+    pairs.extend(workload_pairs_for(&wl, &venv_py, parent_dir, cand_dir)?);
     let _ = std::fs::remove_dir_all(cand_dir.join("orig_src"));
-    let diff = gates::differential(&pairs, 0.0);
+    // Exact-equality behind the per-observable tolerance (0.0/None = legacy math).
+    let diff = gates::differential(&pairs, 0.0, None);
     // Gate 5: causal attribution (revert + remeasure, contemporaneous: the
     // reverted tree is measured interleaved against a fresh parent sample).
     // A failure is CONFIRMED once before rejecting: minute-scale transients can
@@ -293,21 +483,26 @@ fn measure_interleaved(
     // twice, a transient passes on confirmation.
     let reverted = reverse_apply(cand_dir, &patch_text)?;
     build_release(&reverted, venv).map_err(|e| format!("revert build failed: {e}"))?;
-    let (parent_fresh, again) = measure_interleaved(&parent_py, &venv_py, &vis[0])?;
+    let (parent_fresh, again) = measure_interleaved(&parent_py, &venv_py, &wl.visible[0])?;
     let mut gain_without = gain_frac(parent_fresh.cpu_per_op, again.cpu_per_op);
     let mut attrib = gates::causal_attribution(det_gain.max(0.0), gain_without, floor);
     if !attrib.passed {
         // Confirmation: rebuild + remeasure once more before rejecting.
         build_release(&reverted, venv).map_err(|e| format!("revert rebuild failed: {e}"))?;
-        let (parent_fresh2, again2) = measure_interleaved(&parent_py, &venv_py, &vis[0])?;
+        let (parent_fresh2, again2) = measure_interleaved(&parent_py, &venv_py, &wl.visible[0])?;
         gain_without = gain_frac(parent_fresh2.cpu_per_op, again2.cpu_per_op);
         attrib = gates::causal_attribution(det_gain.max(0.0), gain_without, floor);
     }
     build_release(cand_dir, venv).map_err(|e| format!("rebuild failed: {e}"))?;
     let _ = std::fs::remove_dir_all(&reverted);
     // Gate 6: widened no_regression (RSS/alloc/binary/compile + heldout pass/fail).
+    // The profiler reports no tracemalloc peak (None); the alloc leg is then
+    // skipped by the gate and the delta is a neutral zero.
     let rss_delta = pct(parent_stats.rss_kb, got.rss_kb);
-    let alloc_delta = pct(parent_stats.alloc_peak, got.alloc_peak);
+    let alloc_delta = pct(
+        parent_stats.alloc_peak.unwrap_or(0),
+        got.alloc_peak.unwrap_or(0),
+    );
     let so_base = so_size(parent_dir);
     let so_got = so_size(cand_dir);
     let held_ok = held_gain > -floor && (vis_gain - held_gain) <= 0.25;
@@ -328,22 +523,7 @@ fn measure_interleaved(
         held_ok,
     );
     // Gate 3b: correctness held-out suite (SPEC §8): visible vs held-out TEST rates.
-    let held_test_rate = {
-        let o = std::process::Command::new(&venv_py)
-            .args(["-m", "pytest"])
-            .arg(&ctx.heldout)
-            .args(["-q", "--tb=no"])
-            .env("PY_COLORS", "0")
-            .env_remove("PYTHONPATH")
-            .output()
-            .map_err(|e| e.to_string())?;
-        let t = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        );
-        m::parse_heldout_rate(&t)
-    };
+    let held_test_rate = m::run_heldout_in_venv(venv, cand_dir, &ctx.heldout)?;
     let hdiv = gates::heldout_divergence(suite.pass_rate(), held_test_rate, 0.05);
     // Gate 7: optimization scope (structural, from the captured diff).
     let summary = diff_summary(&patch_text);
@@ -505,25 +685,25 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
     // EDITABLE hook (in-place .so + .pth aliasing the source tree), so two
     // venvs developing different trees silently share whichever .so was built
     // last — fatal for A/B measurement. Wheels install a private copy instead.
-    use crate::mirror as m;
-    let mut path = venv.join("bin").as_os_str().to_owned();
-    path.push(":");
-    path.push(std::env::var_os("PATH").unwrap_or_default());
+    // The wheel argv comes from `bridge.build_wheel`; the venv binding
+    // (VIRTUAL_ENV/PATH) is applied here, as with `build_ext`.
+    let bridge = MaturinBridge;
+    let cx = BuildCtx { tree: worktree, build_dir: worktree, release: true };
     let dist = venv.join("dist-one");
     let _ = std::fs::remove_dir_all(&dist);
     std::fs::create_dir_all(&dist).map_err(|e| e.to_string())?;
-    let out = std::process::Command::new(m::maturin_bin())
-        .args(["build", "--release", "--manifest-path", "Cargo.toml", "-o"])
-        .arg(&dist)
-        .current_dir(worktree)
-        .env("VIRTUAL_ENV", venv)
-        .env("PATH", path.clone())
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut wheel_cmds = bridge.build_wheel(&cx, &dist);
+    for c in &mut wheel_cmds {
+        c.env_set.push(("VIRTUAL_ENV".to_string(), venv.display().to_string()));
+        c.env_set.push(("PATH".to_string(), venv_path_prepend(venv)));
+    }
+    let runs = execute_all(worktree, worktree, &wheel_cmds).map_err(|e| e.to_string())?;
     let mut log = String::new();
-    log.push_str(&String::from_utf8_lossy(&out.stdout));
-    log.push_str(&String::from_utf8_lossy(&out.stderr));
-    if !out.status.success() {
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
         return Err(format!("maturin build failed:\n{log}"));
     }
     let wheel = std::fs::read_dir(&dist)
@@ -532,18 +712,34 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
         .map(|e| e.path())
         .find(|p| p.extension().map(|x| x == "whl").unwrap_or(false))
         .ok_or("no wheel built")?;
-    let pip = venv.join("bin/pip");
-    let out = std::process::Command::new(&pip)
-        .args(["install", "--no-cache-dir", "--force-reinstall", "--no-deps"])
-        .arg(&wheel)
-        .env("VIRTUAL_ENV", venv)
-        .env("PATH", path)
-        .output()
-        .map_err(|e| e.to_string())?;
-    log.push_str(&String::from_utf8_lossy(&out.stdout));
-    log.push_str(&String::from_utf8_lossy(&out.stderr));
+    // pip itself carries no toolchain literal (venv-anchored path); only the
+    // install flags travel with the command.
+    let pip_cmd = TestCommand {
+        program: venv.join("bin/pip").display().to_string(),
+        args: vec![
+            "install".to_string(),
+            "--no-cache-dir".to_string(),
+            "--force-reinstall".to_string(),
+            "--no-deps".to_string(),
+            wheel.display().to_string(),
+        ],
+        cwd: Cwd::Tree,
+        env_set: vec![
+            ("VIRTUAL_ENV".to_string(), venv.display().to_string()),
+            ("PATH".to_string(), venv_path_prepend(venv)),
+        ],
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: None,
+        collect: Vec::new(),
+    };
+    let runs = execute_all(worktree, worktree, &[pip_cmd]).map_err(|e| e.to_string())?;
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
     let _ = std::fs::remove_dir_all(&dist);
-    if !out.status.success() {
+    if runs.iter().any(|r| r.exit_code != 0) {
         return Err(format!("pip install wheel failed:\n{log}"));
     }
     // Mirror the freshly built ext into the tree (in-place .so), so pytest's
@@ -552,14 +748,25 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
     // leave the local package without an ext, and grading runs with
     // cwd=worktree — the local package then shadows site-packages and the
     // import fails outright. Refreshed on every build, so never stale.
+    // The query is a plain interpreter probe (no toolchain literal).
     let (pkg, ext) = crate_package(worktree)?;
-    let so_q = std::process::Command::new(venv.join("bin/python"))
-        .args(["-c", &format!("import glob,sysconfig;print(glob.glob(sysconfig.get_path('purelib')+'/{pkg}/{ext}*.so')[0])")])
-        .env("VIRTUAL_ENV", venv)
-        .output()
-        .map_err(|e| e.to_string())?;
-    let so_src = String::from_utf8_lossy(&so_q.stdout).trim().to_string();
-    if !so_q.status.success() || so_src.is_empty() {
+    let so_q = TestCommand {
+        program: venv.join("bin/python").display().to_string(),
+        args: vec![
+            "-c".to_string(),
+            format!("import glob,sysconfig;print(glob.glob(sysconfig.get_path('purelib')+'/{pkg}/{ext}*.so')[0])"),
+        ],
+        cwd: Cwd::Tree,
+        env_set: vec![("VIRTUAL_ENV".to_string(), venv.display().to_string())],
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: None,
+        collect: Vec::new(),
+    };
+    let runs = execute_all(worktree, worktree, &[so_q]).map_err(|e| e.to_string())?;
+    // Executor stdout carries the `$` transcript first line; skip it.
+    let so_src = runs.first().map(|r| crate::mirror::output_value(&r.stdout)).unwrap_or_default();
+    if runs.first().map(|r| r.exit_code) != Some(0) || so_src.is_empty() {
         return Err(format!("installed ext not found:\n{log}"));
     }
     // Purge any stale in-place ext first, then copy the fresh one.
@@ -576,6 +783,13 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
         .ok_or("bad ext name")?;
     std::fs::copy(&so_src, worktree.join(&pkg).join(so_name)).map_err(|e| e.to_string())?;
     Ok(log)
+}
+/// `PATH` with the venv's bin prepended (mirrors the mirror grade-venv rule).
+fn venv_path_prepend(venv: &Path) -> String {
+    let mut path = venv.join("bin").as_os_str().to_owned();
+    path.push(":");
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    path.to_string_lossy().into_owned()
 }
 
 /// `[package] name` + `[lib] name` from a tree's Cargo.toml (no toml dep;
@@ -629,78 +843,65 @@ fn stage_orig_src(cand_dir: &Path, parent_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Workload-output differential: original vs candidate checksums on fixed
+/// Workload-output differential: original vs candidate outputs on fixed
 /// workload inputs (catches fast-but-wrong branches like tuned constants).
-fn workload_pairs(
-    venv_py: &Path,
-    parent_dir: &Path,
-    cand_dir: &Path,
-) -> Result<Vec<(String, String)>, String> {
-    let script = "import sys; data = bytes.fromhex(sys.argv[1]); from crc import Calculator, Crc8; print(Calculator(Crc8.CCITT, True).checksum(data))";
-    // 4096B pairs exercise the tuned-constant size class; 128B are controls.
-    let inputs = vec![
-        "41".repeat(4096),
-        "42".repeat(4096),
-        "00".repeat(256),
-        "ff".repeat(256),
-    ];
-    // parent tree serves the original via its staged orig_src; candidate via venv.
-    let mut pairs = Vec::new();
-    for hex in inputs {
-        let o1 = std::process::Command::new("python3")
-            .args(["-c", script, &hex])
-            .env("PYTHONPATH", parent_dir.join("orig_src_staged"))
-            .output()
-            .map_err(|e| e.to_string())?;
-        // candidate venv python (installed ext from cand build)
-        let o2 = std::process::Command::new(venv_py)
-            .args(["-c", script, &hex])
-            .current_dir(cand_dir)
-            .env_remove("PYTHONPATH")
-            .output()
-            .map_err(|e| e.to_string())?;
-        pairs.push((
-            String::from_utf8_lossy(&o1.stdout).trim().to_string(),
-            String::from_utf8_lossy(&o2.stdout).trim().to_string(),
-        ));
-    }
-    Ok(pairs)
-}
-
-/// Fixture dispatch for workload-output differentials.
+/// The probe script + inputs come from package-keyed data. Probes are plain
+/// interpreter `TestCommand`s: the original side resolves the staged sources
+/// via `cwd` (never path overrides), the candidate side runs in the candidate
+/// tree against its installed extension.
 fn workload_pairs_for(
-    kind: &FixtureKind,
+    wl: &PkgWorkloads,
     venv_py: &Path,
     parent_dir: &Path,
     cand_dir: &Path,
 ) -> Result<Vec<(String, String)>, String> {
-    match kind {
-        FixtureKind::Strsimpy => workload_pairs_strsimpy(venv_py, parent_dir, cand_dir),
-        _ => workload_pairs(venv_py, parent_dir, cand_dir),
+    run_workload_probes(&wl.probe_script, &wl.probe_argvs, parent_dir, cand_dir, venv_py)
+}
+/// One `-c` workload probe as a `TestCommand` (interpreter program + cwd;
+/// no toolchain literals on this path).
+fn workload_probe(program: &Path, script: &str, arg: &str) -> TestCommand {
+    TestCommand {
+        program: program.display().to_string(),
+        args: vec!["-c".to_string(), script.to_string(), arg.to_string()],
+        cwd: Cwd::Tree,
+        env_set: Vec::new(),
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: None,
+        collect: Vec::new(),
     }
 }
-
-/// strsimpy workload-output differential on fixed pairs (catches fast-but-wrong).
-fn workload_pairs_strsimpy(
-    venv_py: &Path,
+/// Run one script over `inputs` on both sides: parent tree serves the
+/// original via its staged `orig_src_staged` cwd; candidate via its venv.
+/// Only trimmed stdout values pair up (transcript lines skipped), exit codes
+/// ignored — identical to the legacy loop.
+fn run_workload_probes(
+    script: &str,
+    inputs: &[String],
     parent_dir: &Path,
     cand_dir: &Path,
+    venv_py: &Path,
 ) -> Result<Vec<(String, String)>, String> {
-    let script = "from strsimpy.levenshtein import Levenshtein\nfrom strsimpy.jaro_winkler import JaroWinkler\nprint(repr(Levenshtein().distance('qwxy', 'qwxy1')))\nprint(repr(JaroWinkler().similarity('dixon', 'dicksonx')))";
-    let run = |py: &Path, staged: bool| -> Result<String, String> {
-        let mut c = std::process::Command::new(py);
-        c.args(["-c", script]);
-        if staged {
-            c.env("PYTHONPATH", parent_dir.join("orig_src_staged"));
-        } else {
-            c.current_dir(cand_dir);
-            c.env_remove("PYTHONPATH");
-        }
-        let o = c.output().map_err(|e| e.to_string())?;
-        Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
-    };
-    Ok(vec![(run(Path::new("python3"), true)?, run(venv_py, false)?)])
+    let staged = parent_dir.join("orig_src_staged");
+    let orig_py = PathBuf::from(PytestRunner::python_program());
+    let orig_cmds: Vec<TestCommand> =
+        inputs.iter().map(|h| workload_probe(&orig_py, script, h)).collect();
+    let cand_cmds: Vec<TestCommand> =
+        inputs.iter().map(|h| workload_probe(venv_py, script, h)).collect();
+    let o1 = execute_all(&staged, &staged, &orig_cmds).map_err(|e| e.to_string())?;
+    let o2 = execute_all(cand_dir, cand_dir, &cand_cmds).map_err(|e| e.to_string())?;
+    Ok(o1
+        .iter()
+        .zip(o2.iter())
+        .map(|(a, b)| {
+            (
+                crate::mirror::output_value(&a.stdout),
+                crate::mirror::output_value(&b.stdout),
+            )
+        })
+        .collect())
 }
+
 fn diff_summary(patch: &str) -> gates::DiffSummary {
     let mut files = Vec::new();
     let mut added = Vec::new();
@@ -1024,21 +1225,22 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     let manifest_text =
         std::fs::read_to_string(a.recon_out.join("manifest.json")).map_err(|e| e.to_string())?;
     let manifest: rustsmith_core::Manifest =
-        serde_json::from_str(&manifest_text).map_err(|e| e.to_string())?;
+        rustsmith_core::parse_manifest_json(&manifest_text).map_err(|e| e.to_string())?;
     // Work tree: filtered copy of the M4 fork + git for patches.
     if a.work.exists() {
         std::fs::remove_dir_all(&a.work).map_err(|e| e.to_string())?;
     }
     std::fs::create_dir_all(&a.work).map_err(|e| e.to_string())?;
     copy_filtered(&a.fork, &a.work)?;
-    // Stage the ORIGINAL implementation sources for differential baselines
-    // (src-layout: contents of src/; flat: the package dir itself).
-    let kind = crate::fixture::resolve_fixture(&a.recon_out, &a.orig)?;
+    // Stage the ORIGINAL implementation sources for differential baselines.
+    // Identity comes from the frozen facts.json (package + layout derived
+    // from the repo, never a fixture switch).
+    let package = crate::repo::facts_package(&a.recon_out)?;
     let staged = a.work.join("orig_src_staged");
-    let staged_src = if kind.src_layout() {
+    let staged_src = if crate::repo::is_src_layout(&a.orig, &package) {
         a.orig.join("src")
     } else {
-        a.orig.join(kind.package())
+        a.orig.join(&package)
     };
     copy_tree(&staged_src, &staged)?;
     // Stage-2 scratch must never enter commits (venvs, candidates, reports).
@@ -1062,17 +1264,17 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
         run_id: run_id.clone(),
         venv: venv.clone(),
         manifest: manifest.clone(),
-        fixture: kind.name().into(),
+        package: package.clone(),
     };
+    let wl = workloads_for(&package)?;
     // Baseline: deterministic + noise floor + wall CI + resources.
-    let vis = visible_workloads_for(&kind);
     let (e_set, e_rm) = py_env(&venv_py, true, &staged);
-    let floor = profile::measure_noise_floor(&venv_py, &vis[0], &e_set, &e_rm)
+    let floor = profile::measure_noise_floor(&venv_py, &wl.visible[0], &e_set, &e_rm)
         .map_err(|e| e.to_string())?;
     let base_stats =
-        profile::deterministic_measure(&venv_py, &vis[0], &e_set, &e_rm).map_err(|e| e.to_string())?;
+        profile::deterministic_measure(&venv_py, &wl.visible[0], &e_set, &e_rm).map_err(|e| e.to_string())?;
     let base_ci =
-        profile::wallclock_confirm(&venv_py, &vis[0], &e_set, &e_rm, 30).map_err(|e| e.to_string())?;
+        profile::wallclock_confirm(&venv_py, &wl.visible[0], &e_set, &e_rm, 30).map_err(|e| e.to_string())?;
     // Round 0 (serialized representation pass).
     let r0 = round0_report(&a.work);
     let mut failed_keys: Vec<(String, u8, String, String)> = vec![];
@@ -1082,52 +1284,36 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     let r0_applied = run_round0_apply(store, &ctx, &a.work, &r0, floor, &guidance_version, &mut merged, &mut failed_rows)?;
     // Candidate pool (deterministic source; ceilings from measured share).
     // time_share of the update loop: 1 - empty/short overhead ratio.
-    let tiny = tiny_workload_for(&kind);
     let tiny_stats =
-        profile::deterministic_measure(&venv_py, &tiny, &e_set, &e_rm).map_err(|e| e.to_string())?;
+        profile::deterministic_measure(&venv_py, &wl.tiny, &e_set, &e_rm).map_err(|e| e.to_string())?;
     let share = 1.0 - tiny_stats.cpu_per_op / base_stats.cpu_per_op.max(1e-12);
     let share = share.clamp(0.0, 0.99);
     let cap = profile::speedup_cap(profile::Bound::Compute, None, false);
     let ceil = profile::ceiling(share, cap);
-    // Round 1 pool: slice + honest losers + one proposal-reject (crc only;
-    // strsimpy has no applicable candidates: zero survivors is a stopping rule).
-    let pool_r1 = match kind {
-        FixtureKind::Strsimpy => vec![],
-        _ => vec![
-        profile::Candidate {
-            hotspot: "TableBasedRegister.update".into(),
-            bound: profile::Bound::Compute,
-            tier: 2,
-            technique: "slicing-by-8".into(),
-            ceiling: ceil,
-            est_cost: 1.0,
-        },
-        profile::Candidate {
-            hotspot: "TableBasedRegister.update".into(),
-            bound: profile::Bound::Compute,
-            tier: 8,
-            technique: "unroll-x4".into(),
-            ceiling: ceil * 0.25,
-            est_cost: 1.0,
-        },
-        profile::Candidate {
-            hotspot: "process_byte_table".into(),
-            bound: profile::Bound::Compute,
-            tier: 8,
-            technique: "inline-hint".into(),
-            ceiling: ceil * 0.1,
-            est_cost: 0.5,
-        },
-        profile::Candidate {
-            hotspot: "TableBasedRegister.update".into(),
-            bound: profile::Bound::Compute,
-            tier: 7,
-            technique: "rayon-parallel".into(),
-            ceiling: ceil,
-            est_cost: 5.0,
-        },
-        ],
-    };
+    // Round 1 pool from package data (empty pool = zero survivors stopping
+    // rule); ceilings scale the measured share cap.
+    let mut pool_r1 = Vec::new();
+    for spec in &wl.pool {
+        let bound = match spec.bound.as_str() {
+            "compute" => profile::Bound::Compute,
+            "memory-bandwidth" => profile::Bound::MemoryBandwidth,
+            "memory-latency" => profile::Bound::MemoryLatency,
+            "branch" => profile::Bound::Branch,
+            "frontend" => profile::Bound::Frontend,
+            "allocation" => profile::Bound::Allocation,
+            "syscall-io" => profile::Bound::SyscallIo,
+            "contention" => profile::Bound::Contention,
+            other => return Err(format!("unknown candidate bound '{other}'")),
+        };
+        pool_r1.push(profile::Candidate {
+            hotspot: spec.hotspot.clone(),
+            bound,
+            tier: spec.tier,
+            technique: spec.technique.clone(),
+            ceiling: ceil * spec.ceil_frac,
+            est_cost: spec.est_cost,
+        });
+    }
     let mut round = 1usize;
     let stop_reason: String;
     loop {
@@ -1288,7 +1474,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
                 })
                 .collect::<Vec<_>>(),
             &pre_round_sha,
-            floor, &vis[0],
+            floor, &wl.visible[0],
         )?;
         for ((c, g, _), (_, keep, lost)) in round_winners.iter().zip(audits.iter()) {
             if *keep {
@@ -1331,7 +1517,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
         }
         build_release(&a.work, &venv).map_err(|e| format!("merged build: {e}"))?;
         let confirm =
-            profile::wallclock_confirm(&venv_py, &vis[0], &e_set, &e_rm, 30).map_err(|e| e.to_string())?;
+            profile::wallclock_confirm(&venv_py, &wl.visible[0], &e_set, &e_rm, 30).map_err(|e| e.to_string())?;
         // Round gain vs Stage-2 baseline with a non-overlap CI proxy for
         // "excludes zero" (conservative: non-overlap implies the difference
         // interval excludes zero; overlap stops the loop honestly).
@@ -1365,7 +1551,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     ev("optimize_stop", serde_json::json!({"stop": stop_reason.clone()}));
     let report = serde_json::json!({
         "run_id": run_id,
-        "workload": match kind { FixtureKind::Strsimpy => "strsimpy-levenshtein (vis-256/shingle) + heldout (held-251/held-shift)", _ => "crc-checksum TableBasedRegister (vis-4K/vis-64K) + heldout (held-4K/held-shift-511)" },
+        "workload": workload_label(&wl),
         "guidance_version": guidance_version,
         "floor": floor,
         "baseline_ci": {"low": base_ci.low, "high": base_ci.high, "point": base_ci.point},
@@ -1562,7 +1748,6 @@ pub fn audit_winners(
     build_release(merged_dir, merged_venv).map_err(|e| format!("audit merged build: {e}"))?;
     let merged_py = m::grade_venv_python(merged_venv);
     let rev_py = m::grade_venv_python(rev_venv);
-    let vis = vec![vis0.clone()];
     let mut out = Vec::new();
     for (idx, w) in winners.iter().enumerate() {
         // Without-N tree: clone (own repo: --3way resolves at its own top),
@@ -1590,15 +1775,15 @@ pub fn audit_winners(
             let e2: Vec<&str> = vec!["PYTHONPATH"];
             let (mut mc, mut rc) = (vec![], vec![]);
             for _ in 0..7 {
-                mc.push(profile::measure_once(&merged_py, &vis[0], &e1, &e2).map_err(|e| e.to_string())?.cpu_per_op);
-                rc.push(profile::measure_once(&rev_py, &vis[0], &e1, &e2).map_err(|e| e.to_string())?.cpu_per_op);
+                mc.push(profile::measure_once(&merged_py, vis0, &e1, &e2).map_err(|e| e.to_string())?.cpu_per_op);
+                rc.push(profile::measure_once(&rev_py, vis0, &e1, &e2).map_err(|e| e.to_string())?.cpu_per_op);
             }
             mc.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             rc.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let med = |xs: &Vec<f64>| xs[xs.len() / 2];
             (
-                profile::CpuStats { cpu_per_op: med(&mc), wall_per_op: 0.0, rss_kb: 0, alloc_peak: 0 },
-                profile::CpuStats { cpu_per_op: med(&rc), wall_per_op: 0.0, rss_kb: 0, alloc_peak: 0 },
+                profile::CpuStats { cpu_per_op: med(&mc), wall_per_op: 0.0, rss_kb: 0, alloc_peak: None },
+                profile::CpuStats { cpu_per_op: med(&rc), wall_per_op: 0.0, rss_kb: 0, alloc_peak: None },
             )
         };
         // Fraction slower the tree gets without this winner (positive = real credit).
@@ -1660,7 +1845,7 @@ pub fn grade_plant(
     let manifest_text =
         std::fs::read_to_string(recon_out.join("manifest.json")).map_err(|e| e.to_string())?;
     let manifest: rustsmith_core::Manifest =
-        serde_json::from_str(&manifest_text).map_err(|e| e.to_string())?;
+        rustsmith_core::parse_manifest_json(&manifest_text).map_err(|e| e.to_string())?;
     let venv = out.join(".plant-venv");
     m::ensure_grade_venv(&venv)?;
     // Parent install lives in its own venv so candidate measures interleave
@@ -1668,25 +1853,25 @@ pub fn grade_plant(
     let parent_venv = out.join(".parent-venv");
     m::ensure_grade_venv(&parent_venv)?;
     build_release(base, &parent_venv).map_err(|e| format!("parent build: {e}"))?;
-    let kind = crate::fixture::resolve_fixture(recon_out, orig)?;
-    let vis = visible_workloads_for(&kind);
+    let package = crate::repo::facts_package(recon_out)?;
+    let wl = workloads_for(&package)?;
     let parent_py = m::grade_venv_python(&parent_venv);
     let e_set: Vec<(String, String)> = vec![];
     let e_rm: Vec<&str> = vec!["PYTHONPATH"];
-    let floor = profile::measure_noise_floor(&parent_py, &vis[0], &e_set, &e_rm)
+    let floor = profile::measure_noise_floor(&parent_py, &wl.visible[0], &e_set, &e_rm)
         .map_err(|e| e.to_string())?;
     // Staged original sources live beside the probe (not inside base/out repos).
     let staging = out.join(".origparent");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(staging.join("orig_src_staged")).map_err(|e| e.to_string())?;
-    let staged_src = if kind.src_layout() { orig.join("src") } else { orig.join(kind.package()) };
+    let staged_src = if crate::repo::is_src_layout(orig, &package) { orig.join("src") } else { orig.join(&package) };
     copy_tree(&staged_src, &staging.join("orig_src_staged"))?;
     let ctx = OptCtx {
         heldout: heldout.to_path_buf(),
         run_id: run_id.into(),
         venv: venv.clone(),
         manifest,
-        fixture: kind.name().into(),
+        package: package.clone(),
     };
     let parent_compile = full_build_secs(base, &venv)?;
     let g = grade_candidate(
@@ -1744,7 +1929,9 @@ pub fn audit_demo(
     let rev_venv = out.join(".audit-rev-venv");
     m::ensure_grade_venv(&merged_venv)?;
     m::ensure_grade_venv(&rev_venv)?;
-    let vis = visible_workloads();
+    let package = crate::repo::facts_package(_recon_out)?;
+    let wl = workloads_for(&package)?;
+    let vis = wl.visible.clone();
     // Install first: the noise floor is measured BY RUNNING the workload,
     // which imports the built ext (fresh venv has nothing installed yet).
     build_release(out, &merged_venv).map_err(|e| format!("merged build: {e}"))?;
@@ -1766,7 +1953,7 @@ pub fn audit_demo(
             patch_text: patch.clone(),
         }],
         &base_sha,
-        floor, &visible_workloads()[0],
+        floor, &vis[0],
     )?;
     let (tech, keep, lost) = audits.into_iter().next().unwrap_or((technique.into(), true, 0.0));
     assert_eq!(tech, technique);
@@ -1901,5 +2088,35 @@ mod merge_tests {
         let lib = std::fs::read_to_string(d.join("src/lib.rs")).unwrap();
         assert!(lib.contains("    11\n") && lib.contains("    22\n"), "both hunks present");
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
+mod workload_probe_regression_tests {
+    use super::*;
+
+    /// Workload probes are plain interpreter `TestCommand`s: caller-owned
+    /// program, `-c` argv, explicit `Cwd::Tree` (module resolution via cwd,
+    /// never path overrides), no toolchain literals on this path.
+    #[test]
+    fn workload_probe_command_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let venv_py = dir.path().join("venv").join("bin").join("python");
+        let cmd = workload_probe(&venv_py, "print(1)", "abc");
+        assert_eq!(cmd.program, venv_py.to_string_lossy().into_owned());
+        assert_eq!(
+            cmd.args,
+            vec![
+                "-c".to_string(),
+                "print(1)".to_string(),
+                "abc".to_string()
+            ]
+        );
+        assert!(
+            matches!(cmd.cwd, Cwd::Tree),
+            "workload probes resolve modules via the tree cwd"
+        );
+        assert!(cmd.env_set.is_empty() && cmd.env_remove.is_empty());
+        assert!(cmd.launcher.is_none());
     }
 }

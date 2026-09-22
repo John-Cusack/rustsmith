@@ -106,13 +106,20 @@ const SLICE_PATCH: &str = include_str!("../patches/slice_by_8_crc_py.patch");
 pub const ATTRIBUTION: &str = "Nicoretti/crc";
 pub const LICENSE_TAG: &str = "SPDX-License-Identifier: BSD-2-Clause";
 
-/// Fixture-aware attribution (crc consts above are pinned by tests; strsimpy
-/// runs carry MIT + upstream attribution instead of crc's).
-pub fn attribution_for(fixture: &str) -> (&'static str, &'static str) {
-    match fixture {
-        "strsimpy" => ("luozhouyang/python-string-similarity", "SPDX-License-Identifier: MIT"),
-        _ => (ATTRIBUTION, LICENSE_TAG),
+/// Attribution from frozen RepoFacts (`recon/facts.json` probe section):
+/// `(upstream, spdx-tag)`. Falls back to the pinned consts when facts are
+/// absent (hand-invoked reports); never a fixture switch.
+pub fn attribution_from_facts(recon_out: &std::path::Path) -> (String, String) {
+    let t = std::fs::read_to_string(recon_out.join("facts.json")).unwrap_or_default();
+    let v: serde_json::Value = serde_json::from_str(&t).unwrap_or(serde_json::json!({}));
+    if let Some(attr) = v["probe"]["attribution"].as_array().and_then(|a| a.first()) {
+        let upstream = attr["upstream"].as_str().unwrap_or("");
+        let spdx = attr["spdx"].as_str().unwrap_or("");
+        if !upstream.is_empty() && !spdx.is_empty() {
+            return (upstream.to_string(), spdx.to_string());
+        }
     }
+    (ATTRIBUTION.to_string(), LICENSE_TAG.to_string())
 }
 
 /// Text-level provenance pre-check: license header + attribution present.
@@ -311,5 +318,45 @@ mod tests {
         b.review_burden = 10.0;
         let r = rank(vec![a, b]);
         assert_eq!(r[0].technique, "other");
+    }
+    #[test]
+    fn attribution_from_facts_prefers_frozen_facts() {
+        // A decoy fixture.toml must not win: provenance comes from the frozen
+        // `recon/facts.json` probe section, never a fixture switch.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("fixture.toml"),
+            "upstream = \"decoy/repo\"\nspdx = \"SPDX-License-Identifier: DECOY\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("facts.json"),
+            serde_json::json!({
+                "probe": {
+                    "attribution": [{
+                        "upstream": "example/upstream",
+                        "spdx": "SPDX-License-Identifier: MIT",
+                    }]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            attribution_from_facts(dir.path()),
+            (
+                "example/upstream".to_string(),
+                "SPDX-License-Identifier: MIT".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn attribution_from_facts_falls_back_without_facts() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            attribution_from_facts(dir.path()),
+            (ATTRIBUTION.to_string(), LICENSE_TAG.to_string())
+        );
     }
 }

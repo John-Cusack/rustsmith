@@ -65,13 +65,14 @@ pub fn capture_hotspot_baseline(
             wall_secs: 0.0,
         });
     }
-    // cProfile fallback: time the import + a representative call (probe by layout).
+    // cProfile fallback: time a stdlib-only snippet scaled by the
+    // caller-supplied workload descriptors (RepoFacts-driven inputs; this
+    // crate holds no repo-specific imports or layout probes).
     let start = std::time::Instant::now();
-    let probe = if repo.join("src/crc").is_dir() {
-        "import crc; c=crc.Calculator(crc.Crc8.CCITT); c.checksum(b'123456789'*100)"
-    } else {
-        "import strsimpy; m=strsimpy.Levenshtein(); m.distance('kitten'*20,'sitting'*20)"
-    };
+    let reps = workload.len().max(1) * 100;
+    let probe = format!(
+        "import difflib; s='kitten'*20; t='sitting'*20; [difflib.SequenceMatcher(None,s,t).ratio() for _ in range({reps})]"
+    );
     let src = repo.join("src");
     let mut cmd = std::process::Command::new("python3");
     cmd.arg("-c").arg(format!("import cProfile; cProfile.run(\"{probe}\", sort='cumulative')"));
@@ -97,7 +98,7 @@ pub fn capture_hotspot_baseline(
         functions.push((line.trim().to_string(), wall / 5.0));
     }
     if functions.is_empty() {
-        functions.push(("crc._crc-pyspy-unavailable-cprofile".into(), wall));
+        functions.push(("hotspot-pyspy-unavailable-cprofile".into(), wall));
     }
     Ok(HotspotBaseline {
         tool: "cProfile-fallback".into(),
@@ -124,30 +125,21 @@ pub struct CpuStats {
     pub cpu_per_op: f64,
     pub wall_per_op: f64,
     pub rss_kb: u64,
-    pub alloc_peak: u64,
+    /// Python-level allocation peak (tracemalloc). `None` when the profiler
+    /// is unavailable (ADR-003: no perf/valgrind here); downstream gates
+    /// skip allocation legs rather than failing on them.
+    pub alloc_peak: Option<u64>,
 }
 
 /// A benchmark workload: named snippet run `iters` times per sample.
+/// Field names follow ADR-008 (`setup`/`stmt`); concrete snippets come from
+/// RepoFacts, never from hardcoded repo imports in this crate.
 #[derive(Debug, Clone)]
 pub struct Workload {
     pub name: String,
-    pub setup_py: String,
-    pub stmt_py: String,
+    pub setup: String,
+    pub stmt: String,
     pub iters: usize,
-}
-
-impl Workload {
-    /// crc checksum throughput workload at `size` bytes.
-    pub fn crc_checksum(size: usize, iters: usize) -> Self {
-        Self {
-            name: format!("crc-checksum-{size}B"),
-            setup_py: format!(
-                "from crc import Calculator, Crc8\ncalc = Calculator(Crc8.CCITT)\nimport os\ndata = os.urandom({size})"
-            ),
-            stmt_py: "calc.checksum(data)".into(),
-            iters,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -160,9 +152,9 @@ pub struct ConfInterval {
 fn harness_py(w: &Workload) -> String {
     format!(
         "import time, tracemalloc, resource, json\n{setup}\ntracemalloc.start()\n_t0 = time.process_time()\n_w0 = time.perf_counter()\nfor _ in range({iters}):\n    {stmt}\n_cpu = time.process_time() - _t0\n_wall = time.perf_counter() - _w0\n_cur, _peak = tracemalloc.get_traced_memory()\n_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss\nprint(json.dumps({{\"cpu\": _cpu / {iters}, \"wall\": _wall / {iters}, \"rss\": _rss, \"alloc\": _peak}}))",
-        setup = w.setup_py,
+        setup = w.setup,
         iters = w.iters,
-        stmt = w.stmt_py,
+        stmt = w.stmt,
     )
 }
 
@@ -195,7 +187,9 @@ pub fn measure_once(
         cpu_per_op: v["cpu"].as_f64().unwrap_or(f64::NAN),
         wall_per_op: v["wall"].as_f64().unwrap_or(f64::NAN),
         rss_kb: v["rss"].as_u64().unwrap_or(0),
-        alloc_peak: v["alloc"].as_u64().unwrap_or(0),
+        // Missing `alloc` (profiler unavailable) is None, never a zero
+        // masquerading as a measurement.
+        alloc_peak: v["alloc"].as_u64(),
     })
 }
 
@@ -220,13 +214,15 @@ pub fn deterministic_measure(
         cpu.push(s.cpu_per_op);
         wall.push(s.wall_per_op);
         rss = rss.max(s.rss_kb);
-        alloc.push(s.alloc_peak as f64);
+        if let Some(a) = s.alloc_peak {
+            alloc.push(a as f64);
+        }
     }
     Ok(CpuStats {
         cpu_per_op: median(cpu),
         wall_per_op: median(wall),
         rss_kb: rss,
-        alloc_peak: median(alloc) as u64,
+        alloc_peak: if alloc.is_empty() { None } else { Some(median(alloc) as u64) },
     })
 }
 
@@ -331,15 +327,19 @@ pub fn classify_bounds(hotspot: &str, small: &CpuStats, large: &CpuStats, size_r
     } else {
         1.0
     };
+    let alloc_note = match small.alloc_peak {
+        Some(a) => format!("{a}B/op"),
+        // Profiler unavailable: no allocation signal either way.
+        None => "unavailable".to_string(),
+    };
     let evidence = format!(
-        "scaling_exp={exponent:.2} cpu/wall={cpu_wall:.2} alloc_peak={}B/op",
-        small.alloc_peak
+        "scaling_exp={exponent:.2} cpu/wall={cpu_wall:.2} alloc_peak={alloc_note}"
     );
     let primary = if exponent > 1.3 {
         Bound::WorkVolume
     } else if cpu_wall < 0.5 {
         Bound::SyscallIo
-    } else if small.alloc_peak > 1_000_000 {
+    } else if small.alloc_peak.is_some_and(|a| a > 1_000_000) {
         Bound::Allocation
     } else {
         Bound::Compute
