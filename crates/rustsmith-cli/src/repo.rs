@@ -136,16 +136,14 @@ pub fn is_src_layout(repo: &Path, package: &str) -> bool {
         && (src_pkg.join("__init__.py").is_file() || src_pkg.join("__init__.pyi").is_file())
 }
 
-/// Resolve the mirror template dir: an explicit `--template` wins; otherwise
-/// `mirror/<package>` (the package name discovered from the repo, never a
-/// hardcoded fixture switch). The caller canonicalizes (tasks run with
-/// cwd=worktree, so the path must be absolute).
-pub fn resolve_template(repo: &Path, explicit: Option<PathBuf>) -> Result<PathBuf, String> {
-    if let Some(t) = explicit {
-        return Ok(t);
-    }
-    let package = package_name(repo)?;
-    let dir = PathBuf::from("mirror").join(&package);
+/// Resolve the mirror template dir from a frozen package identity (the
+/// `probe.package` recon wrote into `facts.json`, read via [`facts_package`]).
+/// Same lookup as [`resolve_template`] without re-deriving identity from the
+/// live repo: post-recon stages read behavior from frozen facts, never by
+/// re-probing packaging metadata the repo class may not have (CMake trees
+/// have no `pyproject.toml`/`setup.py`).
+pub fn resolve_template_for_package(package: &str) -> Result<PathBuf, String> {
+    let dir = PathBuf::from("mirror").join(package);
     if !dir.join("template.json").is_file() {
         return Err(format!(
             "no mirror template for package '{package}' (looked for {})",
@@ -281,5 +279,30 @@ mod tests {
         assert_eq!(cmake_project_name(dir.path()).as_deref(), Some("TopName"));
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(cmake_project_name(empty.path()), None);
+    }
+
+    #[test]
+    fn template_for_package_refuses_unknowns() {
+        let err = resolve_template_for_package("no-such-pkg-xyz").unwrap_err();
+        assert!(err.contains("no mirror template for package 'no-such-pkg-xyz'"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn facts_package_reads_frozen_probe_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("facts.json"),
+            r#"{"probe": {"package": "Elmer"}}"#,
+        )
+        .unwrap();
+        assert_eq!(facts_package(dir.path()).as_deref(), Ok("Elmer"));
+        let empty = tempfile::tempdir().unwrap();
+        assert!(facts_package(empty.path()).is_err());
+        std::fs::write(
+            empty.path().join("facts.json"),
+            r#"{"probe": {"package": ""}}"#,
+        )
+        .unwrap();
+        assert!(facts_package(empty.path()).is_err());
     }
 }

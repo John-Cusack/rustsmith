@@ -192,14 +192,27 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
         assert!(acyclic.verify_order(&order), "forgiving DAG order must verify");
         (acyclic, order)
     };
+    // Fallback language for stems the graph carries no language for (cannot
+    // happen on either spine, but frozen ids must always be well-formed).
     let unit_lang = composite
         .languages()
         .first()
         .cloned()
         .unwrap_or_else(|| build.language.clone());
+    // Unit language comes from the fragment unit the stem came from
+    // (`module_langs`); the composite-first language is only a fallback.
+    // Single-language trees map every stem to the fallback, so Python-spine
+    // output is byte-identical.
     let unit_of = |stem: &str| -> String {
         match graph.modules.get(stem) {
-            Some(rel) => format!("{unit_lang}:{rel}"),
+            Some(rel) => {
+                let lang = graph
+                    .module_langs
+                    .get(stem)
+                    .map(String::as_str)
+                    .unwrap_or(unit_lang.as_str());
+                format!("{lang}:{rel}")
+            }
             None => stem.to_string(),
         }
     };

@@ -40,6 +40,11 @@ pub struct BuildInfo {
 pub struct CallGraph {
     /// module name -> file path (relative)
     pub modules: HashMap<String, String>,
+    /// module name -> unit language prefix (`python`, `fortran`, `c`, `cxx`):
+    /// the language of the fragment unit the stem came from. Single-language
+    /// trees map every stem to the same prefix, so legacy readers that use
+    /// one language for all stems keep byte-identical output.
+    pub module_langs: HashMap<String, String>,
     /// (dependent, dependency): dependent imports dependency.
     pub edges: Vec<(String, String)>,
 }
@@ -507,10 +512,12 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     // Map canonical units back to the legacy stem-keyed shape.
     let mut id_to_stem: HashMap<&str, &str> = HashMap::new();
     let mut modules: HashMap<String, String> = HashMap::new();
+    let mut module_langs: HashMap<String, String> = HashMap::new();
     for u in &fragment.units {
         if let Some(stem) = u.exports.first().map(|s| s.linkage.as_str()) {
             id_to_stem.insert(u.id.0.as_str(), stem);
             modules.insert(stem.to_string(), u.files.first().cloned().unwrap_or_default());
+            module_langs.insert(stem.to_string(), "python".to_string());
         }
     }
     let mut edges = Vec::new();
@@ -524,7 +531,7 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     }
     edges.sort();
     edges.dedup();
-    Ok(CallGraph { modules, edges })
+    Ok(CallGraph { modules, module_langs, edges })
 }
 
 /// Python fragment engine: filter claimed files, parse imports via stdlib
@@ -1689,6 +1696,8 @@ fn stems_to_call_graph(
 ) -> CallGraph {
     let mut id_to_stem: HashMap<&str, &str> = HashMap::new();
     let mut stem_to_rel: HashMap<&str, &str> = HashMap::new();
+    // Stem -> unit language prefix (`fortran` in `fortran:src/a.F90#m`).
+    let mut stem_to_lang: HashMap<&str, &str> = HashMap::new();
     for unit in units {
         let stem: &str = if let Some(export) = unit.exports.first() {
             export.linkage.as_str()
@@ -1705,10 +1714,23 @@ fn stems_to_call_graph(
                 diagnostics.push(format!("stem collision '{stem}': unit '{}' keeps the node", unit.id));
             }
         }
+        // First unit wins a stem collision (same rule as the rel entry):
+        // frontends iterate deterministically, so this is stable.
+        if stem_to_lang.get(stem).is_none() {
+            if let Some((head, _)) = unit.id.0.split_once(':') {
+                if !head.is_empty() && !head.contains('/') {
+                    stem_to_lang.insert(stem, head);
+                }
+            }
+        }
     }
     let mut modules: HashMap<String, String> = HashMap::new();
+    let mut module_langs: HashMap<String, String> = HashMap::new();
     for (stem, rel) in &stem_to_rel {
         modules.insert(stem.to_string(), rel.to_string());
+        if let Some(lang) = stem_to_lang.get(stem) {
+            module_langs.insert(stem.to_string(), lang.to_string());
+        }
     }
     let mut stem_edges: Vec<(String, String)> = Vec::new();
     for (dependent, dependency) in edges {
@@ -1720,7 +1742,7 @@ fn stems_to_call_graph(
     }
     stem_edges.sort();
     stem_edges.dedup();
-    CallGraph { modules, edges: stem_edges }
+    CallGraph { modules, module_langs, edges: stem_edges }
 }
 
 /// Run every frontend over `files`, union the fragments, resolve imports
@@ -5327,6 +5349,39 @@ mod track_i_tests {
                 UnitId("fortran:src/solver.F90".into()),
             ]
         );
+    }
+
+    #[test]
+    fn stems_carry_fragment_language_per_module() {
+        // Mixed-language fragments keep their own prefix per stem (first
+        // unit wins a stem collision, same rule as the rel entry).
+        let units = vec![
+            UnitDecl {
+                id: UnitId("fortran:src/a.F90#alpha_mod".into()),
+                files: vec!["src/a.F90".into()],
+                generated_from: None,
+                exports: vec![Symbol {
+                    linkage: "alpha_mod".into(),
+                    abi: Abi::Fortran { bind_c: false },
+                }],
+                imports: vec![],
+            },
+            UnitDecl {
+                id: UnitId("c:lib/util.c".into()),
+                files: vec!["lib/util.c".into()],
+                generated_from: None,
+                exports: vec![Symbol { linkage: "util".into(), abi: Abi::C }],
+                imports: vec![],
+            },
+        ];
+        let mut diagnostics = Vec::new();
+        let graph = stems_to_call_graph(&units, &HashSet::new(), &mut diagnostics);
+        assert_eq!(
+            graph.module_langs.get("alpha_mod").map(String::as_str),
+            Some("fortran")
+        );
+        assert_eq!(graph.module_langs.get("util").map(String::as_str), Some("c"));
+        assert!(diagnostics.is_empty(), "unexpected: {diagnostics:?}");
     }
 
     #[test]
