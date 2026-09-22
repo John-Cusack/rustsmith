@@ -45,6 +45,11 @@ pub struct CallGraph {
     /// trees map every stem to the same prefix, so legacy readers that use
     /// one language for all stems keep byte-identical output.
     pub module_langs: HashMap<String, String>,
+    /// module name -> frozen exports (`linkage`, `bind_c`): the full export
+    /// list of the fragment unit the stem came from (first unit wins a stem
+    /// collision, same rule as `module_langs`). Additive only: legacy readers
+    /// ignore it, so existing `dag.json` output is unchanged.
+    pub module_exports: HashMap<String, Vec<(String, bool)>>,
     /// (dependent, dependency): dependent imports dependency.
     pub edges: Vec<(String, String)>,
 }
@@ -472,6 +477,16 @@ impl Frontend for PythonFrontend {
     }
 }
 
+/// `bind_c` flag for a frozen export: Fortran carries its own flag, C/C++
+/// have a stable C ABI, Python has no `BIND(C)` notion.
+fn export_bind_c(abi: &Abi) -> bool {
+    match abi {
+        Abi::Fortran { bind_c } => *bind_c,
+        Abi::C | Abi::Cxx => true,
+        Abi::Python => false,
+    }
+}
+
 /// Deterministic import graph via Python stdlib `ast` (no new Rust deps).
 /// Module names are file stems for flat packages and `pkg.stem` for src-layout;
 /// edges use stems so strsimpy's `from .shingle_based import` resolves.
@@ -513,11 +528,16 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     let mut id_to_stem: HashMap<&str, &str> = HashMap::new();
     let mut modules: HashMap<String, String> = HashMap::new();
     let mut module_langs: HashMap<String, String> = HashMap::new();
+    let mut module_exports: HashMap<String, Vec<(String, bool)>> = HashMap::new();
     for u in &fragment.units {
         if let Some(stem) = u.exports.first().map(|s| s.linkage.as_str()) {
             id_to_stem.insert(u.id.0.as_str(), stem);
             modules.insert(stem.to_string(), u.files.first().cloned().unwrap_or_default());
             module_langs.insert(stem.to_string(), "python".to_string());
+            module_exports.insert(
+                stem.to_string(),
+                u.exports.iter().map(|e| (e.linkage.clone(), export_bind_c(&e.abi))).collect(),
+            );
         }
     }
     let mut edges = Vec::new();
@@ -531,7 +551,7 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     }
     edges.sort();
     edges.dedup();
-    Ok(CallGraph { modules, module_langs, edges })
+    Ok(CallGraph { modules, module_langs, module_exports, edges })
 }
 
 /// Python fragment engine: filter claimed files, parse imports via stdlib
@@ -1698,6 +1718,9 @@ fn stems_to_call_graph(
     let mut stem_to_rel: HashMap<&str, &str> = HashMap::new();
     // Stem -> unit language prefix (`fortran` in `fortran:src/a.F90#m`).
     let mut stem_to_lang: HashMap<&str, &str> = HashMap::new();
+    // Stem -> frozen exports of the unit the stem came from (first unit wins,
+    // same rule as the rel/lang entries).
+    let mut stem_to_exports: HashMap<&str, Vec<(String, bool)>> = HashMap::new();
     for unit in units {
         let stem: &str = if let Some(export) = unit.exports.first() {
             export.linkage.as_str()
@@ -1723,13 +1746,23 @@ fn stems_to_call_graph(
                 }
             }
         }
+        if stem_to_exports.get(stem).is_none() {
+            stem_to_exports.insert(
+                stem,
+                unit.exports.iter().map(|e| (e.linkage.clone(), export_bind_c(&e.abi))).collect(),
+            );
+        }
     }
     let mut modules: HashMap<String, String> = HashMap::new();
     let mut module_langs: HashMap<String, String> = HashMap::new();
+    let mut module_exports: HashMap<String, Vec<(String, bool)>> = HashMap::new();
     for (stem, rel) in &stem_to_rel {
         modules.insert(stem.to_string(), rel.to_string());
         if let Some(lang) = stem_to_lang.get(stem) {
             module_langs.insert(stem.to_string(), lang.to_string());
+        }
+        if let Some(exports) = stem_to_exports.get(stem) {
+            module_exports.insert(stem.to_string(), (*exports).clone());
         }
     }
     let mut stem_edges: Vec<(String, String)> = Vec::new();
@@ -1742,7 +1775,7 @@ fn stems_to_call_graph(
     }
     stem_edges.sort();
     stem_edges.dedup();
-    CallGraph { modules, module_langs, edges: stem_edges }
+    CallGraph { modules, module_langs, module_exports, edges: stem_edges }
 }
 
 /// Run every frontend over `files`, union the fragments, resolve imports
@@ -3196,6 +3229,48 @@ pub fn map_loaded_objects_to_units(
     out.sort();
     out.dedup();
     out
+}
+
+/// Create the CMake File API query for the `client-rustsmith` client: a
+/// `codemodel-v2` request written to
+/// `<build>/.cmake/api/v1/query/client-rustsmith/query.json`. CMake answers
+/// at configure time under `.cmake/api/v1/reply/` (see
+/// [`parse_cmake_file_api_reply`]); returns the query path.
+pub fn write_file_api_query(build_dir: &Path) -> Result<PathBuf, String> {
+    let dir = build_dir.join(".cmake/api/v1/query/client-rustsmith");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("query.json");
+    let body = serde_json::json!({"requests": [{"kind": "codemodel", "version": 2}]});
+    let text = serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?;
+    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Resolve the owning File API target for a repo-rel source: exact repo-rel
+/// match over target sources first, then a basename fallback (same file name
+/// in a different directory). The first sorted target wins each pass; `None`
+/// when no target lists the source. Never guesses beyond the basename (no
+/// stem, extension, or fuzzy matching).
+pub fn file_api_target_for_source(targets: &[FileApiTarget], rel: &str) -> Option<String> {
+    let mut exact: Vec<&str> = targets
+        .iter()
+        .filter(|t| t.sources.iter().any(|s| s.path == rel))
+        .map(|t| t.name.as_str())
+        .collect();
+    exact.sort();
+    if let Some(first) = exact.into_iter().next() {
+        return Some(first.to_string());
+    }
+    let base = rel.rsplit('/').next().unwrap_or(rel);
+    let mut fallback: Vec<&str> = targets
+        .iter()
+        .filter(|t| {
+            t.sources.iter().any(|s| s.path.rsplit('/').next().unwrap_or(&s.path) == base)
+        })
+        .map(|t| t.name.as_str())
+        .collect();
+    fallback.sort();
+    fallback.into_iter().next().map(String::from)
 }
 
 // --- Track I: CTest runner ---
@@ -5561,6 +5636,100 @@ mod track_i_tests {
             Some("fortran")
         );
         assert_eq!(graph.module_langs.get("util").map(String::as_str), Some("c"));
+        assert!(diagnostics.is_empty(), "unexpected: {diagnostics:?}");
+    }
+
+    #[test]
+    fn file_api_query_creates_codemodel_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let query = write_file_api_query(&build).unwrap();
+        assert_eq!(query, build.join(".cmake/api/v1/query/client-rustsmith/query.json"));
+        let body: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&query).unwrap()).unwrap();
+        let requests =
+            body.get("requests").and_then(|r| r.as_array()).expect("requests array");
+        assert!(
+            requests.iter().any(|r| r.get("kind").and_then(|k| k.as_str()) == Some("codemodel")
+                && r.get("version").and_then(|v| v.as_u64()) == Some(2)),
+            "codemodel-v2 request missing: {body}"
+        );
+    }
+
+    #[test]
+    fn file_api_target_for_source_exact_basename_unmapped() {
+        let targets = vec![
+            FileApiTarget {
+                name: "b_lib".into(),
+                sources: vec![FileApiSource {
+                    language: "fortran".into(),
+                    path: "src/a.F90".into(),
+                }],
+            },
+            FileApiTarget {
+                name: "a_lib".into(),
+                sources: vec![
+                    FileApiSource { language: "fortran".into(), path: "src/a.F90".into() },
+                    FileApiSource { language: "c".into(), path: "lib/util.c".into() },
+                ],
+            },
+        ];
+        // Exact repo-rel match: first sorted target wins.
+        assert_eq!(file_api_target_for_source(&targets, "src/a.F90"), Some("a_lib".into()));
+        assert_eq!(file_api_target_for_source(&targets, "lib/util.c"), Some("a_lib".into()));
+        // Basename fallback: same file name under a different directory.
+        assert_eq!(
+            file_api_target_for_source(&targets, "other/dir/util.c"),
+            Some("a_lib".into())
+        );
+        // Unmapped: no exact or basename hit, never a guess (no stem match).
+        assert_eq!(file_api_target_for_source(&targets, "src/missing.F90"), None);
+        assert_eq!(file_api_target_for_source(&targets, "src/a.F91"), None);
+        assert_eq!(file_api_target_for_source(&[], "src/a.F90"), None);
+    }
+
+    #[test]
+    fn stems_carry_module_exports_per_module() {
+        // Mixed-language fragments freeze their own exports per stem (first
+        // unit wins a stem collision, same rule as the lang entry).
+        let units = vec![
+            UnitDecl {
+                id: UnitId("fortran:src/a.F90#alpha_mod".into()),
+                files: vec!["src/a.F90".into()],
+                generated_from: None,
+                exports: vec![
+                    Symbol {
+                        linkage: "alpha_mod".into(),
+                        abi: Abi::Fortran { bind_c: false },
+                    },
+                    Symbol {
+                        linkage: "__alpha_mod_MOD_step".into(),
+                        abi: Abi::Fortran { bind_c: false },
+                    },
+                ],
+                imports: vec![],
+            },
+            UnitDecl {
+                id: UnitId("c:lib/util.c".into()),
+                files: vec!["lib/util.c".into()],
+                generated_from: None,
+                exports: vec![Symbol { linkage: "util".into(), abi: Abi::C }],
+                imports: vec![],
+            },
+        ];
+        let mut diagnostics = Vec::new();
+        let graph = stems_to_call_graph(&units, &HashSet::new(), &mut diagnostics);
+        assert_eq!(
+            graph.module_exports.get("alpha_mod"),
+            Some(&vec![
+                ("alpha_mod".to_string(), false),
+                ("__alpha_mod_MOD_step".to_string(), false)
+            ])
+        );
+        assert_eq!(
+            graph.module_exports.get("util"),
+            Some(&vec![("util".to_string(), true)])
+        );
         assert!(diagnostics.is_empty(), "unexpected: {diagnostics:?}");
     }
 
