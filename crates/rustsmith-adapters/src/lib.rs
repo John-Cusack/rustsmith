@@ -1943,7 +1943,14 @@ impl Adapter for CompositeAdapter {
 /// when no frontend claims anything (the CTest spine lands in a later track).
 pub fn select_composite(repo: &Path) -> Result<(CompositeAdapter, ProbeReport), AdapterError> {
     let report = probe(repo)?;
-    if report.unclaimed_share > UNCLAIMED_HALT_THRESHOLD {
+    // Halt threshold guards silent partial Python DAGs (every `.py` should be
+    // claimed). CTest/polyglot trees carry data/mesh artifacts alongside
+    // sources, so their partial DAG is explicit (frozen `unclaimed` +
+    // partition diagnostics), never silent: only the single-Python census
+    // halts here. Python-only output is unchanged.
+    let non_python = report.frontends.iter().any(|f| f != PythonFrontend.id());
+    let ctest_spine = non_python || report.has_ctest;
+    if report.unclaimed_share > UNCLAIMED_HALT_THRESHOLD && !ctest_spine {
         return Err(AdapterError::Parse(format!(
             "probe: unclaimed share {:.2} above threshold {:.2}: {}",
             report.unclaimed_share,
@@ -4464,7 +4471,13 @@ fn generic_license_terms(
             continue;
         }
         let rel = p.strip_prefix(repo).unwrap_or(p).to_string_lossy().replace('\\', "/");
-        let text = std::fs::read_to_string(p)?;
+        // License sniffing is best-effort: repos carry legacy encodings
+        // (e.g. ISO-8859) and unreadable files must never halt recon. Read
+        // bytes and sniff lossily; skip files that cannot be read at all.
+        let Ok(bytes) = std::fs::read(p) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         out.push((
             rel,
             Attribution {
