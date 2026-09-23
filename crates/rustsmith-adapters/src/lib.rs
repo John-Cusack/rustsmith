@@ -477,9 +477,10 @@ impl Frontend for PythonFrontend {
     }
 }
 
-/// `bind_c` flag for a frozen export: Fortran carries its own flag, C/C++
-/// have a stable C ABI, Python has no `BIND(C)` notion.
-fn export_bind_c(abi: &Abi) -> bool {
+/// Frozen `bind_c` flag for an export's ABI: Fortran carries its flag,
+/// C/C++ are always clean, Python never is. Single owner for the frozen
+/// `exports` shape and the substitute ABI gate.
+pub fn export_bind_c(abi: &Abi) -> bool {
     match abi {
         Abi::Fortran { bind_c } => *bind_c,
         Abi::C | Abi::Cxx => true,
@@ -1860,6 +1861,29 @@ impl CompositeAdapter {
     /// Returns the DAG plus human diagnostics (dup stems, collisions,
     /// skipped files); cycles and threshold violations are errors.
     pub fn partition(&self, cx: &BuildCtx) -> Result<(UnitDag, Vec<String>), AdapterError> {
+        let (units, edges, diagnostics) = self.declared_units(cx)?;
+        let mut diagnostics = diagnostics;
+        let graph = stems_to_call_graph(&units, &edges, &mut diagnostics);
+        let dag = dag_from_call_graph(&graph);
+        // 5. Kahn leaf-first; a cycle is an error, not a diagnostic.
+        let order = dag.leaf_first_order()?;
+        debug_assert!(dag.verify_order(&order));
+        diagnostics.sort();
+        diagnostics.dedup();
+        Ok((dag, diagnostics))
+    }
+
+    /// Post-coarsen unit declarations with import edges and human
+    /// diagnostics: the same fragment union + Fortran file-granularity
+    /// coarsening + out-of-scope marking as [`partition`](Self::partition),
+    /// but WITHOUT the stem collapse — unit ids stay canonical
+    /// (`<lang>:<repo-rel>[#<symbol>]`). Callers that freeze UnitId-addressed
+    /// topology (non-Python recon) build their DAG from these directly.
+    /// Units come out sorted by id for determinism.
+    pub fn declared_units(
+        &self,
+        cx: &BuildCtx,
+    ) -> Result<(Vec<UnitDecl>, HashSet<(UnitId, UnitId)>, Vec<String>), AdapterError> {
         let files = walk_source_files(cx.tree, Some(cx.build_dir))?;
         // The compile DB is picked up when the build dir provides one: the
         // C/C++ frontend refines its claims against it (Track I).
@@ -1873,14 +1897,10 @@ impl CompositeAdapter {
         // their DAG output is unchanged.
         coarsen_fortran_units(&mut units, &mut edges, &mut diagnostics);
         mark_out_of_scope(&units, &mut diagnostics, cx.build_dir);
-        let graph = stems_to_call_graph(&units, &edges, &mut diagnostics);
-        let dag = dag_from_call_graph(&graph);
-        // 5. Kahn leaf-first; a cycle is an error, not a diagnostic.
-        let order = dag.leaf_first_order()?;
-        debug_assert!(dag.verify_order(&order));
+        units.sort_by(|a, b| a.id.0.cmp(&b.id.0));
         diagnostics.sort();
         diagnostics.dedup();
-        Ok((dag, diagnostics))
+        Ok((units, edges, diagnostics))
     }
 
     pub fn classify_dep(&self, dep: &LinkDep) -> DepClass {
@@ -4880,13 +4900,8 @@ fn coarsen_fortran_units(
 /// `.rustsmith-coverage.json` (`{unit_id: samples}`) in the build dir;
 /// absent file means no coverage marks.
 fn mark_out_of_scope(units: &[UnitDecl], diagnostics: &mut Vec<String>, build_dir: &Path) {
-    const VENDORED_SEGS: &[&str] =
-        &["third_party", "thirdparty", "external", "vendor", "contrib", "submodules"];
     for unit in units {
-        let vendored = unit.files.iter().any(|f| {
-            f.split('/').any(|seg| VENDORED_SEGS.contains(&seg.to_ascii_lowercase().as_str()))
-        });
-        if vendored {
+        if unit_vendored(unit) {
             diagnostics.push(format!(
                 "out-of-scope: '{}' is vendored (link target, not ported; see link_deps)",
                 unit.id
@@ -4913,6 +4928,41 @@ fn mark_out_of_scope(units: &[UnitDecl], diagnostics: &mut Vec<String>, build_di
         }
     }
 }
+/// Vendored-source check shared by [`mark_out_of_scope`] (diagnostics) and
+/// [`out_of_scope_ids`] (frozen scope): path segments naming third-party
+/// sinks. Single owner so the two never disagree.
+fn unit_vendored(unit: &UnitDecl) -> bool {
+    const VENDORED_SEGS: &[&str] =
+        &["third_party", "thirdparty", "external", "vendor", "contrib", "submodules"];
+    unit.files.iter().any(|f| {
+        f.split('/').any(|seg| VENDORED_SEGS.contains(&seg.to_ascii_lowercase().as_str()))
+    })
+}
+
+/// Unit ids out of scope, mirroring [`mark_out_of_scope`] structurally for
+/// callers that freeze scope instead of diagnostics: vendored sources plus
+/// units with no baseline coverage (absent/unparseable coverage file means
+/// no coverage marks, same rule). Sorted, deduped, deterministic.
+pub fn out_of_scope_ids(units: &[UnitDecl], build_dir: &Path) -> Vec<String> {
+    let counts: Option<BTreeMap<String, u64>> = std::fs::read_to_string(build_dir.join(".rustsmith-coverage.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok());
+    let mut ids: Vec<String> = units
+        .iter()
+        .filter(|unit| {
+            unit_vendored(unit)
+                || counts
+                    .as_ref()
+                    .map(|c| c.get(&unit.id.0).copied().unwrap_or(0) == 0)
+                    .unwrap_or(false)
+        })
+        .map(|unit| unit.id.0.clone())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 
 #[cfg(test)]
 mod track_i_tests {
@@ -5778,6 +5828,29 @@ mod track_i_tests {
         assert!(dag.edges.iter().any(|(_, b)| b == "gen_mod"));
         let order = dag.leaf_first_order().unwrap();
         assert!(dag.verify_order(&order));
+    }
+
+    #[test]
+    fn declared_units_keep_canonical_ids_and_scope() {
+        let mock = mock_tree();
+        let (composite, _) = select_composite(&mock.tree).unwrap();
+        let cx =
+            BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        let (units, edges, diagnostics) = composite.declared_units(&cx).unwrap();
+        // Canonical ids (no stems); the multi-module file merged to one
+        // file unit instead of per-symbol units.
+        assert!(units.iter().any(|u| u.id.0 == "fortran:src/multi.F90"));
+        assert!(!units.iter().any(|u| u.id.0.contains("multi.F90#")));
+        // Scope marks mirror the diagnostics structurally.
+        let scope = out_of_scope_ids(&units, &mock.build);
+        assert!(scope.iter().any(|id| id.contains("third_party/vendored.f90")));
+        assert!(diagnostics.iter().any(|d| d.contains("out-of-scope") && d.contains("vendored")));
+        // Edges reference surviving ids only (merged members rewired away).
+        let ids: HashSet<String> = units.iter().map(|u| u.id.0.clone()).collect();
+        for (a, b) in &edges {
+            assert!(ids.contains(&a.0), "dangling edge from {a}");
+            assert!(ids.contains(&b.0), "dangling edge to {b}");
+        }
     }
 
     #[test]

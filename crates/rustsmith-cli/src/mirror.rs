@@ -715,17 +715,47 @@ fn scaffold_bridge(languages: &[String]) -> Box<dyn BuildBridge> {
     }
 }
 
-/// Grade-time unit declaration: frozen id + authoritative source plus
-/// re-derived exports (same frontends recon used, deterministic). Export
-/// re-derivation never halts grading: unparseable files fall back to the
-/// stem shape the scaffold derives itself.
+/// Frozen export pair back to a [`Symbol`](rustsmith_adapters::Symbol):
+/// linkage plus flag from the dag file, ABI from the UnitId language prefix.
+/// Unknown prefixes return `None` so the caller falls back to live
+/// re-derivation (never a guessed ABI, never a halt).
+fn frozen_exports_to_symbols(
+    unit: &str,
+    frozen: &[(String, bool)],
+) -> Option<Vec<rustsmith_adapters::Symbol>> {
+    // UnitId language prefix back to ABI (the frozen pair carries linkage +
+    // flag only). Unknown prefixes fall back to live re-derivation, never a
+    // guessed ABI.
+    let prefix = unit.split_once(':').map(|(head, _)| head).unwrap_or("");
+    let mut symbols = Vec::new();
+    for (linkage, bind_c) in frozen {
+        let abi = match prefix {
+            "fortran" => rustsmith_adapters::Abi::Fortran { bind_c: *bind_c },
+            "c" => rustsmith_adapters::Abi::C,
+            "cxx" => rustsmith_adapters::Abi::Cxx,
+            "python" => rustsmith_adapters::Abi::Python,
+            _ => return None,
+        };
+        symbols.push(rustsmith_adapters::Symbol { linkage: linkage.clone(), abi });
+    }
+    Some(symbols)
+}
+
 fn grade_unit_decl(
     repo: &Path,
     unit: &str,
     rel: &str,
+    frozen: Option<&[(String, bool)]>,
 ) -> rustsmith_adapters::UnitDecl {
-    let exports =
-        rustsmith_adapters::fragment_unit_exports(repo, rel).unwrap_or_default();
+    // Frozen exports first (audit truth, no re-parse); live re-derivation
+    // (same frontends recon used) when the dag file predates the key or the
+    // prefix is unknown; stem fallback when both are empty. Never a halt.
+    let exports = frozen
+        .filter(|f| !f.is_empty())
+        .and_then(|f| frozen_exports_to_symbols(unit, f))
+        .unwrap_or_else(|| {
+            rustsmith_adapters::fragment_unit_exports(repo, rel).unwrap_or_default()
+        });
     rustsmith_adapters::UnitDecl {
         id: rustsmith_adapters::UnitId(unit.to_string()),
         files: vec![rel.to_string()],
@@ -753,6 +783,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     // `module` audit stems (new writes) double as the old-reader key: prefer
     // `id`, fall back to `module` for pre-rollout dag files.
     let mut dag_module: HashMap<String, String> = HashMap::new();
+    // Frozen exports (non-Python recon only): linkage plus the BIND(C) flag
+    // per unit id. Absent on older/Python dag files: grade decls fall back
+    // to live re-derivation below, never a halt.
+    let mut dag_exports: HashMap<String, Vec<(String, bool)>> = HashMap::new();
     for u in &units_json {
         let id = u["id"]
             .as_str()
@@ -762,6 +796,20 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         if !id.is_empty() {
             if let Some(m) = u["module"].as_str() {
                 dag_module.insert(id.clone(), m.to_string());
+            }
+            if let Some(list) = u["exports"].as_array() {
+                let exports: Vec<(String, bool)> = list
+                    .iter()
+                    .filter_map(|e| {
+                        Some((
+                            e["linkage"].as_str()?.to_string(),
+                            e["bind_c"].as_bool().unwrap_or(false),
+                        ))
+                    })
+                    .collect();
+                if !exports.is_empty() {
+                    dag_exports.insert(id.clone(), exports);
+                }
             }
             depends.insert(
                 id,
@@ -919,12 +967,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // on port scaffolds (MaturinBridge for single-Python, CmakeBridge
         // otherwise), so resolve this unit through `bridge.scaffold()` and
         // freeze the resulting file list next to the bundle. The declaration
-        // carries re-derived exports (same frontends recon used); unparseable
-        // files fall back to the stem shape, never a grade halt. Units the
-        // bridge cannot scaffold fall back to the template compat mapping
-        // recorded here; materialization below still follows the template task.
+        // carries frozen exports (audit truth) with live re-derivation as
+        // fallback; unparseable files fall back to the stem shape, never a
+        // grade halt. Units the bridge cannot scaffold fall back to the
+        // template compat mapping recorded here; materialization below still
+        // follows the template task.
         let bridge = scaffold_bridge(&build_languages);
-        let decl = grade_unit_decl(&a.repo, id, &orig_rel);
+        let decl = grade_unit_decl(&a.repo, id, &orig_rel, dag_exports.get(id).map(Vec::as_slice));
         let scaffold_note = match bridge.scaffold(&decl) {
             Ok(files) => serde_json::json!({
                 "scaffolded": true,
@@ -2015,5 +2064,36 @@ mod tests {
         // Deterministic restage: a second call rebuilds the same path.
         let build2 = build_shared_pristine(fork.path(), repo.path(), &store, "r1").unwrap();
         assert_eq!(build, build2);
+    }
+
+    #[test]
+    fn grade_decl_prefers_frozen_exports_with_fallback() {
+        // Frozen non-BIND(C) exports ride the decl with their ABI flags.
+        let frozen = vec![("__solver_mod_MOD_step".to_string(), false)];
+        let decl = grade_unit_decl(
+            Path::new("/repo"),
+            "fortran:src/solver.F90",
+            "src/solver.F90",
+            Some(&frozen),
+        );
+        assert_eq!(decl.exports.len(), 1);
+        assert_eq!(decl.exports[0].linkage, "__solver_mod_MOD_step");
+        assert_eq!(
+            decl.exports[0].abi,
+            rustsmith_adapters::Abi::Fortran { bind_c: false }
+        );
+        // Unknown prefix: frozen unusable, falls back to live re-derivation
+        // (missing file here, so the stem fallback: empty exports).
+        let decl = grade_unit_decl(
+            Path::new("/repo"),
+            "cobol:src/x.cbl",
+            "src/x.cbl",
+            Some(&frozen),
+        );
+        assert!(decl.exports.is_empty(), "unexpected: {:?}", decl.exports);
+        // No frozen key (pre-exports dag file): same fallback, never a halt.
+        let decl =
+            grade_unit_decl(Path::new("/repo"), "fortran:src/y.F90", "src/y.F90", None);
+        assert!(decl.exports.is_empty(), "unexpected: {:?}", decl.exports);
     }
 }

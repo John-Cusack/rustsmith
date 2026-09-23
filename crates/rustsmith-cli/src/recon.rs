@@ -14,10 +14,11 @@
 //! `facts.json` (RepoFacts); later stages read behavior there.
 
 use rustsmith_adapters::{
-    dag_from_call_graph, select_composite, Adapter, Attribution, CompositeAdapter, DepClass,
-    ProbeReport, UnitDag, UNCLAIMED_HALT_THRESHOLD,
+    dag_from_call_graph, export_bind_c, out_of_scope_ids, select_composite, Adapter, Attribution,
+    CompositeAdapter, DepClass, ProbeReport, Unit, UnitDag, UNCLAIMED_HALT_THRESHOLD,
 };
 use rustsmith_core::{Baseline, BuildCtx, Cwd, FileHash, Manifest, ObservableSpec, TestCommand, Workload};
+use std::collections::HashMap;
 use rustsmith_oracle::{execute_all, sha256_hex, Oracle};
 use rustsmith_profile::{capture_hotspot_baseline, WorkloadContract};
 use std::path::Path;
@@ -70,9 +71,10 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
         build_dir: repo,
         release: false,
     };
-    // 2-3. Detect + call graph + test inventory (frozen shapes).
+    // 2-3. Detect + call graph + test inventory (frozen shapes). The call
+    // graph (stem-collapsed, Python HEAD shape) builds inside the Python arm
+    // below; any other spine freezes post-coarsen declarations directly.
     let build = composite.detect(repo).map_err(|e| e.to_string())?;
-    let graph = composite.call_graph(repo).map_err(|e| e.to_string())?;
     let inv = composite.test_inventory(repo).map_err(|e| e.to_string())?;
     // 4. Dep classify through the spine: link targets from the bridge,
     // classified by the composite. This replaces the old `pyproject`
@@ -188,120 +190,182 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     let porting_md = crate::porting::render_porting_md(&package, &composite.languages(), &rules);
     std::fs::write(out.join("PORTING.md"), &porting_md).map_err(|e| e.to_string())?;
     // 11. Unit DAG (leaf-first), frozen with UnitId keys
-    // (`<lang>:<repo-rel authoritative source>[#<symbol>]`; the language comes
-    // from the composite so no language literal lives here). The `module` stem
-    // rides along for audit; readers key on `id` with a stem fallback.
-    // Python spine: cycles are errors (HEAD behavior). Any other spine:
-    // large compiled trees carry circular USE/include approximations, so
-    // cycles break deterministically (lexicographically smallest feedback
-    // edge first) and the frozen DAG stays acyclic (graceful scale handling).
-    let dag = dag_from_call_graph(&graph);
-    let (dag, order) = if python_spine {
+    // (`<lang>:<repo-rel authoritative source>[#<symbol>]`).
+    // Python spine: stem-collapsed call graph, strict order, HEAD behavior,
+    // byte-identical frozen output. Any other spine: post-coarsen
+    // declarations frozen directly — file units for non-BIND(C) Fortran with
+    // canonical ids, frozen exports, frozen scope; cycles break forgivingly
+    // (lexicographically smallest feedback edge first). The `module` audit
+    // field is the file stem; readers key on `id`.
+    struct FrozenTopology {
+        dag: UnitDag,
+        order: Vec<String>,
+        units: Vec<(String, String, Vec<String>, Vec<(String, bool)>)>,
+        edges: Vec<(String, String)>,
+        scope: Vec<String>,
+        diagnostics: Vec<String>,
+        modules: std::collections::BTreeMap<String, String>,
+    }
+    let topo = if python_spine {
+        let graph = composite.call_graph(repo).map_err(|e| e.to_string())?;
+        let dag = dag_from_call_graph(&graph);
         let order = dag.leaf_first_order().map_err(|e| e.to_string())?;
         assert!(dag.verify_order(&order), "DAG order must verify");
-        (dag, order)
-    } else {
-        let (acyclic, order, _dropped) = leaf_first_order_forgiving(&dag);
-        assert!(acyclic.verify_order(&order), "forgiving DAG order must verify");
-        (acyclic, order)
-    };
-    // Fallback language for stems the graph carries no language for (cannot
-    // happen on either spine, but frozen ids must always be well-formed).
-    let unit_lang = composite
-        .languages()
-        .first()
-        .cloned()
-        .unwrap_or_else(|| build.language.clone());
-    // Unit language comes from the fragment unit the stem came from
-    // (`module_langs`); the composite-first language is only a fallback.
-    // Single-language trees map every stem to the fallback, so Python-spine
-    // output is byte-identical.
-    let unit_of = |stem: &str| -> String {
-        match graph.modules.get(stem) {
-            Some(rel) => {
-                let lang = graph
-                    .module_langs
-                    .get(stem)
-                    .map(String::as_str)
-                    .unwrap_or(unit_lang.as_str());
-                format!("{lang}:{rel}")
+        // Fallback language for stems the graph carries no language for
+        // (cannot happen on either spine, but frozen ids must always be
+        // well-formed).
+        let unit_lang = composite
+            .languages()
+            .first()
+            .cloned()
+            .unwrap_or_else(|| build.language.clone());
+        // Unit language comes from the fragment unit the stem came from
+        // (`module_langs`); the composite-first language is only a fallback.
+        // Single-language trees map every stem to the fallback, so
+        // Python-spine output is byte-identical.
+        let unit_of = |stem: &str| -> String {
+            match graph.modules.get(stem) {
+                Some(rel) => {
+                    let lang = graph
+                        .module_langs
+                        .get(stem)
+                        .map(String::as_str)
+                        .unwrap_or(unit_lang.as_str());
+                    format!("{lang}:{rel}")
+                }
+                None => stem.to_string(),
             }
-            None => stem.to_string(),
+        };
+        let mut units: Vec<(String, String, Vec<String>, Vec<(String, bool)>)> = dag
+            .units
+            .iter()
+            .map(|u| {
+                let mut deps: Vec<String> = u.depends_on.iter().map(|d| unit_of(d)).collect();
+                deps.sort();
+                deps.dedup();
+                (unit_of(&u.id), u.module.clone(), deps, Vec::new())
+            })
+            .collect();
+        units.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut edges: Vec<(String, String)> = dag
+            .edges
+            .iter()
+            .map(|(a, b)| (unit_of(a), unit_of(b)))
+            .collect();
+        edges.sort();
+        edges.dedup();
+        let order_ids: Vec<String> = order.iter().map(|s| unit_of(s)).collect();
+        let modules: std::collections::BTreeMap<String, String> = graph
+            .modules
+            .iter()
+            .map(|(stem, rel)| (unit_of(stem), rel.clone()))
+            .collect();
+        FrozenTopology {
+            dag,
+            order: order_ids,
+            units,
+            edges,
+            scope: Vec::new(),
+            diagnostics: Vec::new(),
+            modules,
         }
-    };
-    let mut dag_units: Vec<(String, String, Vec<String>, Vec<serde_json::Value>)> = dag
-        .units
-        .iter()
-        .map(|u| {
-            let mut deps: Vec<String> = u.depends_on.iter().map(|d| unit_of(d)).collect();
+    } else {
+        let (decls, decl_edges, diags) = composite
+            .declared_units(&cx)
+            .map_err(|e| e.to_string())?;
+        let mut dep_map: HashMap<&str, Vec<String>> = HashMap::new();
+        for (a, b) in &decl_edges {
+            dep_map.entry(a.0.as_str()).or_default().push(b.0.clone());
+        }
+        for deps in dep_map.values_mut() {
             deps.sort();
             deps.dedup();
-            // Frozen exports (non-Python spine only, additive): linkage plus
-            // the BIND(C) flag per stem, for ABI auditing and the coming
-            // file-granularity coarsening. Grade-time decls still re-derive
-            // the same data live; Python output stays byte-identical.
-            let exports: Vec<serde_json::Value> = if python_spine {
-                Vec::new()
-            } else {
-                graph
-                    .module_exports
-                    .get(&u.module)
-                    .cloned()
-                    .unwrap_or_default()
+        }
+        let udag = UnitDag {
+            units: decls
+                .iter()
+                .map(|d| Unit {
+                    id: d.id.0.clone(),
+                    module: crate::units::unit_stem(&d.id.0).to_string(),
+                    depends_on: dep_map.get(d.id.0.as_str()).cloned().unwrap_or_default(),
+                })
+                .collect(),
+            edges: decl_edges
+                .iter()
+                .map(|(a, b)| (a.0.clone(), b.0.clone()))
+                .collect(),
+        };
+        let (acyclic, order, _dropped) = leaf_first_order_forgiving(&udag);
+        assert!(acyclic.verify_order(&order), "forgiving DAG order must verify");
+        let mut units: Vec<(String, String, Vec<String>, Vec<(String, bool)>)> = decls
+            .iter()
+            .map(|d| {
+                let exports = d
+                    .exports
                     .iter()
-                    .map(|(linkage, bind_c)| {
-                        serde_json::json!({"linkage": linkage, "bind_c": bind_c})
-                    })
-                    .collect()
-            };
-            (unit_of(&u.id), u.module.clone(), deps, exports)
-        })
-        .collect();
-    let mut dag_edges: Vec<(String, String)> = dag
-        .edges
-        .iter()
-        .map(|(a, b)| (unit_of(a), unit_of(b)))
-        .collect();
-    dag_edges.sort();
-    dag_edges.dedup();
-    let dag_order: Vec<String> = order.iter().map(|s| unit_of(s)).collect();
-    // CONTRACT (FileApiSlice): `CallGraph.module_exports` frozen as an
-    // ADDITIVE per-unit `"exports": [{"linkage": ..., "bind_c": ...}]` key
-    // (non-Python spine only; Python output byte-identical). Looked up by
-    // the `module` audit stem; each stem's vec is already deterministic.
+                    .map(|e| (e.linkage.clone(), export_bind_c(&e.abi)))
+                    .collect();
+                (
+                    d.id.0.clone(),
+                    crate::units::unit_stem(&d.id.0).to_string(),
+                    dep_map.remove(d.id.0.as_str()).unwrap_or_default(),
+                    exports,
+                )
+            })
+            .collect();
+        let mut edges: Vec<(String, String)> = decl_edges
+            .iter()
+            .map(|(a, b)| (a.0.clone(), b.0.clone()))
+            .collect();
+        edges.sort();
+        edges.dedup();
+        let modules: std::collections::BTreeMap<String, String> = decls
+            .iter()
+            .map(|d| (d.id.0.clone(), d.files.first().cloned().unwrap_or_default()))
+            .collect();
+        let scope = out_of_scope_ids(&decls, cx.build_dir);
+        FrozenTopology {
+            dag: acyclic,
+            order,
+            units,
+            edges,
+            scope,
+            diagnostics: diags,
+            modules,
+        }
+    };
+    let dag = topo.dag;
+    let dag_units = topo.units;
+    let dag_edges = topo.edges;
+    let dag_order = topo.order;
+    // the partition human diagnostics. Python output byte-identical.
     // No other frozen-shape change; every other byte stays identical.
-    std::fs::write(
-        out.join("dag.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "units": dag_units.iter().map(|(id, module, depends_on, exports)| {
-                let mut o = serde_json::json!({"id": id, "module": module, "depends_on": depends_on});
-                if !python_spine {
-                    o["exports"] = serde_json::Value::Array(exports.clone());
-                }
-                o
-            }).collect::<Vec<_>>(),
-            "edges": dag_edges,
-            "leaf_first_order": dag_order,
-        }))
-        .unwrap(),
-    )
-    .map_err(|e| e.to_string())?;
+    let mut dag_doc = serde_json::json!({
+        "units": dag_units.iter().map(|(id, module, depends_on, exports)| {
+            let mut o = serde_json::json!({"id": id, "module": module, "depends_on": depends_on});
+            if !python_spine {
+                o["exports"] = serde_json::Value::Array(exports.iter().map(|(linkage, bind_c)| {
+                    serde_json::json!({"linkage": linkage, "bind_c": bind_c})
+                }).collect());
+            }
+            o
+        }).collect::<Vec<_>>(),
+        "edges": &dag_edges,
+        "leaf_first_order": &dag_order,
+    });
+    if !python_spine {
+        dag_doc["out_of_scope"] = serde_json::to_value(&topo.scope).unwrap();
+        dag_doc["diagnostics"] = serde_json::to_value(&topo.diagnostics).unwrap();
+    }
+    std::fs::write(out.join("dag.json"), serde_json::to_string_pretty(&dag_doc).unwrap())
+        .map_err(|e| e.to_string())?;
     // 12. recon.json (everything else for audit). Frozen with UnitId keys:
     // `build.languages` (list; `build.language` stays as a compat alias),
     // `modules`/`call_edges` keyed by UnitId. Readers accept the pre-rollout
-    // shapes via the `units` compat shims.
-    let recon_modules: std::collections::BTreeMap<String, String> = graph
-        .modules
-        .iter()
-        .map(|(stem, rel)| (unit_of(stem), rel.clone()))
-        .collect();
-    let mut recon_edges: Vec<(String, String)> = graph
-        .edges
-        .iter()
-        .map(|(a, b)| (unit_of(a), unit_of(b)))
-        .collect();
-    recon_edges.sort();
-    recon_edges.dedup();
+    // shapes via the `units` compat shims. Both spines now read the frozen
+    // topology; only its construction differs above.
+    let recon_modules = topo.modules;
+    let recon_edges = dag_edges.clone();
     std::fs::write(
         out.join("recon.json"),
         serde_json::to_string_pretty(&serde_json::json!({
