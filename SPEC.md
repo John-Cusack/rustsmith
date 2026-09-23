@@ -265,6 +265,8 @@ Council reviews and approves the plan. The run proceeds without human input.
 
 Goal: behavior-identical Rust, same module boundaries as the original. **No redesign. No cleverness. No "while I was in there."** Every production case study independently found that deviating here costs more than it saves.
 
+The mirror is a dual artifact from one codebase: a Rust crate (crates.io) and a drop-in `-rust` PyPI distribution (`<orig>-rust` dist name, original module name unchanged, so users swap the install with zero import changes). The template enforces both ends: the Cargo manifest must build a `cdylib` extension and the maturin `module-name` must equal the declared extension module. Publishing to either registry is a manual step after review; `rustsmith` never pushes.
+
 - Workers take units in dependency order; independent units run in parallel up to `max_parallel_workers`.
 - Each worker gets: its unit spec, [`PORTING.md`](http://PORTING.md), the relevant original source, the interface contracts of its dependencies, and read-only oracle access.
 - On worker completion, the control plane runs the graded gates.
@@ -296,6 +298,8 @@ run PGO/BOLT as a final pass
 ```
 
 Every accepted optimization is one commit with its benchmark delta, the technique used, and the files it touched, recorded in the `optimizations` table. **That table, not the finished codebase, is what Stage 3 mines.**
+
+Techniques are keyed by name; unknown names are config errors. A known technique whose anchors miss the tree is not applicable: it is recorded (`not_applicable`) and skipped, never fatal, so experimentation with new techniques is safe. The tier-9 build-level canonical is whole-program release LTO (`release-lto`); domain techniques (detector loops, distance kernels) arrive as anchored patches behind the same proposal review, and worker-proposed patches plug into the identical review → apply → grade path.
 
 ### Stage 3 — Harvest
 
