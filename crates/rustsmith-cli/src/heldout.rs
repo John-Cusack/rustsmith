@@ -372,10 +372,18 @@ mod tests {
         }
     }
 
-    /// Static suites stay non-empty and python-shaped for every package.
+    /// Static suites stay non-empty and python-shaped for every package that
+    /// declares them. Suites are a Python-spine artifact: CMake packages
+    /// carry no `heldout_suites` key and recon degrades to none.
     #[test]
     fn suites_nonempty_for_all_packages() {
+        let mut covered = 0;
         for package in crate::repo_content::packages() {
+            let entry = crate::repo_content::entry(&package).unwrap();
+            if !entry["heldout_suites"].is_array() {
+                continue;
+            }
+            covered += 1;
             let suites = generate_suites_for(&package).unwrap();
             assert!(!suites.is_empty(), "no suites for {package}");
             for (name, content) in &suites {
@@ -383,6 +391,7 @@ mod tests {
                 assert!(!content.is_empty(), "empty suite {name}");
             }
         }
+        assert!(covered > 0, "no package declares heldout suites");
     }
     #[test]
     fn json_to_py_emits_python_literals() {

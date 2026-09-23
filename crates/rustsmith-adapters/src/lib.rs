@@ -40,6 +40,16 @@ pub struct BuildInfo {
 pub struct CallGraph {
     /// module name -> file path (relative)
     pub modules: HashMap<String, String>,
+    /// module name -> unit language prefix (`python`, `fortran`, `c`, `cxx`):
+    /// the language of the fragment unit the stem came from. Single-language
+    /// trees map every stem to the same prefix, so legacy readers that use
+    /// one language for all stems keep byte-identical output.
+    pub module_langs: HashMap<String, String>,
+    /// module name -> frozen exports (`linkage`, `bind_c`): the full export
+    /// list of the fragment unit the stem came from (first unit wins a stem
+    /// collision, same rule as `module_langs`). Additive only: legacy readers
+    /// ignore it, so existing `dag.json` output is unchanged.
+    pub module_exports: HashMap<String, Vec<(String, bool)>>,
     /// (dependent, dependency): dependent imports dependency.
     pub edges: Vec<(String, String)>,
 }
@@ -467,6 +477,16 @@ impl Frontend for PythonFrontend {
     }
 }
 
+/// `bind_c` flag for a frozen export: Fortran carries its own flag, C/C++
+/// have a stable C ABI, Python has no `BIND(C)` notion.
+fn export_bind_c(abi: &Abi) -> bool {
+    match abi {
+        Abi::Fortran { bind_c } => *bind_c,
+        Abi::C | Abi::Cxx => true,
+        Abi::Python => false,
+    }
+}
+
 /// Deterministic import graph via Python stdlib `ast` (no new Rust deps).
 /// Module names are file stems for flat packages and `pkg.stem` for src-layout;
 /// edges use stems so strsimpy's `from .shingle_based import` resolves.
@@ -507,10 +527,17 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     // Map canonical units back to the legacy stem-keyed shape.
     let mut id_to_stem: HashMap<&str, &str> = HashMap::new();
     let mut modules: HashMap<String, String> = HashMap::new();
+    let mut module_langs: HashMap<String, String> = HashMap::new();
+    let mut module_exports: HashMap<String, Vec<(String, bool)>> = HashMap::new();
     for u in &fragment.units {
         if let Some(stem) = u.exports.first().map(|s| s.linkage.as_str()) {
             id_to_stem.insert(u.id.0.as_str(), stem);
             modules.insert(stem.to_string(), u.files.first().cloned().unwrap_or_default());
+            module_langs.insert(stem.to_string(), "python".to_string());
+            module_exports.insert(
+                stem.to_string(),
+                u.exports.iter().map(|e| (e.linkage.clone(), export_bind_c(&e.abi))).collect(),
+            );
         }
     }
     let mut edges = Vec::new();
@@ -524,7 +551,7 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     }
     edges.sort();
     edges.dedup();
-    Ok(CallGraph { modules, edges })
+    Ok(CallGraph { modules, module_langs, module_exports, edges })
 }
 
 /// Python fragment engine: filter claimed files, parse imports via stdlib
@@ -1689,6 +1716,11 @@ fn stems_to_call_graph(
 ) -> CallGraph {
     let mut id_to_stem: HashMap<&str, &str> = HashMap::new();
     let mut stem_to_rel: HashMap<&str, &str> = HashMap::new();
+    // Stem -> unit language prefix (`fortran` in `fortran:src/a.F90#m`).
+    let mut stem_to_lang: HashMap<&str, &str> = HashMap::new();
+    // Stem -> frozen exports of the unit the stem came from (first unit wins,
+    // same rule as the rel/lang entries).
+    let mut stem_to_exports: HashMap<&str, Vec<(String, bool)>> = HashMap::new();
     for unit in units {
         let stem: &str = if let Some(export) = unit.exports.first() {
             export.linkage.as_str()
@@ -1705,10 +1737,33 @@ fn stems_to_call_graph(
                 diagnostics.push(format!("stem collision '{stem}': unit '{}' keeps the node", unit.id));
             }
         }
+        // First unit wins a stem collision (same rule as the rel entry):
+        // frontends iterate deterministically, so this is stable.
+        if stem_to_lang.get(stem).is_none() {
+            if let Some((head, _)) = unit.id.0.split_once(':') {
+                if !head.is_empty() && !head.contains('/') {
+                    stem_to_lang.insert(stem, head);
+                }
+            }
+        }
+        if stem_to_exports.get(stem).is_none() {
+            stem_to_exports.insert(
+                stem,
+                unit.exports.iter().map(|e| (e.linkage.clone(), export_bind_c(&e.abi))).collect(),
+            );
+        }
     }
     let mut modules: HashMap<String, String> = HashMap::new();
+    let mut module_langs: HashMap<String, String> = HashMap::new();
+    let mut module_exports: HashMap<String, Vec<(String, bool)>> = HashMap::new();
     for (stem, rel) in &stem_to_rel {
         modules.insert(stem.to_string(), rel.to_string());
+        if let Some(lang) = stem_to_lang.get(stem) {
+            module_langs.insert(stem.to_string(), lang.to_string());
+        }
+        if let Some(exports) = stem_to_exports.get(stem) {
+            module_exports.insert(stem.to_string(), (*exports).clone());
+        }
     }
     let mut stem_edges: Vec<(String, String)> = Vec::new();
     for (dependent, dependency) in edges {
@@ -1720,7 +1775,7 @@ fn stems_to_call_graph(
     }
     stem_edges.sort();
     stem_edges.dedup();
-    CallGraph { modules, edges: stem_edges }
+    CallGraph { modules, module_langs, module_exports, edges: stem_edges }
 }
 
 /// Run every frontend over `files`, union the fragments, resolve imports
@@ -1738,6 +1793,41 @@ fn assemble_call_graph(
     let (units, edges, mut collected) = collect_fragments(tree, files, frontends, compile_db)?;
     diagnostics.append(&mut collected);
     Ok(stems_to_call_graph(&units, &edges, diagnostics))
+}
+
+/// Re-derive one source file's exports by fragmenting it with the same
+/// frontends recon used (deterministic: same parser, same file). Grade-time
+/// use: the frozen DAG carries stems only, but the scaffold audit and the
+/// substitute ABI gate need true linkage. Unclaimed extensions yield no
+/// exports (the caller falls back to the stem); multi-unit files merge
+/// every scope's exports.
+pub fn fragment_unit_exports(repo: &Path, rel: &str) -> Result<Vec<Symbol>, AdapterError> {
+    let ext = Path::new(rel)
+        .extension()
+        .and_then(|x| x.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let frontend: &dyn Frontend = if FORTRAN_EXTS.contains(&ext.as_str()) {
+        &FortranFrontend
+    } else if cxx_ext_kind(Path::new(rel)).is_some() {
+        &CxxFrontend
+    } else if ext == "py" {
+        &PythonFrontend
+    } else {
+        return Ok(Vec::new());
+    };
+    let abs = repo.join(rel);
+    let files = vec![abs];
+    let compiler_ids = BTreeMap::new();
+    let cx = FragmentCtx { repo, files: &files, compile_db: None, compiler_ids: &compiler_ids };
+    let fragment = frontend.fragment(&cx)?;
+    let mut exports = Vec::new();
+    for unit in &fragment.units {
+        if unit.files.first().map(String::as_str) == Some(rel) {
+            exports.extend(unit.exports.iter().cloned());
+        }
+    }
+    Ok(exports)
 }
 
 /// Per-repo assembly: the only adapter stages ever touch. Holds the selected
@@ -3141,6 +3231,48 @@ pub fn map_loaded_objects_to_units(
     out
 }
 
+/// Create the CMake File API query for the `client-rustsmith` client: a
+/// `codemodel-v2` request written to
+/// `<build>/.cmake/api/v1/query/client-rustsmith/query.json`. CMake answers
+/// at configure time under `.cmake/api/v1/reply/` (see
+/// [`parse_cmake_file_api_reply`]); returns the query path.
+pub fn write_file_api_query(build_dir: &Path) -> Result<PathBuf, String> {
+    let dir = build_dir.join(".cmake/api/v1/query/client-rustsmith");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("query.json");
+    let body = serde_json::json!({"requests": [{"kind": "codemodel", "version": 2}]});
+    let text = serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?;
+    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Resolve the owning File API target for a repo-rel source: exact repo-rel
+/// match over target sources first, then a basename fallback (same file name
+/// in a different directory). The first sorted target wins each pass; `None`
+/// when no target lists the source. Never guesses beyond the basename (no
+/// stem, extension, or fuzzy matching).
+pub fn file_api_target_for_source(targets: &[FileApiTarget], rel: &str) -> Option<String> {
+    let mut exact: Vec<&str> = targets
+        .iter()
+        .filter(|t| t.sources.iter().any(|s| s.path == rel))
+        .map(|t| t.name.as_str())
+        .collect();
+    exact.sort();
+    if let Some(first) = exact.into_iter().next() {
+        return Some(first.to_string());
+    }
+    let base = rel.rsplit('/').next().unwrap_or(rel);
+    let mut fallback: Vec<&str> = targets
+        .iter()
+        .filter(|t| {
+            t.sources.iter().any(|s| s.path.rsplit('/').next().unwrap_or(&s.path) == base)
+        })
+        .map(|t| t.name.as_str())
+        .collect();
+    fallback.sort();
+    fallback.into_iter().next().map(String::from)
+}
+
 // --- Track I: CTest runner ---
 
 /// CTest runner: owns the `ctest` invocation (the `-L quick` subset from the
@@ -3873,13 +4005,37 @@ impl TestRunner for CtestRunner {
         // source-tree cmake files hash, and only whitespace-normalized
         // (line endings, trailing space) so configure noise never perturbs
         // the frozen hash.
-        let is_cmake = rel == "CMakeLists.txt"
+        let is_cmake = Path::new(rel).file_name().and_then(|n| n.to_str()) == Some("CMakeLists.txt")
             || rel.starts_with("CTestTestfile")
             || rel.ends_with(".cmake");
         if !is_cmake {
             return None;
         }
         let text = String::from_utf8_lossy(bytes);
+        // `CMakeLists.txt` (any dir) hashes test-defining lines only
+        // (ADR-002, same rule as pyproject test sections): merges legitimately
+        // rewrite target sources and link lines, so only the test set can
+        // trip tamper.
+        if Path::new(rel).file_name().and_then(|n| n.to_str()) == Some("CMakeLists.txt") {
+            let kept: Vec<&str> = text
+                .lines()
+                .filter(|line| {
+                    let t = line.trim_start().to_ascii_lowercase();
+                    [
+                        "add_test(",
+                        "enable_testing(",
+                        "add_subdirectory(",
+                        "set_tests_properties(",
+                        "set_property(",
+                        "include(ctest",
+                        "ctest_",
+                    ]
+                    .iter()
+                    .any(|prefix| t.starts_with(prefix))
+                })
+                .collect();
+            return Some(kept.join("\n").into_bytes());
+        }
         let normalized =
             text.lines().map(|line| line.trim_end()).collect::<Vec<_>>().join("\n");
         Some(normalized.into_bytes())
@@ -4015,7 +4171,7 @@ fn ctest_test_inventory(repo: &Path) -> Result<TestInventory, AdapterError> {
 /// CMake bridge: `cmake` configure, `cmake --build`, and the link-substitution
 /// flow. The Rust port builds as a staticlib exporting the original linkage
 /// names; `substitute` archives it in place of the unit objects, rebuilds the
-/// affected target, and reruns the unit's test. Only `BIND(C)`-clean units
+/// tree, and reruns the unit's test. Only `BIND(C)`-clean units
 /// substitute one at a time (the gfortran ABI limit from the spike).
 pub struct CmakeBridge;
 
@@ -4024,6 +4180,30 @@ impl CmakeBridge {
     /// happens in the executor at spawn time.
     pub fn cmake_program() -> String {
         "cmake".to_string()
+    }
+
+    /// The one `ld` literal the CMake spine owns (partial-link splice);
+    /// GNU `ld` only, matching the Linux grade image.
+    pub fn ld_program() -> String {
+        "ld".to_string()
+    }
+
+    /// Build a scaffold crate dir into its staticlib archive. The worker and
+    /// the mirror's stub-validation path share this exact invocation; run it
+    /// with the crate dir as the executor tree (`cwd: Tree`). The archive
+    /// lands at `<crate>/target/debug/lib<name>.a` (debug profile:
+    /// validation speed, never a performance claim).
+    pub fn cargo_build() -> Vec<TestCommand> {
+        vec![TestCommand {
+            program: "cargo".to_string(),
+            args: vec!["build".to_string()],
+            cwd: Cwd::Tree,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: Some(600),
+            collect: Vec::new(),
+        }]
     }
 
     /// Build target standing in for `unit`: the file stem of its
@@ -4106,7 +4286,7 @@ impl BuildBridge for CmakeBridge {
 
     fn substitute(
         &self,
-        _cx: &BuildCtx,
+        cx: &BuildCtx,
         unit: &UnitDecl,
         rust_lib: &Path,
     ) -> Result<Vec<TestCommand>, AdapterError> {
@@ -4119,16 +4299,60 @@ impl BuildBridge for CmakeBridge {
         if let Err(why) = Self::check_substitutable(unit) {
             return Err(AdapterError::Parse(format!("substitute: {why}")));
         }
-        // Archive splice, target rebuild, unit-test verify. Ordered, fail-fast.
+        // Archive splice, tree rebuild, unit-test verify. Ordered, fail-fast.
+        // The splice overwrites the unit's BUILT OBJECTS in place
+        // (`CMakeFiles/<target>.dir/<rel>.o`): `ld -r` partial-links the
+        // Rust archive into one relocatable object, so the next build
+        // relinks every consumer (static and shared alike) with no
+        // link-line surgery. The previous `ar`-into-a-side-archive step
+        // linked nothing (fixture proof: pristine code ran, panic stub
+        // never fired) and is deleted. GNU `ld` only; the grade image is
+        // Linux (`gcc:14`).
         let stem = Self::target_for_unit(unit);
-        let archive = format!("lib{stem}_rs.a");
-        Ok(vec![
-            TestCommand {
-                program: "ar".to_string(),
+        let rel = unit.files.first().map(String::as_str).unwrap_or("");
+        if rel.is_empty() {
+            return Err(AdapterError::Parse(format!(
+                "substitute: unit '{}' has no source file",
+                unit.id
+            )));
+        }
+        // Built-object discovery: every `<target>.dir/<rel>.o` under the
+        // build dir (a source shared by several targets ports in all of
+        // them). Zero matches means the target never built: halt, never an
+        // empty splice.
+        let mut objects: Vec<String> = Vec::new();
+        let cmake_files = cx.build_dir.join("CMakeFiles");
+        if cmake_files.is_dir() {
+            let want = format!(".dir/{rel}.o");
+            for entry in walkdir::WalkDir::new(&cmake_files).into_iter().filter_map(Result::ok) {
+                let p = entry.path();
+                if p.is_file()
+                    && p.to_string_lossy().replace('\\', "/").ends_with(want.as_str())
+                {
+                    objects.push(p.to_string_lossy().into_owned());
+                }
+            }
+        }
+        objects.sort();
+        objects.dedup();
+        if objects.is_empty() {
+            return Err(AdapterError::Parse(format!(
+                "substitute: no built object for '{}' under '{}' (target not built?)",
+                unit.id,
+                cx.build_dir.display()
+            )));
+        }
+        let mut cmds = Vec::new();
+        for obj in &objects {
+            cmds.push(TestCommand {
+                program: Self::ld_program(),
                 args: vec![
-                    "rcs".to_string(),
-                    archive,
+                    "-r".to_string(),
+                    "-o".to_string(),
+                    obj.clone(),
+                    "--whole-archive".to_string(),
                     rust_lib.to_string_lossy().into_owned(),
+                    "--no-whole-archive".to_string(),
                 ],
                 cwd: Cwd::BuildDir,
                 env_set: Vec::new(),
@@ -4136,42 +4360,48 @@ impl BuildBridge for CmakeBridge {
                 launcher: None,
                 timeout_secs: Some(600),
                 collect: Vec::new(),
-            },
-            TestCommand {
-                program: Self::cmake_program(),
-                args: vec![
-                    "--build".to_string(),
-                    ".".to_string(),
-                    "--target".to_string(),
-                    stem.clone(),
-                ],
-                cwd: Cwd::BuildDir,
-                env_set: Vec::new(),
-                env_remove: Vec::new(),
-                launcher: None,
-                timeout_secs: Some(3600),
-                collect: Vec::new(),
-            },
-            TestCommand {
-                program: CtestRunner::ctest_program(),
-                args: vec![
-                    "--output-on-failure".to_string(),
-                    "-R".to_string(),
-                    stem,
-                ],
-                cwd: Cwd::BuildDir,
-                env_set: vec![("CTEST_OUTPUT_ON_FAILURE".to_string(), "1".to_string())],
-                env_remove: Vec::new(),
-                launcher: None,
-                timeout_secs: Some(600),
-                collect: vec!["Testing/Temporary/LastTest.log".to_string()],
-            },
-        ])
+            });
+        }
+        cmds.push(TestCommand {
+            program: Self::cmake_program(),
+            // Whole-tree rebuild, not `--target <stem>`: test executables
+            // are separate targets, and only a full build guarantees the
+            // unit's test binary exists for the verify step below.
+            // Per-target rebuild is a later optimization (it needs the
+            // unit -> test-target mapping); `-R <stem>` still limits which
+            // tests RUN.
+            args: vec![
+                "--build".to_string(),
+                ".".to_string(),
+                "--parallel".to_string(),
+            ],
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: Some(3600),
+            collect: Vec::new(),
+        });
+        cmds.push(TestCommand {
+            program: CtestRunner::ctest_program(),
+            args: vec![
+                "--output-on-failure".to_string(),
+                "-R".to_string(),
+                stem,
+            ],
+            cwd: Cwd::BuildDir,
+            env_set: vec![("CTEST_OUTPUT_ON_FAILURE".to_string(), "1".to_string())],
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: Some(600),
+            collect: vec!["Testing/Temporary/LastTest.log".to_string()],
+        });
+        Ok(cmds)
     }
 
     fn scaffold(&self, unit: &UnitDecl) -> Result<Vec<(String, String)>, AdapterError> {
         let stem = Self::target_for_unit(unit);
-        let crate_name = sanitize_crate_name(&stem);
+        let crate_name = scaffold_crate_name(&stem);
         if crate_name.is_empty() {
             return Err(AdapterError::Parse(format!(
                 "scaffold: unit '{}' has no crate name",
@@ -4333,6 +4563,14 @@ fn sanitize_crate_name(s: &str) -> String {
         ident.insert(0, '_');
     }
     ident.trim_end_matches('_').to_string()
+}
+
+/// Scaffold crate identifier for a unit stem: the sanitized name the
+/// `CmakeBridge` scaffold emits as `[package] name` (and hence the built
+/// archive `lib<name>.a`). Shared with the mirror so the worker-contract
+/// archive path and the scaffold agree by construction, never by copy.
+pub fn scaffold_crate_name(stem: &str) -> String {
+    sanitize_crate_name(stem)
 }
 
 // --- Track I: perf profiler ---
@@ -5129,9 +5367,27 @@ mod track_i_tests {
         let mock = mock_tree();
         let cx =
             BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        // `CMakeLists.txt` hashes test-defining lines only (ADR-002): target
+        // sources and link lines never perturb the frozen hash.
         assert_eq!(
-            CtestRunner.normalize_for_hash("CMakeLists.txt", b"a  \r\nb\r\n"),
-            Some(b"a\nb".to_vec())
+            CtestRunner.normalize_for_hash(
+                "CMakeLists.txt",
+                b"add_library(add STATIC src/a.F90)  \r\nadd_test(NAME t COMMAND t)\r\n"
+            ),
+            Some(b"add_test(NAME t COMMAND t)".to_vec())
+        );
+        // A merge (source removal + port link lines) keeps the hash stable;
+        // a changed test registration does not.
+        let before = b"add_library(add STATIC src/mini_add.F90)\nadd_test(NAME mini_add COMMAND mini_check)\n";
+        let after = b"add_library(add STATIC )\n# rustsmith: port of src/mini_add.F90 (merged unit)\ntarget_sources(add PRIVATE rustsmith_empty.c)\ntarget_link_libraries(add PRIVATE /b/rust/libmini_add.a)\nadd_test(NAME mini_add COMMAND mini_check)\n";
+        assert_eq!(
+            CtestRunner.normalize_for_hash("CMakeLists.txt", before),
+            CtestRunner.normalize_for_hash("CMakeLists.txt", after)
+        );
+        let tampered = b"add_library(add STATIC src/mini_add.F90)\nadd_test(NAME renamed COMMAND mini_check)\n";
+        assert_ne!(
+            CtestRunner.normalize_for_hash("CMakeLists.txt", before),
+            CtestRunner.normalize_for_hash("CMakeLists.txt", tampered)
         );
         assert_eq!(CtestRunner.normalize_for_hash("tools/helper.py", b"a"), None);
         let first = CtestRunner.config_hash(&cx).unwrap();
@@ -5192,11 +5448,20 @@ mod track_i_tests {
         };
         let rust_lib = mock.build.join("librs_gen.a");
         std::fs::write(&rust_lib, b"mock archive").unwrap();
+        // Built object the splice overwrites (any target dir qualifies).
+        let obj = mock.build.join("CMakeFiles/gen.dir/src/gen.src.o");
+        write_file(&obj, "mock object");
         let cmds = composite.bridge.substitute(&cx, &bind_c_unit, &rust_lib).unwrap();
         assert_eq!(cmds.len(), 3);
-        assert_eq!(cmds[0].program, "ar");
-        assert!(cmds[0].args.contains(&"libgen_rs.a".to_string()));
-        assert_eq!(cmds[1].args, vec!["--build", ".", "--target", "gen"]);
+        assert_eq!(cmds[0].program, "ld");
+        assert!(cmds[0].args.contains(&"-r".to_string()));
+        assert!(cmds[0].args.contains(&"--whole-archive".to_string()));
+        assert!(
+            cmds[0].args.iter().any(|a| a.ends_with("gen.dir/src/gen.src.o")),
+            "splice must overwrite the built object: {:?}",
+            cmds[0].args
+        );
+        assert_eq!(cmds[1].args, vec!["--build".to_string(), ".".to_string(), "--parallel".to_string()]);
         assert_eq!(cmds[1].cwd, Cwd::BuildDir);
         assert_eq!(cmds[2].program, "ctest");
         assert_eq!(cmds[2].args, vec!["--output-on-failure", "-R", "gen"]);
@@ -5219,6 +5484,18 @@ mod track_i_tests {
             .substitute(&cx, &bind_c_unit, &mock.build.join("missing.a"))
             .unwrap_err();
         assert!(err.to_string().contains("does not exist"));
+        // No built object under the build dir: halt, never an empty splice.
+        let empty_build = tempfile::tempdir().unwrap();
+        let cx_empty = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &empty_build.path(),
+            release: false,
+        };
+        let err = composite
+            .bridge
+            .substitute(&cx_empty, &bind_c_unit, &rust_lib)
+            .unwrap_err();
+        assert!(err.to_string().contains("no built object"), "unexpected: {err}");
     }
 
     #[test]
@@ -5327,6 +5604,154 @@ mod track_i_tests {
                 UnitId("fortran:src/solver.F90".into()),
             ]
         );
+    }
+
+    #[test]
+    fn stems_carry_fragment_language_per_module() {
+        // Mixed-language fragments keep their own prefix per stem (first
+        // unit wins a stem collision, same rule as the rel entry).
+        let units = vec![
+            UnitDecl {
+                id: UnitId("fortran:src/a.F90#alpha_mod".into()),
+                files: vec!["src/a.F90".into()],
+                generated_from: None,
+                exports: vec![Symbol {
+                    linkage: "alpha_mod".into(),
+                    abi: Abi::Fortran { bind_c: false },
+                }],
+                imports: vec![],
+            },
+            UnitDecl {
+                id: UnitId("c:lib/util.c".into()),
+                files: vec!["lib/util.c".into()],
+                generated_from: None,
+                exports: vec![Symbol { linkage: "util".into(), abi: Abi::C }],
+                imports: vec![],
+            },
+        ];
+        let mut diagnostics = Vec::new();
+        let graph = stems_to_call_graph(&units, &HashSet::new(), &mut diagnostics);
+        assert_eq!(
+            graph.module_langs.get("alpha_mod").map(String::as_str),
+            Some("fortran")
+        );
+        assert_eq!(graph.module_langs.get("util").map(String::as_str), Some("c"));
+        assert!(diagnostics.is_empty(), "unexpected: {diagnostics:?}");
+    }
+
+    #[test]
+    fn file_api_query_creates_codemodel_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let query = write_file_api_query(&build).unwrap();
+        assert_eq!(query, build.join(".cmake/api/v1/query/client-rustsmith/query.json"));
+        let body: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&query).unwrap()).unwrap();
+        let requests =
+            body.get("requests").and_then(|r| r.as_array()).expect("requests array");
+        assert!(
+            requests.iter().any(|r| r.get("kind").and_then(|k| k.as_str()) == Some("codemodel")
+                && r.get("version").and_then(|v| v.as_u64()) == Some(2)),
+            "codemodel-v2 request missing: {body}"
+        );
+    }
+
+    #[test]
+    fn file_api_target_for_source_exact_basename_unmapped() {
+        let targets = vec![
+            FileApiTarget {
+                name: "b_lib".into(),
+                sources: vec![FileApiSource {
+                    language: "fortran".into(),
+                    path: "src/a.F90".into(),
+                }],
+            },
+            FileApiTarget {
+                name: "a_lib".into(),
+                sources: vec![
+                    FileApiSource { language: "fortran".into(), path: "src/a.F90".into() },
+                    FileApiSource { language: "c".into(), path: "lib/util.c".into() },
+                ],
+            },
+        ];
+        // Exact repo-rel match: first sorted target wins.
+        assert_eq!(file_api_target_for_source(&targets, "src/a.F90"), Some("a_lib".into()));
+        assert_eq!(file_api_target_for_source(&targets, "lib/util.c"), Some("a_lib".into()));
+        // Basename fallback: same file name under a different directory.
+        assert_eq!(
+            file_api_target_for_source(&targets, "other/dir/util.c"),
+            Some("a_lib".into())
+        );
+        // Unmapped: no exact or basename hit, never a guess (no stem match).
+        assert_eq!(file_api_target_for_source(&targets, "src/missing.F90"), None);
+        assert_eq!(file_api_target_for_source(&targets, "src/a.F91"), None);
+        assert_eq!(file_api_target_for_source(&[], "src/a.F90"), None);
+    }
+
+    #[test]
+    fn stems_carry_module_exports_per_module() {
+        // Mixed-language fragments freeze their own exports per stem (first
+        // unit wins a stem collision, same rule as the lang entry).
+        let units = vec![
+            UnitDecl {
+                id: UnitId("fortran:src/a.F90#alpha_mod".into()),
+                files: vec!["src/a.F90".into()],
+                generated_from: None,
+                exports: vec![
+                    Symbol {
+                        linkage: "alpha_mod".into(),
+                        abi: Abi::Fortran { bind_c: false },
+                    },
+                    Symbol {
+                        linkage: "__alpha_mod_MOD_step".into(),
+                        abi: Abi::Fortran { bind_c: false },
+                    },
+                ],
+                imports: vec![],
+            },
+            UnitDecl {
+                id: UnitId("c:lib/util.c".into()),
+                files: vec!["lib/util.c".into()],
+                generated_from: None,
+                exports: vec![Symbol { linkage: "util".into(), abi: Abi::C }],
+                imports: vec![],
+            },
+        ];
+        let mut diagnostics = Vec::new();
+        let graph = stems_to_call_graph(&units, &HashSet::new(), &mut diagnostics);
+        assert_eq!(
+            graph.module_exports.get("alpha_mod"),
+            Some(&vec![
+                ("alpha_mod".to_string(), false),
+                ("__alpha_mod_MOD_step".to_string(), false)
+            ])
+        );
+        assert_eq!(
+            graph.module_exports.get("util"),
+            Some(&vec![("util".to_string(), true)])
+        );
+        assert!(diagnostics.is_empty(), "unexpected: {diagnostics:?}");
+    }
+
+    #[test]
+    fn fragment_unit_exports_finds_bind_c_linkage() {
+        let dir = tempfile::tempdir().unwrap();
+        let rel = "src/add.F90";
+        let path = dir.path().join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "module mini_mod\n  use iso_c_binding\ncontains\n  function mini_add(a, b) bind(C, name=\"mini_add\") result(c)\n    integer(c_int), value :: a, b\n    integer(c_int) :: c\n    c = a + b\n  end function mini_add\nend module mini_mod\n",
+        )
+        .unwrap();
+        let exports = fragment_unit_exports(dir.path(), rel).unwrap();
+        assert!(
+            exports.iter().any(|e| e.linkage == "mini_add"
+                && matches!(e.abi, Abi::Fortran { bind_c: true })),
+            "BIND(C) linkage missing: {exports:?}"
+        );
+        // Unclaimed extensions fall back to no exports, never an error.
+        assert!(fragment_unit_exports(dir.path(), "notes.md").unwrap().is_empty());
     }
 
     #[test]

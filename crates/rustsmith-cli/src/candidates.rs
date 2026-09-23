@@ -231,6 +231,57 @@ pub fn apply_inline_hint(work: &Path) -> Result<Vec<String>, String> {
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
     Ok(vec!["src/lib.rs".into()])
 }
+/// Tier-9 build-level canonical: whole-program LTO + single codegen unit for
+/// the release profile. Template-agnostic (Cargo.toml only); behavior-neutral
+/// by construction, so any measured delta is pure codegen. Pool authors pair
+/// it with bound `frontend`, the only bound admitting tier 9.
+pub fn apply_release_lto(work: &Path) -> Result<Vec<String>, String> {
+    let path = work.join("Cargo.toml");
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut out: Vec<String> = Vec::new();
+    let mut in_release = false;
+    let mut has_lto = false;
+    let mut has_cgu = false;
+    for line in text.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            // Emit missing keys before leaving a release section that lacks them.
+            if in_release {
+                if !has_lto {
+                    out.push("lto = true".to_string());
+                }
+                if !has_cgu {
+                    out.push("codegen-units = 1".to_string());
+                }
+            }
+            in_release = l == "[profile.release]";
+            has_lto = false;
+            has_cgu = false;
+        } else if in_release {
+            if l.starts_with("lto") {
+                has_lto = true;
+            }
+            if l.starts_with("codegen-units") {
+                has_cgu = true;
+            }
+        }
+        out.push(line.to_string());
+    }
+    if in_release {
+        if !has_lto {
+            out.push("lto = true".to_string());
+        }
+        if !has_cgu {
+            out.push("codegen-units = 1".to_string());
+        }
+    } else {
+        out.push("[profile.release]".to_string());
+        out.push("lto = true".to_string());
+        out.push("codegen-units = 1".to_string());
+    }
+    std::fs::write(&path, out.join("\n") + "\n").map_err(|e| e.to_string())?;
+    Ok(vec!["Cargo.toml".into()])
+}
 
 /// Plant 19: fixture-identity cache (correct answers, uneven speed).
 /// Serves visible fixed input from cache; anything else computes (miss).
@@ -361,22 +412,31 @@ mod tests {
     use super::*;
 
     fn template_under_test() -> std::path::PathBuf {
-        // Templates under mirror/ are data; the conformance tree belongs to
-        // whichever template the slice-8 transform applies to (identified by
-        // the technique's own domain marker, never a package name).
+        // Templates under mirror/ are data; the conformance tree is the
+        // first package (sorted) whose template the slice-8 transform
+        // applies to: maturin spine marker plus the technique's domain
+        // marker in `src/lib.rs`. CMake templates and unrelated ports are
+        // skipped; no package is named.
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let mut pkgs = crate::repo_content::packages();
         pkgs.sort();
-        for pkg in pkgs {
-            let tpl = root.join("../../mirror").join(&pkg);
-            if std::fs::read_to_string(tpl.join("src/lib.rs"))
-                .map(|text| text.contains("TableBasedRegister"))
-                .unwrap_or(false)
-            {
-                return tpl;
-            }
-        }
-        panic!("no template carries the slice-8 transform anchors");
+        let found = pkgs
+            .into_iter()
+            .find(|p| {
+                let dir = root.join("../../mirror").join(p);
+                let maturin = std::fs::read_to_string(dir.join("template.json"))
+                    .ok()
+                    .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                    .and_then(|v| v["extension_module"].as_str().map(str::to_string))
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false);
+                maturin
+                    && std::fs::read_to_string(dir.join("src/lib.rs"))
+                        .map(|text| text.contains("TableBasedRegister"))
+                        .unwrap_or(false)
+            })
+            .expect("no template carries the slice-8 transform anchors");
+        root.join("../../mirror").join(found)
     }
 
     fn copy_template_files(tpl: &std::path::Path, dst: &std::path::Path) {
@@ -406,6 +466,41 @@ mod tests {
                 assert_eq!(text.matches(needle).count(), 1, "anchor drift: {needle:?}");
             }
         }
+    }
+
+    #[test]
+    fn release_lto_adds_profile_section() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"pkg\"\n",
+        )
+        .unwrap();
+        let files = apply_release_lto(dir.path()).unwrap();
+        assert_eq!(files, vec!["Cargo.toml".to_string()]);
+        let out = std::fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
+        assert!(out.contains("[profile.release]"), "section missing:\n{out}");
+        assert!(out.contains("lto = true"), "lto missing:\n{out}");
+        assert!(out.contains("codegen-units = 1"), "cgu missing:\n{out}");
+        // Idempotent: second application changes nothing.
+        apply_release_lto(dir.path()).unwrap();
+        let out2 = std::fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
+        assert_eq!(out, out2, "not idempotent:\n{out2}");
+    }
+
+    #[test]
+    fn release_lto_preserves_existing_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"pkg\"\n[profile.release]\nopt-level = 3\n",
+        )
+        .unwrap();
+        apply_release_lto(dir.path()).unwrap();
+        let out = std::fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
+        assert!(out.contains("opt-level = 3"), "existing key lost:\n{out}");
+        assert!(out.contains("lto = true"), "lto missing:\n{out}");
+        assert_eq!(out.matches("lto = true").count(), 1, "duplicated:\n{out}");
     }
 
     #[test]

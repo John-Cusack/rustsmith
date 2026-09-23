@@ -17,8 +17,8 @@ use rustsmith_adapters::{
     dag_from_call_graph, select_composite, Adapter, Attribution, CompositeAdapter, DepClass,
     ProbeReport, UnitDag, UNCLAIMED_HALT_THRESHOLD,
 };
-use rustsmith_core::{BuildCtx, FileHash, Manifest, ObservableSpec, Workload};
-use rustsmith_oracle::{sha256_hex, Oracle};
+use rustsmith_core::{Baseline, BuildCtx, Cwd, FileHash, Manifest, ObservableSpec, TestCommand, Workload};
+use rustsmith_oracle::{execute_all, sha256_hex, Oracle};
 use rustsmith_profile::{capture_hotspot_baseline, WorkloadContract};
 use std::path::Path;
 #[allow(dead_code)]
@@ -122,7 +122,20 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     // 8. Manifest v2 freeze (baseline comes from runner.grade outcomes inside
     // the freeze; the old collect-only counter and its parser are deleted).
     let observables = probe_observables();
-    let manifest = frozen_manifest_with_benchmarks(&cx, &composite, &observables)?;
+    let mut manifest = frozen_manifest_with_benchmarks(&cx, &composite, &observables)?;
+    // 8b. CTest spine: configure-only recon build for a discovered baseline.
+    // `ctest -N` lists tests without building or running them; the executed
+    // freeze above always sees zero (unbuilt tree). Configure failure
+    // degrades to that empty baseline, never a recon halt: the toolchain may
+    // be absent while source analysis still completes.
+    if !python_spine && composite.runner_id() == rustsmith_adapters::CtestRunner::RUNNER_ID {
+        if let Some(build_dir) = out.parent().map(|p| p.join("recon-build")) {
+            if let Ok((baseline, prepare)) = discover_ctest_baseline(repo, &build_dir, &composite) {
+                manifest.baseline = baseline;
+                manifest.prepare = prepare;
+            }
+        }
+    }
     std::fs::write(
         out.join("manifest.json"),
         serde_json::to_string_pretty(&manifest).unwrap(),
@@ -192,28 +205,58 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
         assert!(acyclic.verify_order(&order), "forgiving DAG order must verify");
         (acyclic, order)
     };
+    // Fallback language for stems the graph carries no language for (cannot
+    // happen on either spine, but frozen ids must always be well-formed).
     let unit_lang = composite
         .languages()
         .first()
         .cloned()
         .unwrap_or_else(|| build.language.clone());
+    // Unit language comes from the fragment unit the stem came from
+    // (`module_langs`); the composite-first language is only a fallback.
+    // Single-language trees map every stem to the fallback, so Python-spine
+    // output is byte-identical.
     let unit_of = |stem: &str| -> String {
         match graph.modules.get(stem) {
-            Some(rel) => format!("{unit_lang}:{rel}"),
+            Some(rel) => {
+                let lang = graph
+                    .module_langs
+                    .get(stem)
+                    .map(String::as_str)
+                    .unwrap_or(unit_lang.as_str());
+                format!("{lang}:{rel}")
+            }
             None => stem.to_string(),
         }
     };
-    let mut dag_units: Vec<(String, String, Vec<String>)> = dag
+    let mut dag_units: Vec<(String, String, Vec<String>, Vec<serde_json::Value>)> = dag
         .units
         .iter()
         .map(|u| {
             let mut deps: Vec<String> = u.depends_on.iter().map(|d| unit_of(d)).collect();
             deps.sort();
             deps.dedup();
-            (unit_of(&u.id), u.module.clone(), deps)
+            // Frozen exports (non-Python spine only, additive): linkage plus
+            // the BIND(C) flag per stem, for ABI auditing and the coming
+            // file-granularity coarsening. Grade-time decls still re-derive
+            // the same data live; Python output stays byte-identical.
+            let exports: Vec<serde_json::Value> = if python_spine {
+                Vec::new()
+            } else {
+                graph
+                    .module_exports
+                    .get(&u.module)
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|(linkage, bind_c)| {
+                        serde_json::json!({"linkage": linkage, "bind_c": bind_c})
+                    })
+                    .collect()
+            };
+            (unit_of(&u.id), u.module.clone(), deps, exports)
         })
         .collect();
-    dag_units.sort_by(|a, b| a.0.cmp(&b.0));
     let mut dag_edges: Vec<(String, String)> = dag
         .edges
         .iter()
@@ -222,10 +265,21 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
     dag_edges.sort();
     dag_edges.dedup();
     let dag_order: Vec<String> = order.iter().map(|s| unit_of(s)).collect();
+    // CONTRACT (FileApiSlice): `CallGraph.module_exports` frozen as an
+    // ADDITIVE per-unit `"exports": [{"linkage": ..., "bind_c": ...}]` key
+    // (non-Python spine only; Python output byte-identical). Looked up by
+    // the `module` audit stem; each stem's vec is already deterministic.
+    // No other frozen-shape change; every other byte stays identical.
     std::fs::write(
         out.join("dag.json"),
         serde_json::to_string_pretty(&serde_json::json!({
-            "units": dag_units.iter().map(|(id, module, depends_on)| serde_json::json!({"id": id, "module": module, "depends_on": depends_on})).collect::<Vec<_>>(),
+            "units": dag_units.iter().map(|(id, module, depends_on, exports)| {
+                let mut o = serde_json::json!({"id": id, "module": module, "depends_on": depends_on});
+                if !python_spine {
+                    o["exports"] = serde_json::Value::Array(exports.clone());
+                }
+                o
+            }).collect::<Vec<_>>(),
             "edges": dag_edges,
             "leaf_first_order": dag_order,
         }))
@@ -534,6 +588,86 @@ fn probe_facts(
 }
 
 
+/// Configure-only CTest baseline discovery: configure `repo` out-of-source
+/// into `build_dir` (wiped first for determinism), then `ctest -N` lists
+/// tests without building or running them. Returns the discovered baseline
+/// plus the executed prepare commands (audit truth for the manifest).
+/// Any failure (missing toolchain, configure error, unparsable listing)
+/// is an `Err` the caller degrades from, never a halt.
+fn discover_ctest_baseline(
+    repo: &Path,
+    build_dir: &Path,
+    composite: &CompositeAdapter,
+) -> Result<(Baseline, Vec<TestCommand>), String> {
+    if build_dir.exists() {
+        std::fs::remove_dir_all(build_dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::create_dir_all(build_dir).map_err(|e| e.to_string())?;
+    let cx = BuildCtx { tree: repo, build_dir, release: false };
+    let prepare = composite.bridge.prepare(&cx);
+    let runs = execute_all(repo, build_dir, &prepare).map_err(|e| e.to_string())?;
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err("ctest recon configure failed".to_string());
+    }
+    let list = TestCommand {
+        program: rustsmith_adapters::CtestRunner::ctest_program(),
+        args: ctest_list_args(&composite.runner.invocation(&cx)),
+        cwd: Cwd::BuildDir,
+        env_set: Vec::new(),
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: Some(300),
+        collect: Vec::new(),
+    };
+    let runs = execute_all(repo, build_dir, &[list]).map_err(|e| e.to_string())?;
+    let run = runs.first().ok_or("ctest -N produced no output")?;
+    if run.exit_code != 0 {
+        return Err("ctest -N failed".to_string());
+    }
+    let text = format!("{}\n{}", run.stdout, run.stderr);
+    let count = parse_ctest_total(&text).ok_or("ctest -N listing unparsable")?;
+    Ok((
+        Baseline {
+            test_count: count,
+            skipped: Vec::new(),
+            xfailed: Vec::new(),
+            deselected: Vec::new(),
+        },
+        prepare,
+    ))
+}
+
+/// `Total Tests: N` from `ctest -N` output (list mode never runs tests).
+fn parse_ctest_total(text: &str) -> Option<u32> {
+    text.lines().filter_map(|line| {
+        line.trim()
+            .strip_prefix("Total Tests:")
+            .and_then(|n| n.trim().parse::<u32>().ok())
+    }).next()
+}
+
+/// `ctest -N` args scoping the listing to the graded subset: the runner's
+/// own `-L <label>` selection when its invocation carries one, else the
+/// whole suite. The frozen baseline must count exactly what grading runs,
+/// or every grade trips `count_mismatch` against a differently-sized
+/// denominator (1100 total vs 482 `quick` on Elmer).
+fn ctest_list_args(invocation: &[TestCommand]) -> Vec<String> {
+    let mut args = vec!["-N".to_string()];
+    if let Some(cmd) = invocation.first() {
+        let mut it = cmd.args.iter();
+        while let Some(a) = it.next() {
+            if a == "-L" {
+                if let Some(v) = it.next() {
+                    args.push("-L".to_string());
+                    args.push(v.clone());
+                }
+                break;
+            }
+        }
+    }
+    args
+}
+
 fn frozen_manifest_with_benchmarks(
     cx: &BuildCtx,
     composite: &CompositeAdapter,
@@ -837,6 +971,7 @@ mod recon_regression_tests {
         let package = "no-such-package-for-fallback-probe";
         assert!(crate::repo_content::entry(package).is_err());
         let empty = crate::repo_content::entry_or_empty(package);
+
         assert_eq!(empty["hotspot_descriptors"], serde_json::json!([]));
         // Workload contract degrades to empty strings via `unwrap_or("")`.
         let wc = &empty["workload_contract"];
@@ -851,6 +986,46 @@ mod recon_regression_tests {
         assert!(crate::porting::porting_rules_for(package).is_err());
         assert!(crate::porting::porting_rules_for(package).unwrap_or_default().is_empty());
     }
+    #[test]
+    fn ctest_list_args_mirrors_invocation_labels() {
+        use rustsmith_core::Cwd;
+        let labeled = vec![TestCommand {
+            program: "ctest".to_string(),
+            args: vec!["--output-on-failure".to_string(), "-L".to_string(), "quick".to_string()],
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        }];
+        assert_eq!(
+            ctest_list_args(&labeled),
+            vec!["-N".to_string(), "-L".to_string(), "quick".to_string()]
+        );
+        let plain = vec![TestCommand {
+            program: "ctest".to_string(),
+            args: vec!["--output-on-failure".to_string()],
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        }];
+        assert_eq!(ctest_list_args(&plain), vec!["-N".to_string()]);
+        let empty: Vec<TestCommand> = Vec::new();
+        assert_eq!(ctest_list_args(&empty), vec!["-N".to_string()]);
+    }
+    #[test]
+    fn ctest_total_parses_list_mode_output() {
+        let out = "Test project /b\n  Test #1: mini_add\n\nTotal Tests: 1\n";
+        assert_eq!(parse_ctest_total(out), Some(1));
+        assert_eq!(parse_ctest_total("Total Tests: 42\n"), Some(42));
+        assert_eq!(parse_ctest_total("No tests were found!!!\n"), None);
+        assert_eq!(parse_ctest_total(""), None);
+    }
+
 
     /// Forgiving order breaks cycles deterministically for large compiled
     /// trees while the strict order (Python spine) still refuses them.
