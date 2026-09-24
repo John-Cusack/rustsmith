@@ -1,11 +1,14 @@
 [package]
 name = "rustsmith-report"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Run-report builders and emitters for rustsmith"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-rustsmith-store = { path = "../rustsmith-store" }
-rustsmith-harvest = { path = "../rustsmith-harvest" }
+rustsmith-store = { version = "0.1.0", path = "../rustsmith-store" }
+rustsmith-harvest = { version = "0.1.0", path = "../rustsmith-harvest" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

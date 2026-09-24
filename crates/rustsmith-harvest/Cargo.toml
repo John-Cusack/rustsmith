@@ -1,11 +1,14 @@
 [package]
 name = "rustsmith-harvest"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Optimization harvest: merged speedups into shippable suggestions"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-rustsmith-store = { path = "../rustsmith-store" }
-rustsmith-gates = { path = "../rustsmith-gates" }
+rustsmith-store = { version = "0.1.0", path = "../rustsmith-store" }
+rustsmith-gates = { version = "0.1.0", path = "../rustsmith-gates" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

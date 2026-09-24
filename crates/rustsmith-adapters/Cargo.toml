@@ -1,11 +1,14 @@
 [package]
 name = "rustsmith-adapters"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Per-language frontends and composite build/test spine for rustsmith"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-rustsmith-core = { path = "../rustsmith-core" }
-rustsmith-profile = { path = "../rustsmith-profile" }
+rustsmith-core = { version = "0.1.0", path = "../rustsmith-core" }
+rustsmith-profile = { version = "0.1.0", path = "../rustsmith-profile" }
 thiserror = { workspace = true }
 serde_json = { workspace = true }
 walkdir = { workspace = true }
