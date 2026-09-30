@@ -1,6 +1,7 @@
 use camino::Utf8PathBuf;
 use rustsmith_core::{
     AdapterError, Cwd, GradedResult, ImageSpec, Manifest, RunOutput, TestCommand, TestRunner,
+    record_line,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -51,6 +52,14 @@ impl Sandbox {
             text.push_str(&format!(
                 "RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*\n",
                 spec.packages.join(" ")
+            ));
+        }
+        if !spec.pip_packages.is_empty() {
+            let reqs: Vec<String> =
+                spec.pip_packages.iter().map(|r| format!("\"{r}\"")).collect();
+            text.push_str(&format!(
+                "RUN pip install --no-cache-dir {} && rm -rf /root/.cache\n",
+                reqs.join(" ")
             ));
         }
         std::fs::write(&dockerfile, text)?;
@@ -128,6 +137,7 @@ fn image_tag(spec: &ImageSpec) -> String {
     for b in spec
         .packages
         .iter()
+        .chain(spec.pip_packages.iter())
         .chain(spec.writable.iter())
         .flat_map(|s| s.bytes())
     {
@@ -249,8 +259,8 @@ fn docker_grading_run(
         runs.push(RunOutput {
             exit_code: code,
             stdout: format!(
-                "$ {}\n{}",
-                requested_argv(cmd).join(" "),
+                "{}{}",
+                record_line(&requested_argv(cmd)),
                 String::from_utf8_lossy(&out.stdout)
             ),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -411,7 +421,7 @@ fn execute_one(
     // The `$` invocation line is recorded here (absolute program) because
     // `grade(&[RunOutput])` never sees the commands; the runner parses what
     // follows and appends stderr itself.
-    let mut stdout = format!("$ {}\n", argv.join(" "));
+    let mut stdout = record_line(&argv);
     stdout.push_str(&String::from_utf8_lossy(&so));
     Ok(RunOutput {
         exit_code,
@@ -862,6 +872,7 @@ mod polyglot_regression_tests {
         ImageSpec {
             base: "scratch".to_string(),
             packages: Vec::new(),
+            pip_packages: Vec::new(),
             writable: Vec::new(),
         }
     }

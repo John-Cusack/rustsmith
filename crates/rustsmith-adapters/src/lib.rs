@@ -903,13 +903,14 @@ pub struct LinkDep {
     pub path: Option<String>,
 }
 
-/// Grading image requirements: base image, extra packages, and tree paths
-/// that must be mounted writable (CTest writes `Testing/` into the build tree;
-/// pytest needs none).
+/// Grading image requirements: base image, extra system (apt) packages,
+/// extra pip requirements, and tree paths that must be mounted writable
+/// (CTest writes `Testing/` into the build tree; pytest needs none).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageSpec {
     pub base: String,
     pub packages: Vec<String>,
+    pub pip_packages: Vec<String>,
     pub writable: Vec<String>,
 }
 
@@ -1097,6 +1098,13 @@ impl PytestRunner {
     /// absolute resolution happens in the executor at spawn time.
     pub fn python_program() -> String {
         "python3".to_string()
+    }
+
+    /// pip requirement the grading image installs. pytest is not a Debian
+    /// package name (and the image's interpreter is not Debian's), so it
+    /// goes through pip, pinned to the SPEC floor.
+    pub fn pip_requirement() -> String {
+        "pytest>=7.2".to_string()
     }
 
     /// Suite argv groups, mirroring the split invocation (`pytest test/unit`
@@ -1577,10 +1585,13 @@ impl Profiler for PyProfiler {
 
     fn timed(&self, w: &Workload) -> TestCommand {
         // Mirrors the profile crate's timing harness shape: setup once, then
-        // `iters` stmt repetitions bracketed by perf_counter; the core reads
-        // the printed elapsed seconds and measures CPU via wait4 rusage.
+        // `iters` stmt repetitions bracketed by perf_counter + process_time;
+        // the core reads the printed elapsed and loop-only CPU seconds.
+        // Loop-only CPU keeps interpreter startup, imports and setup out of
+        // the measurement (wait4 minus a bare-interpreter baseline cannot:
+        // their jitter dwarfs a ms-scale loop). wait4 still supplies RSS.
         let harness = format!(
-            "import time\n{setup}\n_t0 = time.perf_counter()\nfor _ in range({iters}):\n    {stmt}\n_t1 = time.perf_counter()\nprint(f\"elapsed={{_t1 - _t0:.6f}}\")",
+            "import time\n{setup}\n_c0 = time.process_time()\n_t0 = time.perf_counter()\nfor _ in range({iters}):\n    {stmt}\n_t1 = time.perf_counter()\n_c1 = time.process_time()\nprint(f\"elapsed={{_t1 - _t0:.9f}}\")\nprint(f\"cpu={{_c1 - _c0:.9f}}\")",
             setup = w.setup,
             iters = w.iters,
             stmt = w.stmt,
@@ -1924,9 +1935,9 @@ impl CompositeAdapter {
     }
 
     pub fn image(&self) -> ImageSpec {
-        // Union of frontend + spine toolchain requirements. The package set is
-        // derived from the runner id so no pytest literal lives in composite
-        // code; no writable mounts on the pytest spine (pytest never writes
+        // Union of frontend + spine toolchain requirements. The pip
+        // requirement comes from the runner so no pytest literal lives in
+        // composite code; no writable mounts on the pytest spine (pytest never writes
         // into the tree). The CTest spine writes `Testing/` into the build
         // tree, so the build dir mounts writable (Track I).
         if self.runner_id() == CtestRunner::RUNNER_ID {
@@ -1937,12 +1948,14 @@ impl CompositeAdapter {
                     "gfortran".to_string(),
                     "openmpi-bin".to_string(),
                 ],
+                pip_packages: Vec::new(),
                 writable: vec!["build".to_string()],
             };
         }
         ImageSpec {
             base: "python:3.11-slim".to_string(),
-            packages: vec![self.runner_id()],
+            packages: Vec::new(),
+            pip_packages: vec![PytestRunner::pip_requirement()],
             writable: Vec::new(),
         }
     }

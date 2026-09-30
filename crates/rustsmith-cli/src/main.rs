@@ -259,6 +259,7 @@ fn image_for_repo(repo: &std::path::Path) -> Result<rustsmith_core::ImageSpec, S
     Ok(rustsmith_core::ImageSpec {
         base: spec.base,
         packages: spec.packages,
+        pip_packages: spec.pip_packages,
         writable: spec.writable,
     })
 }

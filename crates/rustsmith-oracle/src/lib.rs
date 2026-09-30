@@ -11,7 +11,7 @@
 use camino::Utf8PathBuf;
 use rustsmith_core::{
     AdapterError, Baseline, BuildCtx, Cwd, FileHash, GradedResult, HaltReason, Manifest,
-    Observation, RunOutput, TestCommand, TestRunner, MANIFEST_VERSION,
+    Observation, RunOutput, TestCommand, TestRunner, MANIFEST_VERSION, record_line,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -350,7 +350,7 @@ pub fn execute_one(
     // The `$` invocation line is recorded here (absolute program) because
     // `grade(&[RunOutput])` never sees the commands; the runner parses what
     // follows and appends stderr itself.
-    let mut stdout = format!("$ {}\n", argv.join(" "));
+    let mut stdout = record_line(&argv);
     stdout.push_str(&String::from_utf8_lossy(&so));
     Ok(RunOutput {
         exit_code,

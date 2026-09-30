@@ -298,8 +298,9 @@ fn startup_cpu(python: &Path, root: &Path) -> Result<f64, String> {
     Ok(s.user_secs + s.sys_secs)
 }
 /// One profiler sample: (cpu_per_op, wall_per_op, rss_kb).
-/// CPU is parent-measured `wait4` time minus startup; wall is the harness's
-/// in-process elapsed (both startup-free); RSS is the kernel peak.
+/// CPU is the harness's in-process loop CPU when it reports one (`cpu=`);
+/// otherwise parent-measured `wait4` time minus startup. Wall is the
+/// harness's in-process elapsed (both startup-free); RSS is the kernel peak.
 fn timed_sample(
     profiler: &PyProfiler,
     w: &rustsmith_core::Workload,
@@ -312,20 +313,22 @@ fn timed_sample(
         return Err(format!("timed harness failed: {}", s.stdout.trim()));
     }
     let wall_total = parse_elapsed(&s.stdout)?;
-    let cpu = (s.user_secs + s.sys_secs - startup).max(0.0) / w.iters as f64;
+    let cpu_total = parse_prefixed(&s.stdout, "cpu=")
+        .unwrap_or_else(|| (s.user_secs + s.sys_secs - startup).max(0.0));
+    let cpu = cpu_total / w.iters as f64;
     Ok((cpu, wall_total / w.iters as f64, s.maxrss_kb))
 }
 /// Parse the profiler harness's `elapsed=<secs>` line.
 fn parse_elapsed(stdout: &str) -> Result<f64, String> {
-    for line in stdout.lines() {
-        let t = line.trim();
-        if let Some(v) = t.strip_prefix("elapsed=") {
-            if let Ok(f) = v.trim().parse::<f64>() {
-                return Ok(f);
-            }
-        }
-    }
-    Err(format!("timed harness printed no elapsed line: {stdout:?}"))
+    parse_prefixed(stdout, "elapsed=")
+        .ok_or_else(|| format!("timed harness printed no elapsed line: {stdout:?}"))
+}
+/// First `<prefix><float>` line in the harness output.
+fn parse_prefixed(stdout: &str, prefix: &str) -> Option<f64> {
+    stdout
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix(prefix))
+        .find_map(|v| v.trim().parse::<f64>().ok())
 }
 /// Parent-measured execution of a profiler `timed` command via `wait4(2)`:
 /// precise per-child CPU + peak RSS without perf/valgrind (ADR-003).
@@ -1099,6 +1102,8 @@ pub fn run_round0_apply(
     let cand_dir = work.join(".cand-r0-manual-hex");
     let _ = std::fs::remove_dir_all(&cand_dir);
     std::fs::create_dir_all(&cand_dir).map_err(|e| e.to_string())?;
+    // Same base as a Round-1 candidate: the fork tree minus scratch/venvs.
+    copy_filtered(work, &cand_dir)?;
     git(&cand_dir, &["init", "-q"])?;
     git(&cand_dir, &["config", "user.email", "t@t"])?;
     git(&cand_dir, &["config", "user.name", "t"])?;
