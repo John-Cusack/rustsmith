@@ -436,6 +436,24 @@ mod tests {
     }
 
     #[test]
+    fn core_lib_falls_back_to_single_file_layout() {
+        // Split template: core path wins.
+        let split = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(split.path().join("crc-core/src")).unwrap();
+        std::fs::write(split.path().join("crc-core/src/lib.rs"), "core").unwrap();
+        let (p, sib) = core_lib(split.path());
+        assert_eq!(p, split.path().join("crc-core/src/lib.rs"));
+        assert_eq!(sib, "crc-core/src/");
+        // Legacy single-file template (e.g. strsimpy): unchanged behavior.
+        let legacy = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(legacy.path().join("src")).unwrap();
+        std::fs::write(legacy.path().join("src/lib.rs"), "legacy").unwrap();
+        let (p, sib) = core_lib(legacy.path());
+        assert_eq!(p, legacy.path().join("src/lib.rs"));
+        assert_eq!(sib, "src/");
+    }
+
+    #[test]
     fn slice_patch_applies_and_compiles_shape() {
         let dir = tempfile::tempdir().unwrap();
         copy_template_files(&template_under_test(), dir.path());
