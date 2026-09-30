@@ -1350,7 +1350,9 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         .unwrap_or_else(|| {
             opt_rep["stop"].as_str().unwrap_or("unknown").to_string()
         });
-    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop, &attribution, &license)
+    let delivered: Option<rustsmith_report::DeliveredArtifact> =
+        serde_json::from_value(opt_rep["accepted"].clone()).unwrap_or(None);
+    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop, &attribution, &license, delivered)
         .map_err(|e| e.to_string())?;
     write_gated(&fork.join("RUSTSMITH_REPORT.md"), &rustsmith_report::emit_md(&rep), &attribution)?;
     write_gated(&fork.join("rustsmith-report.json"), &rustsmith_report::emit_json(&rep), &attribution)?;

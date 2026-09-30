@@ -6,6 +6,8 @@
     ["Cargo.toml", "Cargo.toml"],
     ["pyproject.toml", "pyproject.toml"],
     ["src/lib.rs", "src/lib.rs"],
+    ["crc-core/Cargo.toml", "crc-core/Cargo.toml"],
+    ["crc-core/src/lib.rs", "crc-core/src/lib.rs"],
     ["crc/__init__.py", "crc/__init__.py"]
   ],
   "extra_files": {

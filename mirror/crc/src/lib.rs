@@ -1,196 +1,18 @@
 //! Stage-1 Rust mirror of `Nicoretti/crc` (pure-Python CRC library).
 //!
-//! Behavior-identical port per `PORTING.md`: same module boundary (`crc._crc`),
-//! same public names, same vectors. No redesign: byte-at-a-time table lookup
-//! ships (slice-by-8 is a Stage-2/M6 candidate, not here).
+//! Thin PyO3 binding over `crc_core`: same module boundary (`crc._crc`),
+//! same public names, same vectors. All algorithms live in the core crate;
+//! this file only converts between Python objects and core types.
 //!
 //! License: BSD-2-Clause (preserved from the original; see NOTICE).
 
+use crc_core::{
+    BitRegister, Config, Crc, TableRegister, create_table, crc16_members,
+    crc32_members, crc64_members, crc8_members, format_value, reflect_byte, render_template,
+};
 use pyo3::exceptions::{PyIndexError, PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
-
-// ---------------------------------------------------------------------------
-// Pure-Rust core (no Python API): deterministic, miri-testable.
-// ---------------------------------------------------------------------------
-
-/// Width mask: low `width` bits set. Width is always 8..=64 on this fixture.
-fn mask(width: u8) -> u64 {
-    if width >= 64 {
-        u64::MAX
-    } else {
-        (1u64 << width) - 1
-    }
-}
-
-fn reflect_byte(b: u8) -> u8 {
-    b.reverse_bits()
-}
-
-/// Bit-reversal of the low `width` bits.
-fn reflect_val(mut v: u64, width: u8) -> u64 {
-    let mut out = 0u64;
-    for _ in 0..width {
-        out = (out << 1) | (v & 1);
-        v >>= 1;
-    }
-    out
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Config {
-    width: u8,
-    poly: u64,
-    init: u64,
-    xorout: u64,
-    refin: bool,
-    refout: bool,
-}
-
-fn topbit(cfg: &Config) -> u64 {
-    1u64 << (cfg.width - 1)
-}
-
-fn bitmask(cfg: &Config) -> u64 {
-    mask(cfg.width)
-}
-
-/// Bit-by-bit update of one byte (refin already applied by the caller).
-fn process_byte_bit(mut reg: u64, cfg: &Config, byte: u8) -> u64 {
-    let m = bitmask(cfg);
-    reg ^= (byte as u64) << (cfg.width - 8);
-    reg &= m;
-    for _ in 0..8 {
-        if reg & topbit(cfg) != 0 {
-            reg = ((reg << 1) ^ cfg.poly) & m;
-        } else {
-            reg = (reg << 1) & m;
-        }
-    }
-    reg
-}
-
-/// Table update of one byte (refin already applied by the caller).
-fn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {
-    let m = bitmask(cfg);
-    let index = (byte ^ ((reg >> (cfg.width - 8)) as u8)) as usize;
-    reg = (table[index] ^ (reg << 8)) & m;
-    reg
-}
-
-fn update_bit(reg: u64, cfg: &Config, data: &[u8]) -> u64 {
-    let mut r = reg;
-    for &b in data {
-        let byte = if cfg.refin { reflect_byte(b) } else { b };
-        r = process_byte_bit(r, cfg, byte);
-    }
-    r
-}
-
-fn update_table(reg: u64, cfg: &Config, table: &[u64; 256], data: &[u8]) -> u64 {
-    let mut r = reg;
-    for &b in data {
-        let byte = if cfg.refin { reflect_byte(b) } else { b };
-        r = process_byte_table(r, cfg, table, byte);
-    }
-    r
-}
-
-fn digest_of(reg: u64, cfg: &Config) -> u64 {
-    let v = if cfg.refout {
-        reflect_val(reg, cfg.width)
-    } else {
-        reg
-    };
-    (v ^ cfg.xorout) & bitmask(cfg)
-}
-
-fn reverse_of(reg: u64, cfg: &Config) -> u64 {
-    // Byte-wise reversal of the width/8 bytes, mirroring BasicRegister.reverse.
-    let nbytes = (cfg.width / 8) as usize;
-    let mut out = 0u64;
-    for index in 0..nbytes {
-        let byte = ((reg >> (index * 8)) & 0xFF) as u8;
-        out |= (reflect_byte(byte) as u64) << ((nbytes - 1 - index) * 8);
-    }
-    out & bitmask(cfg)
-}
-
-fn create_table(width: u8, poly: u64) -> [u64; 256] {
-    // Python builds tables from `Configuration(width, polynomial)` DEFAULTS
-    // (init 0, xorout 0, no reflection) regardless of the register's config.
-    let cfg = Config {
-        width,
-        poly,
-        init: 0,
-        xorout: 0,
-        refin: false,
-        refout: false,
-    };
-    let mut t = [0u64; 256];
-    for (i, slot) in t.iter_mut().enumerate() {
-        let reg = update_bit(cfg.init & bitmask(&cfg), &cfg, &[i as u8]);
-        *slot = digest_of(reg, &cfg);
-    }
-    t
-}
-/// `0x{:0NdX}` with `N = (width+3)//4`, matching `_generate_template`.
-fn render_template(width: u64) -> String {
-    let digits = width.div_ceil(4) as usize;
-    format!("0x{{:0{digits}X}}")
-}
-fn format_value(template_digits: usize, v: u64) -> String {
-    format!("0x{v:0width$X}", width = template_digits)
-}
-// ---------------------------------------------------------------------------
-
-fn crc8_members() -> Vec<(&'static str, Config)> {
-    vec![
-        ("CCITT", Config { width: 8, poly: 0x07, init: 0x00, xorout: 0x00, refin: false, refout: false }),
-        ("SAEJ1850", Config { width: 8, poly: 0x1D, init: 0xFF, xorout: 0xFF, refin: false, refout: false }),
-        ("SAEJ1850_ZERO", Config { width: 8, poly: 0x1D, init: 0x00, xorout: 0x00, refin: false, refout: false }),
-        ("AUTOSAR", Config { width: 8, poly: 0x2F, init: 0xFF, xorout: 0xFF, refin: false, refout: false }),
-        ("BLUETOOTH", Config { width: 8, poly: 0xA7, init: 0x00, xorout: 0x00, refin: true, refout: true }),
-        ("MAXIM_DOW", Config { width: 8, poly: 0x31, init: 0, xorout: 0, refin: true, refout: true }),
-        ("ITU", Config { width: 8, poly: 0x07, init: 0x00, xorout: 0x55, refin: false, refout: false }),
-        ("ROHC", Config { width: 8, poly: 0x07, init: 0xFF, xorout: 0x00, refin: true, refout: true }),
-    ]
-}
-
-fn crc16_members() -> Vec<(&'static str, Config)> {
-    vec![
-        ("XMODEM", Config { width: 16, poly: 0x1021, init: 0x0000, xorout: 0x0000, refin: false, refout: false }),
-        ("GSM", Config { width: 16, poly: 0x1021, init: 0x0000, xorout: 0xFFFF, refin: false, refout: false }),
-        ("PROFIBUS", Config { width: 16, poly: 0x1DCF, init: 0xFFFF, xorout: 0xFFFF, refin: false, refout: false }),
-        ("MODBUS", Config { width: 16, poly: 0x8005, init: 0xFFFF, xorout: 0x0000, refin: true, refout: true }),
-        ("IBM_3740", Config { width: 16, poly: 0x1021, init: 0xFFFF, xorout: 0x0000, refin: false, refout: false }),
-        ("KERMIT", Config { width: 16, poly: 0x1021, init: 0x0000, xorout: 0x0000, refin: true, refout: true }),
-        ("IBM", Config { width: 16, poly: 0x8005, init: 0x0000, xorout: 0x0000, refin: true, refout: true }),
-        ("MAXIM", Config { width: 16, poly: 0x8005, init: 0x0000, xorout: 0xFFFF, refin: true, refout: true }),
-        ("USB", Config { width: 16, poly: 0x8005, init: 0xFFFF, xorout: 0xFFFF, refin: true, refout: true }),
-        ("X25", Config { width: 16, poly: 0x1021, init: 0xFFFF, xorout: 0xFFFF, refin: true, refout: true }),
-        ("DNP", Config { width: 16, poly: 0x3D65, init: 0x0000, xorout: 0xFFFF, refin: true, refout: true }),
-    ]
-}
-
-fn crc32_members() -> Vec<(&'static str, Config)> {
-    vec![
-        ("CRC32", Config { width: 32, poly: 0x04C11DB7, init: 0xFFFFFFFF, xorout: 0xFFFFFFFF, refin: true, refout: true }),
-        ("AUTOSAR", Config { width: 32, poly: 0xF4ACFB13, init: 0xFFFFFFFF, xorout: 0xFFFFFFFF, refin: true, refout: true }),
-        ("BZIP2", Config { width: 32, poly: 0x04C11DB7, init: 0xFFFFFFFF, xorout: 0xFFFFFFFF, refin: false, refout: false }),
-        ("POSIX", Config { width: 32, poly: 0x04C11DB7, init: 0x00000000, xorout: 0xFFFFFFFF, refin: false, refout: false }),
-    ]
-}
-
-fn crc64_members() -> Vec<(&'static str, Config)> {
-    vec![
-        ("CRC64", Config { width: 64, poly: 0x42F0E1EBA9EA3693, init: 0x0000000000000000, xorout: 0x0000000000000000, refin: false, refout: false }),
-    ]
-}
-
-// ---------------------------------------------------------------------------
-// Python-visible classes.
-// ---------------------------------------------------------------------------
 
 /// Frozen `Configuration` (mirrors the dataclass; positional + defaults).
 #[pyclass(frozen)]
@@ -345,112 +167,96 @@ fn byte_operand(other: &Bound<'_, PyAny>) -> PyResult<u8> {
     )))
 }
 
-/// Shared register state helpers.
-fn reg_len(cfg: &Config) -> usize {
-    (cfg.width / 8) as usize
-}
-
-fn reg_get(reg: u64, cfg: &Config, index: isize) -> PyResult<u8> {
-    let n = reg_len(cfg) as isize;
-    if !(0..n).contains(&index) {
-        return Err(PyIndexError::new_err("register index out of range"));
-    }
-    Ok(((reg >> (index as u64 * 8)) & 0xFF) as u8)
+fn reg_index_err() -> PyErr {
+    PyIndexError::new_err("register index out of range")
 }
 
 /// Bit-by-bit `Register`.
 #[pyclass]
 struct Register {
-    cfg: Config,
-    reg: u64,
+    inner: BitRegister,
 }
 
 #[pymethods]
 impl Register {
     #[new]
     fn new(configuration: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let cfg = config_of(configuration)?;
-        let reg = cfg.init & bitmask(&cfg);
-        Ok(Self { cfg, reg })
+        Ok(Self {
+            inner: BitRegister::new(config_of(configuration)?),
+        })
     }
     fn init(&mut self) {
-        self.reg = self.cfg.init & bitmask(&self.cfg);
+        self.inner.reset();
     }
     fn update(&mut self, data: &Bound<'_, PyAny>) -> PyResult<u64> {
         let bytes = bytes_like(data)?;
-        self.reg = update_bit(self.reg, &self.cfg, &bytes);
-        Ok(self.reg)
+        Ok(self.inner.update(&bytes))
     }
     fn digest(&self) -> u64 {
-        digest_of(self.reg, &self.cfg)
+        self.inner.digest()
     }
     fn reverse(&self) -> u64 {
-        reverse_of(self.reg, &self.cfg)
+        self.inner.reverse()
     }
     fn __len__(&self) -> usize {
-        reg_len(&self.cfg)
+        self.inner.len()
     }
     fn __getitem__(&self, index: isize) -> PyResult<u8> {
-        reg_get(self.reg, &self.cfg, index)
+        self.inner.get(index).ok_or_else(reg_index_err)
     }
 }
 
 /// Table-driven `TableBasedRegister` (byte-at-a-time; mirror ships this).
 #[pyclass]
 struct TableBasedRegister {
-    cfg: Config,
-    reg: u64,
-    table: [u64; 256],
+    inner: TableRegister,
 }
 
 #[pymethods]
 impl TableBasedRegister {
     #[new]
     fn new(configuration: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let cfg = config_of(configuration)?;
-        let table = create_table(cfg.width, cfg.poly);
-        let reg = cfg.init & bitmask(&cfg);
-        Ok(Self { cfg, reg, table })
+        Ok(Self {
+            inner: TableRegister::new(config_of(configuration)?),
+        })
     }
     fn init(&mut self) {
-        self.reg = self.cfg.init & bitmask(&self.cfg);
+        self.inner.reset();
     }
     fn update(&mut self, data: &Bound<'_, PyAny>) -> PyResult<u64> {
         let bytes = bytes_like(data)?;
-        self.reg = update_table(self.reg, &self.cfg, &self.table, &bytes);
-        Ok(self.reg)
+        Ok(self.inner.update(&bytes))
     }
     fn digest(&self) -> u64 {
-        digest_of(self.reg, &self.cfg)
+        self.inner.digest()
     }
     fn reverse(&self) -> u64 {
-        reverse_of(self.reg, &self.cfg)
+        self.inner.reverse()
     }
     fn __len__(&self) -> usize {
-        reg_len(&self.cfg)
+        self.inner.len()
     }
     fn __getitem__(&self, index: isize) -> PyResult<u8> {
-        reg_get(self.reg, &self.cfg, index)
+        self.inner.get(index).ok_or_else(reg_index_err)
     }
 }
 
 /// `BasicRegister` (abstract in the original; never instantiated by tests).
 #[pyclass]
 struct BasicRegister {
-    cfg: Config,
-    reg: u64,
+    inner: BitRegister,
 }
 
 #[pymethods]
 impl BasicRegister {
     #[new]
     fn new(configuration: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let cfg = config_of(configuration)?;
-        let reg = cfg.init & bitmask(&cfg);
-        Ok(Self { cfg, reg })
+        Ok(Self {
+            inner: BitRegister::new(config_of(configuration)?),
+        })
     }
     fn init(&mut self) {
-        self.reg = self.cfg.init & bitmask(&self.cfg);
+        self.inner.reset();
     }
     fn update(&mut self, _data: &Bound<'_, PyAny>) -> PyResult<u64> {
         Err(pyo3::exceptions::PyNotImplementedError::new_err(
@@ -458,16 +264,16 @@ impl BasicRegister {
         ))
     }
     fn digest(&self) -> u64 {
-        digest_of(self.reg, &self.cfg)
+        self.inner.digest()
     }
     fn reverse(&self) -> u64 {
-        reverse_of(self.reg, &self.cfg)
+        self.inner.reverse()
     }
     fn __len__(&self) -> usize {
-        reg_len(&self.cfg)
+        self.inner.len()
     }
     fn __getitem__(&self, index: isize) -> PyResult<u8> {
-        reg_get(self.reg, &self.cfg, index)
+        self.inner.get(index).ok_or_else(reg_index_err)
     }
 }
 
@@ -486,9 +292,7 @@ impl AbstractRegister {
 /// `Calculator` with `optimized` selecting the register.
 #[pyclass]
 struct Calculator {
-    cfg: Config,
-    reg: u64,
-    table: Option<[u64; 256]>,
+    inner: Crc,
 }
 
 #[pymethods]
@@ -496,26 +300,17 @@ impl Calculator {
     #[new]
     #[pyo3(signature = (configuration, optimized=false))]
     fn new(configuration: &Bound<'_, PyAny>, optimized: bool) -> PyResult<Self> {
-        let cfg = config_of(configuration)?;
-        let table = if optimized {
-            Some(create_table(cfg.width, cfg.poly))
-        } else {
-            None
-        };
-        let reg = cfg.init & bitmask(&cfg);
-        Ok(Self { cfg, reg, table })
+        Ok(Self {
+            inner: Crc::new(config_of(configuration)?, optimized),
+        })
     }
     fn checksum(&mut self, py: Python<'_>, data: PyObject) -> PyResult<u64> {
         let bytes = extract_bytes(data.bind(py))?;
-        self.reg = self.cfg.init & bitmask(&self.cfg);
-        self.reg = match &self.table {
-            Some(t) => update_table(self.reg, &self.cfg, t, &bytes),
-            None => update_bit(self.reg, &self.cfg, &bytes),
-        };
-        Ok(digest_of(self.reg, &self.cfg))
+        Ok(self.inner.checksum(&bytes))
     }
     fn verify(&mut self, py: Python<'_>, data: PyObject, expected: u64) -> PyResult<bool> {
-        Ok(self.checksum(py, data)? == expected)
+        let bytes = extract_bytes(data.bind(py))?;
+        Ok(self.inner.verify(&bytes, expected))
     }
 }
 
@@ -813,80 +608,4 @@ fn _crc(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ],
     )?;
     Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Pure-Rust tests (miri-clean subset: no Python API touched).
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod core_tests {
-    use super::*;
-
-    #[test]
-    fn masks_and_reflects() {
-        assert_eq!(mask(8), 0xFF);
-        assert_eq!(mask(64), u64::MAX);
-        assert_eq!(reflect_byte(0x80), 0x01);
-        assert_eq!(reflect_byte(0xF0), 0x0F);
-        assert_eq!(reflect_val(0x01, 8), 0x80);
-        assert_eq!(render_template(8), "0x{:02X}");
-        assert_eq!(render_template(1), "0x{:01X}");
-        assert_eq!(render_template(64), "0x{:016X}");
-    }
-
-    #[test]
-    fn bit_and_table_agree_on_vectors() {
-        let cfg = Config {
-            width: 8,
-            poly: 0x07,
-            init: 0,
-            xorout: 0,
-            refin: false,
-            refout: false,
-        };
-        let table = create_table(cfg.width, cfg.poly);
-        assert_eq!(&table[..4], &[0x00, 0x07, 0x0E, 0x09]);
-        for data in [b"".as_slice(), b"123456789", b"Hello World!"] {
-            let a = digest_of(update_bit(0, &cfg, data), &cfg);
-            let b = digest_of(update_table(0, &cfg, &table, data), &cfg);
-            assert_eq!(a, b);
-        }
-        assert_eq!(digest_of(update_bit(0, &cfg, b"123456789"), &cfg), 0xF4);
-    }
-
-    #[test]
-    fn bit_and_table_agree_with_init_xor_reflection() {
-        // Regression: tables must be built from width+poly defaults, so bit and
-        // table paths agree for configs with nonzero init/xorout/reflection.
-        let cfgs = [
-            Config { width: 8, poly: 0x07, init: 0x00, xorout: 0x55, refin: false, refout: false },
-            Config { width: 8, poly: 0x07, init: 0xFF, xorout: 0x00, refin: true, refout: true },
-            Config { width: 16, poly: 0x1021, init: 0x0000, xorout: 0x0000, refin: false, refout: true },
-            Config { width: 32, poly: 0x04C11DB7, init: 0xFFFFFFFF, xorout: 0xFFFFFFFF, refin: true, refout: true },
-        ];
-        for cfg in cfgs {
-            let table = create_table(cfg.width, cfg.poly);
-            for data in [b"".as_slice(), b"123456789", b"Hello World!"] {
-                let init = cfg.init & mask(cfg.width);
-                let a = digest_of(update_bit(init, &cfg, data), &cfg);
-                let b = digest_of(update_table(init, &cfg, &table, data), &cfg);
-                assert_eq!(a, b, "cfg={cfg:?} data={data:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn reflected_catalog_spot() {
-        // MODBUS is refin+refout; empty input => init ^ xorout masked.
-        let cfg = Config {
-            width: 16,
-            poly: 0x8005,
-            init: 0xFFFF,
-            xorout: 0x0000,
-            refin: true,
-            refout: true,
-        };
-        assert_eq!(digest_of(cfg.init & mask(16), &cfg), 0xFFFF);
-    }
 }

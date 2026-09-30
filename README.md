@@ -47,11 +47,11 @@ Limited prototypes (real code, narrow scope):
 
 - Only two packages have repo data (`crates/rustsmith-cli/data/repo-content.json`); unknown packages halt by design. Adding a target means authoring its data entry (probes, workloads, rules, templates).
 - The mirror worker task copies reference-port files from `mirror/<package>/` templates — no model writes code on the default path, and the four council seats approve via stub drivers. Live models are opt-in (`RUSTSMITH_WORKER_CMD`, `RUSTSMITH_SEAT_CMD_*`); tokens are recorded as usage only.
-- The shipped tree is a PyO3 extension (`cdylib`), not a standalone `rlib`; there is no boundary selection (always whole-DAG mirror), no versioned wheel/sdist output, and `suggestions/accelerators/` carries a note, not code.
-- The reported end-to-end speedup is a compounded estimate over graded rows, not a remeasurement; optimized code lives in `work/opt/` and is not copied back into the shipped fork.
+- The `crc` template ships the milestone-1 layout: reusable core crate (`crc-core`, no Python dependency) plus a thin PyO3 binding that delegates to it; other targets still ship a single extension crate. There is no boundary selection yet (always whole-DAG mirror), no versioned wheel/sdist output, and `suggestions/accelerators/` carries a note, not code.
+- Accepted optimizations publish to a canonical revision (`work/opt/deliver/` + `ACCEPTED.json` with merged techniques and per-file hashes; rejected work never enters); the report carries a Delivered-artifact section. The headline end-to-end speedup remains a compounded estimate unless a milestone remeasures it directly.
 - No LLM runs anywhere on the default path: the pipeline is fully deterministic and offline unless the `RUSTSMITH_*_CMD` env wiring is set.
 
-Planned: per-target data packs (charset-normalizer and the rest of the POC board), live worker/council wiring, boundary selection, `rlib` + bindings + native packaging (`pip` binary shim decided; `cargo publish` metadata landed, crates unpublished), shipped accelerators, Cachegrind/`perf` instruments, concurrent runs, flame graphs. Out of scope as before: upstream PR automation, distributed execution, web UI, model hosting.
+Planned: per-target data packs (charset-normalizer and the rest of the POC board), live worker/council wiring, boundary selection, native packaging (crc core/binding split done; versioned wheels/sdist pending; `pip` binary shim decided; `cargo publish` metadata landed, crates unpublished), shipped accelerators, Cachegrind/`perf` instruments, concurrent runs, flame graphs. Out of scope as before: upstream PR automation, distributed execution, web UI, model hosting.
 
 ## What it does
 

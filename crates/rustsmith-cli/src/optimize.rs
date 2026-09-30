@@ -982,6 +982,114 @@ fn copy_filtered(src: &Path, dst: &Path) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Publish the accepted tree: stage a canonical `deliver/` copy of the work
+/// tree and record `ACCEPTED.json` with base identity, merged techniques,
+/// and per-file sha256. Building, grading, benchmarking, and packaging must
+/// use `deliver/`, never `work/` — rejected or partial candidates live in
+/// `.cand-*`/`.audit-*` scratch, which never enters the copy.
+pub fn publish_accepted(
+    work: &Path,
+    fork: &Path,
+    merged: &[serde_json::Value],
+    rejected: usize,
+) -> Result<serde_json::Value, String> {
+    use rustsmith_oracle::sha256_hex;
+    let deliver = work.join("deliver");
+    if deliver.exists() {
+        std::fs::remove_dir_all(&deliver).map_err(|e| e.to_string())?;
+    }
+    std::fs::create_dir_all(&deliver).map_err(|e| e.to_string())?;
+    fn stage(src: &Path, dst: &Path) -> Result<(), String> {
+        for e in std::fs::read_dir(src).map_err(|e| e.to_string())? {
+            let e = e.map_err(|e| e.to_string())?;
+            let name = e.file_name().to_string_lossy().to_string();
+            if name == "deliver"
+                || name.starts_with("optimize-report.")
+                || name == "ACCEPTED.json"
+                || [
+                    "target",
+                    ".grade-venv",
+                    ".opt-venv",
+                    ".plant-venv",
+                    ".parent-venv",
+                    ".audit-merged-venv",
+                    ".audit-rev-venv",
+                    ".bundles",
+                    ".git",
+                    "__pycache__",
+                    "orig_src",
+                    "orig_src_staged",
+                    ".attribution-revert",
+                    ".full-build-tmp",
+                ]
+                .contains(&name.as_str())
+                || name.starts_with("worktree-")
+                || name.starts_with(".cand-")
+                || name.starts_with(".audit-fwd-")
+                || name.ends_with(".so")
+                || name.ends_with(".pyc")
+            {
+                continue;
+            }
+            let t = dst.join(e.file_name());
+            if e.path().is_dir() {
+                std::fs::create_dir_all(&t).map_err(|e| e.to_string())?;
+                stage(&e.path(), &t)?;
+            } else {
+                std::fs::copy(e.path(), t).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+    stage(work, &deliver)?;
+    // Identity: base fork sha + work sha + content hashes (hashes authoritative).
+    let base_sha = git(fork, &["rev-parse", "HEAD"])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "unknown".into());
+    let work_sha = git(work, &["rev-parse", "HEAD"])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "uncommitted".into());
+    fn hash_tree(
+        dir: &Path,
+        rel: &Path,
+        out: &mut Vec<serde_json::Value>,
+    ) -> Result<(), String> {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .map_err(|e| e.to_string())?
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let t = rel.join(e.file_name());
+            if e.path().is_dir() {
+                hash_tree(&e.path(), &t, out)?;
+            } else {
+                let bytes = std::fs::read(e.path()).map_err(|e| e.to_string())?;
+                out.push(
+                    serde_json::json!({"path": t.display().to_string(), "sha256": sha256_hex(&bytes)}),
+                );
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    hash_tree(&deliver, Path::new(""), &mut files)?;
+    let accepted = serde_json::json!({
+        "base_fork_sha": base_sha,
+        "work_sha": work_sha,
+        "merged": merged.iter().filter_map(|r| r["technique"].as_str().map(str::to_string)).collect::<Vec<_>>(),
+        "merged_count": merged.len(),
+        "rejected_excluded": rejected,
+        "files": files,
+    });
+    std::fs::write(
+        deliver.join("ACCEPTED.json"),
+        serde_json::to_string_pretty(&accepted).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(accepted)
+}
 pub fn round0_report(fork: &Path) -> Vec<String> {
     let mut findings = Vec::new();
     let src = fork.join("src/lib.rs");
@@ -1099,13 +1207,16 @@ pub fn run_round0_apply(
     let cand_dir = work.join(".cand-r0-manual-hex");
     let _ = std::fs::remove_dir_all(&cand_dir);
     std::fs::create_dir_all(&cand_dir).map_err(|e| e.to_string())?;
+    copy_filtered(work, &cand_dir)?;
     git(&cand_dir, &["init", "-q"])?;
     git(&cand_dir, &["config", "user.email", "t@t"])?;
     git(&cand_dir, &["config", "user.name", "t"])?;
     std::fs::write(cand_dir.join(".gitignore"), "target/\n*.so\n*.pyc\n__pycache__/\n*-venv/\n.venv/\n.origparent/\n.orig_src\norig_src\norig_src_staged\n.attribution-revert/\n.attribution.patch\n.merge.patch\n.full-build-tmp/\n").map_err(|e| e.to_string())?;
     git(&cand_dir, &["add", "-A"])?;
     git(&cand_dir, &["commit", "-qm", "round-0 base"])?;
-    if let Err(e) = patch(&cand_dir) {
+    let touched: Vec<String> = match patch(&cand_dir) {
+        Ok(f) => f,
+        Err(e) => {
         store
             .record_failed(
                 &ctx.run_id, 0, "representation", bound, tier as i64, technique,
@@ -1117,7 +1228,8 @@ pub fn run_round0_apply(
         applied.push(serde_json::json!({"technique": technique, "outcome": "patch_failed"}));
         failed_rows.push(serde_json::json!({"technique": technique, "outcome": "gate_failed", "gate": "patch"}));
         return Ok(applied);
-    }
+        }
+    };
     match grade_candidate(store, ctx, &cand_dir, work, &parent_venv, parent_compile, floor, technique, bound, tier, 1.0) {
         Ok(g) if g.passed => {
             apply_patch_text(work, &g.patch_text).map_err(|e| e.to_string())?;
@@ -1127,7 +1239,7 @@ pub fn run_round0_apply(
             store
                 .record_optimization(
                     &ctx.run_id, 0, "representation", &sha, g.vis_gain * 100.0,
-                    technique, None, &serde_json::to_string(&["src/lib.rs"]).unwrap(),
+                    technique, None, &serde_json::to_string(&touched).unwrap(),
                     bound, tier as i64, 1.0, g.vis_gain * 100.0, g.held_gain * 100.0,
                     g.divergence * 100.0, "cpu_time", g.ci.as_ref().map(|c| c.low), g.ci.as_ref().map(|c| c.high),
                     g.attribution_ok, g.rss_delta, g.alloc_delta, MODEL_STUB, PROMPT_VERSION,
@@ -1547,6 +1659,9 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     }
     // Gated finals: PGO, BOLT, allocator-as-candidate (each measured or refused).
     let finals = gated_finals(&ctx, &base_stats, floor)?;
+    // Publish: canonical accepted revision for building/grading/bench/packaging.
+    let accepted = publish_accepted(&a.work, &a.fork, &merged, failed_rows.len())?;
+    ev("publish", serde_json::json!({"merged": merged.len(), "rejected_excluded": failed_rows.len()}));
     // Reports (single struct, three emitters; all wall figures carry CIs).
     ev("optimize_stop", serde_json::json!({"stop": stop_reason.clone()}));
     let report = serde_json::json!({
@@ -1561,6 +1676,7 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
         "merged": merged,
         "failed": failed_rows,
         "finals": finals,
+        "accepted": accepted,
         "stop": stop_reason,
         "config": serde_json::from_str::<serde_json::Value>(&a.config_json).unwrap_or(serde_json::json!({})),
     });
@@ -2088,6 +2204,49 @@ mod merge_tests {
         let lib = std::fs::read_to_string(d.join("src/lib.rs")).unwrap();
         assert!(lib.contains("    11\n") && lib.contains("    22\n"), "both hunks present");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Publish stages only accepted content: scratch never ships, hashes pin files.
+    #[test]
+    fn publish_stages_accepted_only() {
+        let fork = scratch("pub-fork");
+        std::fs::write(fork.join("src/lib.rs"), BASE_LIB).unwrap();
+        git(&fork, &["add", "-A"]).unwrap();
+        git(&fork, &["commit", "-qm", "base"]).unwrap();
+        let work = scratch("pub-work");
+        std::fs::write(work.join("src/lib.rs"), BASE_LIB.replace("    1\n", "    11\n")).unwrap();
+        std::fs::create_dir_all(work.join(".cand-r1-x")).unwrap();
+        std::fs::write(work.join(".cand-r1-x/evil.rs"), "planted").unwrap();
+        std::fs::write(work.join("stale.so"), "bin").unwrap();
+        git(&work, &["add", "-A"]).unwrap();
+        git(&work, &["commit", "-qm", "stage2 base"]).unwrap();
+        let merged = vec![serde_json::json!({"technique": "slicing-by-8", "gain": 0.5})];
+        let accepted = publish_accepted(&work, &fork, &merged, 3).unwrap();
+        let deliver = work.join("deliver");
+        assert!(deliver.join("src/lib.rs").is_file(), "accepted file ships");
+        assert!(!deliver.join(".cand-r1-x").exists(), "candidate scratch must not ship");
+        assert!(!deliver.join("stale.so").exists(), "build outputs must not ship");
+        assert!(deliver.join("ACCEPTED.json").is_file(), "identity manifest ships");
+        assert_eq!(accepted["merged"], serde_json::json!(["slicing-by-8"]));
+        assert_eq!(accepted["rejected_excluded"], serde_json::json!(3));
+        assert_ne!(accepted["base_fork_sha"].as_str().unwrap(), "unknown");
+        assert_ne!(accepted["work_sha"].as_str().unwrap(), "uncommitted");
+        let files = accepted["files"].as_array().unwrap();
+        assert!(files.iter().any(|f| f["path"] == "src/lib.rs"));
+        assert!(!files.iter().any(|f| f["path"]
+            .as_str()
+            .unwrap()
+            .contains(".cand-r1-x")));
+        let bytes = std::fs::read(deliver.join("src/lib.rs")).unwrap();
+        let h = files
+            .iter()
+            .find(|f| f["path"] == "src/lib.rs")
+            .unwrap()["sha256"]
+            .as_str()
+            .unwrap();
+        assert_eq!(h, &rustsmith_oracle::sha256_hex(&bytes), "hash pins content");
+        let _ = std::fs::remove_dir_all(&fork);
+        let _ = std::fs::remove_dir_all(&work);
     }
 }
 
