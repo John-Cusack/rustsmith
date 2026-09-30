@@ -1207,9 +1207,8 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         store,
         run_id,
         "mirror_done",
-        serde_json::json!({"passed": got.passed, "unsafe": unsafe_sites.len(), "clippy": "see-acceptance"}),
+        serde_json::json!({"passed": got.passed, "unsafe": unsafe_sites.len(), "unsafe_passed": uv.passed, "unsafe_detail": uv.detail, "clippy": "see-acceptance"}),
     );
-    let _ = uv;
     Ok(report)
 }
 
