@@ -85,7 +85,6 @@ _mkproxy(
     ["mess_ratio", "char_info", "is_suspiciously_successive_range", "CharInfo"],
 )
 _sys.modules["charset_normalizer.md"].__dict__["_char_info"] = char_info
-_sys.modules["charset_normalizer.md"].__dict__["_char_info"] = char_info
 _mkproxy(
     "cd",
     [
