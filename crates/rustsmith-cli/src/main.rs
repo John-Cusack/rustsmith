@@ -981,9 +981,15 @@ fn cmd_mirror(args: &[String]) -> Result<(), String> {
     let repo = PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?);
     let template = match flag(args, "--template") {
         Some(t) => PathBuf::from(t),
-        // Auto-select `mirror/<package>` from the repo's own packaging
-        // metadata (refuse unknowns, never guess).
-        None => crate::repo::resolve_template(&repo, None)?,
+        // Auto-select `mirror/<package>` from the frozen recon identity
+        // (`probe.package` in facts.json, written by recon from the repo;
+        // refuse unknowns, never guess). The live repo is not re-probed:
+        // CMake trees have no Python packaging metadata.
+        None => {
+            let recon_out = flag(args, "--recon-out").ok_or("missing --recon-out")?;
+            let package = crate::repo::facts_package(std::path::Path::new(&recon_out))?;
+            crate::repo::resolve_template_for_package(&package)?
+        }
     };
     // Tasks run with cwd=worktree: the template path must be absolute.
     let template = std::fs::canonicalize(&template).map_err(|e| format!("bad template {}: {e}", template.display()))?;

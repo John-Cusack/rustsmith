@@ -33,6 +33,51 @@ pub fn package_name(repo: &Path) -> Result<String, String> {
     ))
 }
 
+/// Discover the CMake project name from the repo's own top-level
+/// `CMakeLists.txt`: the first `PROJECT(<name> ...)` / `project(<name> ...)`
+/// (CMake commands are case-insensitive). `None` when absent or unparseable;
+/// callers fall back to the directory name rather than halting. Never guessed
+/// from a registry; nothing here names a repo.
+pub fn cmake_project_name(repo: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(repo.join("CMakeLists.txt")).ok()?;
+    cmake_project_name_in_text(&text)
+}
+
+/// First `PROJECT(<name> ...)` in `text`, case-insensitive. The name is the
+/// first whitespace-separated token inside the parens (quotes stripped);
+/// `LANGUAGES`/`VERSION` keywords never form the name because they follow it.
+/// `None` for empty/missing declarations.
+fn cmake_project_name_in_text(text: &str) -> Option<String> {
+    // Strip `#` comments (CMake line comments); byte-safe (ASCII `#`).
+    let mut stripped = String::with_capacity(text.len());
+    for line in text.lines() {
+        let cut = line.find('#').map(|i| &line[..i]).unwrap_or(line);
+        stripped.push_str(cut);
+        stripped.push('\n');
+    }
+    let upper = stripped.to_uppercase();
+    let mut search_from = 0usize;
+    while let Some(rel) = upper[search_from..].find("PROJECT(") {
+        let idx = search_from + rel;
+        // Byte indexes stay valid: `PROJECT(` is ASCII so upper/lower lengths match.
+        let rest = &stripped[idx + "PROJECT(".len()..];
+        let end = rest.find(')').unwrap_or(rest.len());
+        let args = &rest[..end];
+        let mut tokens = args.split_whitespace();
+        if let Some(first) = tokens.next() {
+            let name = first.trim_matches(|c| c == '"' || c == '\'').trim();
+            if !name.is_empty() && name != ")" {
+                return Some(name.to_string());
+            }
+        }
+        search_from = idx + "PROJECT(".len();
+        if search_from >= stripped.len() {
+            break;
+        }
+    }
+    None
+}
+
 /// `[project] name` under the `[project]` section (line-oriented; enough for
 /// packaging manifests without a toml dependency on this path).
 fn pyproject_name(text: &str) -> Option<String> {
@@ -91,16 +136,14 @@ pub fn is_src_layout(repo: &Path, package: &str) -> bool {
         && (src_pkg.join("__init__.py").is_file() || src_pkg.join("__init__.pyi").is_file())
 }
 
-/// Resolve the mirror template dir: an explicit `--template` wins; otherwise
-/// `mirror/<package>` (the package name discovered from the repo, never a
-/// hardcoded fixture switch). The caller canonicalizes (tasks run with
-/// cwd=worktree, so the path must be absolute).
-pub fn resolve_template(repo: &Path, explicit: Option<PathBuf>) -> Result<PathBuf, String> {
-    if let Some(t) = explicit {
-        return Ok(t);
-    }
-    let package = package_name(repo)?;
-    let dir = PathBuf::from("mirror").join(&package);
+/// Resolve the mirror template dir from a frozen package identity (the
+/// `probe.package` recon wrote into `facts.json`, read via [`facts_package`]).
+/// Same lookup as [`resolve_template`] without re-deriving identity from the
+/// live repo: post-recon stages read behavior from frozen facts, never by
+/// re-probing packaging metadata the repo class may not have (CMake trees
+/// have no `pyproject.toml`/`setup.py`).
+pub fn resolve_template_for_package(package: &str) -> Result<PathBuf, String> {
+    let dir = PathBuf::from("mirror").join(package);
     if !dir.join("template.json").is_file() {
         return Err(format!(
             "no mirror template for package '{package}' (looked for {})",
@@ -200,5 +243,66 @@ mod tests {
             Some("acme/widgets")
         );
         assert_eq!(shorten_remote("widgets"), None);
+    }
+
+    #[test]
+    fn cmake_project_name_parses_first_declaration() {
+        assert_eq!(
+            cmake_project_name_in_text("cmake_minimum_required(VERSION 3.16)\nPROJECT(Elmer Fortran C CXX)\n").as_deref(),
+            Some("Elmer")
+        );
+        assert_eq!(
+            cmake_project_name_in_text("project(foo VERSION 1.0 LANGUAGES CXX)\n").as_deref(),
+            Some("foo")
+        );
+        assert_eq!(
+            cmake_project_name_in_text("project(\"quoted-proj\" C)\n").as_deref(),
+            Some("quoted-proj")
+        );
+        // Comments never form the name; first declaration wins.
+        assert_eq!(
+            cmake_project_name_in_text("# PROJECT(ignored)\nproject(real C)\nproject(second C)\n").as_deref(),
+            Some("real")
+        );
+        assert_eq!(cmake_project_name_in_text("cmake_minimum_required(VERSION 3.16)\n"), None);
+        assert_eq!(cmake_project_name_in_text("PROJECT()\n"), None);
+    }
+
+    #[test]
+    fn cmake_project_name_reads_top_level_lists() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CMakeLists.txt"),
+            "cmake_minimum_required(VERSION 3.16)\nPROJECT(TopName C CXX)\n",
+        )
+        .unwrap();
+        assert_eq!(cmake_project_name(dir.path()).as_deref(), Some("TopName"));
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(cmake_project_name(empty.path()), None);
+    }
+
+    #[test]
+    fn template_for_package_refuses_unknowns() {
+        let err = resolve_template_for_package("no-such-pkg-xyz").unwrap_err();
+        assert!(err.contains("no mirror template for package 'no-such-pkg-xyz'"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn facts_package_reads_frozen_probe_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("facts.json"),
+            r#"{"probe": {"package": "Elmer"}}"#,
+        )
+        .unwrap();
+        assert_eq!(facts_package(dir.path()).as_deref(), Ok("Elmer"));
+        let empty = tempfile::tempdir().unwrap();
+        assert!(facts_package(empty.path()).is_err());
+        std::fs::write(
+            empty.path().join("facts.json"),
+            r#"{"probe": {"package": ""}}"#,
+        )
+        .unwrap();
+        assert!(facts_package(empty.path()).is_err());
     }
 }

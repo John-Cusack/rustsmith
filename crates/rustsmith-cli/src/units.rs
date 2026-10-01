@@ -24,7 +24,14 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 pub struct TemplateSpec {
     pub package: String,
+    /// Python extension module (maturin spine). Exactly one of this and
+    /// `cmake_target` is set: Python templates name the extension, CMake
+    /// templates name the library target the Rust staticlib substitutes into.
     pub extension_module: String,
+    /// CMake library target (CTest spine, e.g. `elmersolver`). Empty on the
+    /// Python spine; required there would weaken Python validation, so the
+    /// loader enforces exactly-one (see below), never a default.
+    pub cmake_target: String,
     pub src_layout: bool,
     pub files: Vec<(String, String)>,
     pub extra_files: HashMap<String, Vec<(String, String)>>,
@@ -140,16 +147,10 @@ pub fn load_template(dir: &Path) -> Result<TemplateSpec, String> {
         }
     }
     let mut orig_source = HashMap::new();
-    if let Some(o) = v["orig_source"].as_object() {
-        for (k, val) in o {
-            if let Some(s) = val.as_str() {
-                orig_source.insert(k.clone(), s.to_string());
-            }
-        }
-    }
     let spec = TemplateSpec {
         package: v["package"].as_str().unwrap_or("").to_string(),
         extension_module: v["extension_module"].as_str().unwrap_or("").to_string(),
+        cmake_target: v["cmake_target"].as_str().unwrap_or("").to_string(),
         src_layout: v["src_layout"].as_bool().unwrap_or(true),
         files: pairs(&v["files"]),
         extra_files,
@@ -159,13 +160,79 @@ pub fn load_template(dir: &Path) -> Result<TemplateSpec, String> {
     if spec.package.is_empty() {
         return Err(format!("{}: template.json lacks package", dir.display()));
     }
-    if spec.extension_module.is_empty() {
-        return Err(format!("{}: template.json lacks extension_module", dir.display()));
+    // Spine marker: Python templates set `extension_module`, CMake templates
+    // set `cmake_target` — exactly one. Neither is defaulted: a missing
+    // marker is a misconfigured template, never a guessed spine.
+    if spec.extension_module.is_empty() && spec.cmake_target.is_empty() {
+        return Err(format!("{}: template.json lacks extension_module (python) or cmake_target (cmake)", dir.display()));
+    }
+    if !spec.extension_module.is_empty() && !spec.cmake_target.is_empty() {
+        return Err(format!("{}: template.json sets both extension_module and cmake_target (exactly one)", dir.display()));
     }
     if spec.files.is_empty() {
         return Err(format!("{}: template.json lists no files", dir.display()));
     }
+    // Dual-artifact contract is Python-spine only; CMake templates carry a
+    // staticlib scaffold under a different contract.
+    if !spec.extension_module.is_empty() {
+        validate_dual_artifact(dir, &spec)?;
+    }
     Ok(spec)
+}
+
+/// Dual-artifact contract (SPEC Stage 1): one template builds both a Rust
+/// crate (crates.io) and a Python extension (`-rust` PyPI dist). The
+/// `[lib] crate-type` must include `cdylib` and the maturin `module-name`
+/// must equal the declared extension module. Line-oriented parsing is enough
+/// for template manifests (same style as the optimize `crate_package` read).
+fn validate_dual_artifact(dir: &Path, spec: &TemplateSpec) -> Result<(), String> {
+    let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).map_err(|e| e.to_string())?;
+    let mut section = String::new();
+    let mut cdylib = false;
+    for line in cargo.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            section = l.to_string();
+        }
+        if section == "[lib]" && l.starts_with("crate-type") && l.contains("cdylib") {
+            cdylib = true;
+        }
+    }
+    if !cdylib {
+        return Err(format!(
+            "{}: Cargo.toml [lib] crate-type lacks cdylib (dual-artifact contract)",
+            dir.display()
+        ));
+    }
+    let pyproject =
+        std::fs::read_to_string(dir.join("pyproject.toml")).map_err(|e| e.to_string())?;
+    let mut section = String::new();
+    let mut module_name = String::new();
+    for line in pyproject.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            section = l.to_string();
+        }
+        if section == "[tool.maturin]" {
+            if let Some(v) = l.strip_prefix("module-name") {
+                module_name = v
+                    .trim()
+                    .trim_start_matches('=')
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string();
+            }
+        }
+    }
+    if module_name != spec.extension_module {
+        return Err(format!(
+            "{}: pyproject [tool.maturin] module-name {module_name:?} != extension_module {:?} (dual-artifact contract)",
+            dir.display(),
+            spec.extension_module
+        ));
+    }
+    Ok(())
 }
 
 /// Worker stub task: materialize the unit from the template, commit on its
@@ -391,6 +458,7 @@ mod tests {
         TemplateSpec {
             package: "pkg".to_string(),
             extension_module: "_pkg".to_string(),
+            cmake_target: String::new(),
             src_layout: true,
             files: vec![pair("Cargo.toml", "Cargo.toml")],
             extra_files,
@@ -513,6 +581,7 @@ mod tests {
         let spec = TemplateSpec {
             package: "crc".to_string(),
             extension_module: "_crc".to_string(),
+            cmake_target: String::new(),
             src_layout: true,
             files: vec![pair("Cargo.toml", "Cargo.toml")],
             extra_files: HashMap::from([
@@ -547,5 +616,126 @@ mod tests {
         // Reverse: a bare-stem query still finds the migrated UnitId key.
         let cmd = unit_task(&spec, template, "_crc").unwrap();
         assert!(cmd.contains("extra/crc_helper.py"), "migrated key missed: {cmd}");
+    }
+
+    fn write_template(dir: &std::path::Path, body: &str) {
+        std::fs::write(dir.join("template.json"), body).unwrap();
+        // Minimal manifests so Python-spined fixtures also exercise the
+        // dual-artifact contract (CMake fixtures skip it by marker).
+        if let Some(rest) = body.split("\"extension_module\":\"").nth(1) {
+            let module = rest.split('"').next().unwrap_or("m");
+            std::fs::write(
+                dir.join("Cargo.toml"),
+                "[package]\nname = \"pkg\"\n[lib]\ncrate-type = [\"cdylib\"]\n",
+            )
+            .unwrap();
+            std::fs::write(
+                dir.join("pyproject.toml"),
+                format!("[tool.maturin]\nmodule-name = \"{module}\"\n"),
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn template_spine_marker_is_exactly_one() {
+        let dir = tempfile::tempdir().unwrap();
+        // Python spine: extension_module only.
+        write_template(
+            dir.path(),
+            r#"{"package":"p","extension_module":"m","files":[["a","a"]]}"#,
+        );
+        let spec = load_template(dir.path()).unwrap();
+        assert_eq!(spec.extension_module, "m");
+        assert!(spec.cmake_target.is_empty());
+        // CMake spine: cmake_target only.
+        write_template(
+            dir.path(),
+            r#"{"package":"q","cmake_target":"t","src_layout":false,"files":[["a","a"]]}"#,
+        );
+        let spec = load_template(dir.path()).unwrap();
+        assert_eq!(spec.cmake_target, "t");
+        assert!(!spec.src_layout);
+        // Neither marker: refused, never a guessed spine.
+        write_template(
+            dir.path(),
+            r#"{"package":"q","files":[["a","a"]]}"#,
+        );
+        let err = load_template(dir.path()).unwrap_err();
+        assert!(err.contains("extension_module (python) or cmake_target (cmake)"), "unexpected: {err}");
+        // Both markers: refused as misconfiguration.
+        write_template(
+            dir.path(),
+            r#"{"package":"q","extension_module":"m","cmake_target":"t","files":[["a","a"]]}"#,
+        );
+        let err = load_template(dir.path()).unwrap_err();
+        assert!(err.contains("exactly one"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn elmer_template_loads_cmake_spine() {
+        // The shipped `mirror/Elmer` template (workspace-anchored, not cwd):
+        // CMake spine marker, flat layout, base files present.
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../mirror/Elmer");
+        let spec = load_template(&dir).unwrap();
+        assert_eq!(spec.package, "Elmer");
+        assert_eq!(spec.cmake_target, "elmersolver");
+        assert!(spec.extension_module.is_empty());
+        assert!(!spec.src_layout);
+        for (src, _) in &spec.files {
+            assert!(dir.join(src).is_file(), "template base file missing: {src}");
+        }
+    }
+
+    #[test]
+    fn load_template_enforces_dual_artifact_contract() {
+        // Shipped templates satisfy the contract (module name == extension
+        // module, cdylib crate): checked against the real mirror/ data.
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut checked = 0;
+        for pkg in crate::repo_content::packages() {
+            let tpl = std::fs::read_to_string(root.join("../../mirror").join(&pkg).join("template.json"));
+            let Ok(text) = tpl else { continue };
+            if !text.contains("extension_module") {
+                continue;
+            }
+            let spec = load_template(&root.join("../../mirror").join(&pkg));
+            assert!(spec.is_ok(), "template rejected for package {pkg}");
+            checked += 1;
+        }
+        assert!(checked > 0, "no Python-spined template exercised");
+        // Missing cdylib fails.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("template.json"),
+            r#"{"package":"pkg","extension_module":"pkg._pkg","files":[["a","a"]]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"pkg\"\n[lib]\nname = \"_pkg\"\ncrate-type = [\"rlib\"]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[tool.maturin]\nmodule-name = \"pkg._pkg\"\n",
+        )
+        .unwrap();
+        let err = load_template(dir.path()).unwrap_err();
+        assert!(err.contains("cdylib"), "unexpected: {err}");
+        // Module-name mismatch fails.
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"pkg\"\n[lib]\nname = \"_pkg\"\ncrate-type = [\"cdylib\"]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[tool.maturin]\nmodule-name = \"pkg._other\"\n",
+        )
+        .unwrap();
+        let err = load_template(dir.path()).unwrap_err();
+        assert!(err.contains("module-name"), "unexpected: {err}");
     }
 }

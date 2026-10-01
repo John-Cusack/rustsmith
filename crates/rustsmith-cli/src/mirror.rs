@@ -1,4 +1,3 @@
-//! Stage-1 mirror orchestration (M4): dependency-order scheduler, worker bundle
 //! assembler (held-out blind by construction), grade->gate->merge loop with
 //! same-commit module deletion, adversarial review plumbing, whole-repo grade.
 //!
@@ -9,7 +8,7 @@
 //! and review are identical. The PROOF is in the gates, not the task.
 
 use crate::units;
-use rustsmith_adapters::{BuildBridge, MaturinBridge, PytestRunner, UnitDag};
+use rustsmith_adapters::{BuildBridge, CmakeBridge, CtestRunner, MaturinBridge, PytestRunner, UnitDag};
 use rustsmith_agent::{Agent, UnitSpec};
 use rustsmith_council::{Council, Proposal, Seat, SeatDriver, Stance, StubDriver};
 use rustsmith_core::{BuildCtx, Cwd, Event, Gate, TestCommand, TestRunner};
@@ -194,6 +193,319 @@ pub(crate) fn build_ext(worktree: &Path, venv: &Path) -> Result<String, String> 
         return Err(format!("maturin develop failed:\n{log}"));
     }
     Ok(log)
+}
+
+/// Spine predicate on frozen `build.languages`: single-Python (or a missing
+/// list, the pre-rollout shape) keeps the exact HEAD grade path; anything
+/// else grades through the CMake/CTest spine. Same rule as recon's
+/// `is_python_spine` and the `select_composite` spine choice.
+fn is_python_spine_langs(languages: &[String]) -> bool {
+    languages.is_empty() || *languages == vec!["python".to_string()]
+}
+
+/// Out-of-source build dir for a CMake worktree: configure/build outputs
+/// never pollute the git tree (the fork `.gitignore` does not exclude them).
+pub(crate) fn cmake_build_dir(tree: &Path) -> PathBuf {
+    tree.join("build")
+}
+
+/// Worker-contract path for the unit's built Rust staticlib: the worker
+/// builds the scaffold crate and places the archive here; `substitute`
+/// splices it in place of the unit objects. A missing archive halts honestly
+/// (the stub path stops here; nothing merges).
+pub(crate) fn expected_rust_lib(build_dir: &Path, unit: &str) -> PathBuf {
+    build_dir.join("rust").join(format!(
+        "lib{}.a",
+        rustsmith_adapters::scaffold_crate_name(crate::units::unit_stem(unit))
+    ))
+}
+
+/// File API query before configure: `rustsmith-adapters::write_file_api_query`
+/// (single owner of the on-disk shape) so every configured build carries a
+/// codemodel reply for merge-time target resolution.
+
+/// Configure a CMake worktree out-of-source (fail-fast with the log).
+/// Argv comes from `CmakeBridge::prepare` with a worktree-anchored context;
+/// the frozen manifest `prepare` stays the audit record. The File API query
+/// goes down first so every configured build carries a codemodel reply for
+/// merge-time target resolution; a query failure propagates (never a silent
+/// unconfigured reply).
+pub(crate) fn cmake_configure(tree: &Path) -> Result<String, String> {
+    let build_dir = cmake_build_dir(tree);
+    rustsmith_adapters::write_file_api_query(&build_dir)?;
+    let cx = BuildCtx { tree, build_dir: &build_dir, release: false };
+    let cmds = CmakeBridge.prepare(&cx);
+    let runs = execute_all(tree, &build_dir, &cmds).map_err(|e| e.to_string())?;
+    let mut log = String::new();
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err(format!("cmake configure failed:\n{log}"));
+    }
+    Ok(log)
+}
+
+/// Full build of a configured CMake tree (fail-fast with the log). Per-unit
+/// grading builds pristine objects first so the splice overwrites real
+/// outputs; the post-splice rebuild inside `substitute` is then incremental.
+/// The pristine side of the differential is the shared per-run build (see
+/// `build_shared_pristine`); per-unit orig builds are gone.
+pub(crate) fn cmake_build(tree: &Path, build_dir: &Path) -> Result<String, String> {
+    let cx = BuildCtx { tree, build_dir, release: false };
+    let cmds = CmakeBridge.build(&cx);
+    let runs = execute_all(tree, build_dir, &cmds).map_err(|e| e.to_string())?;
+    let mut log = String::new();
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err(format!("cmake build failed:\n{log}"));
+    }
+    Ok(log)
+}
+
+/// Shared pristine build: stage the original ONCE per mirror run at the
+/// deterministic ignored path `<fork>/orig_src` and configure + build it
+/// there, returning its build dir for every unit's differential to reuse.
+/// Per-unit orig builds (configure + build per unit) are gone: at Elmer
+/// scale two full builds per unit is prohibitive, while one shared build is
+/// O(1) per run. The stage path is git-ignored by the fork `.gitignore`
+/// (`orig_src/`) and skipped by the target-list scan like the old per-unit
+/// stage, so it never enters a merge commit; the caller removes it after the
+/// unit loop (early-error exits leave it behind, ignored and documented).
+/// Emits one `pristine_build` store event per run — the audit proof that the
+/// build ran once (the fixture run log asserts exactly one).
+fn build_shared_pristine(
+    fork: &Path,
+    orig_src: &Path,
+    store: &Store,
+    run_id: &str,
+) -> Result<PathBuf, String> {
+    let stage = fork.join("orig_src");
+    if stage.exists() {
+        std::fs::remove_dir_all(&stage).map_err(|e| e.to_string())?;
+    }
+    copy_tree(orig_src, &stage)?;
+    cmake_configure(&stage)?;
+    let build = cmake_build_dir(&stage);
+    cmake_build(&stage, &build)?;
+    ev(
+        store,
+        run_id,
+        "pristine_build",
+        serde_json::json!({"build": build.display().to_string()}),
+    );
+    Ok(build)
+}
+
+/// Run the frozen oracle invocation against a CMake build dir and grade it
+/// with the runner. No venv: `ctest` runs the built tree in place.
+pub(crate) fn run_ctest_oracle(
+    tree: &Path,
+    build_dir: &Path,
+    manifest: &rustsmith_core::Manifest,
+) -> Result<rustsmith_core::GradedResult, String> {
+    let runner = CtestRunner;
+    let cx = BuildCtx { tree, build_dir, release: false };
+    let base: Vec<TestCommand> = if manifest.version == 2 && !manifest.invocation.is_empty() {
+        manifest.invocation.clone()
+    } else {
+        runner.invocation(&cx)
+    };
+    let runs = execute_all(tree, build_dir, &base).map_err(|e| e.to_string())?;
+    runner.grade(&runs).map_err(|e| e.to_string())
+}
+
+/// Held-out rate through `ctest -R`: the runner's held-out shape run in the
+/// build dir, parsed by the runner grade. An empty held-out set matches no
+/// tests and fails honestly here (never a silent pass).
+pub(crate) fn run_ctest_heldout(
+    tree: &Path,
+    build_dir: &Path,
+    suite: &Path,
+) -> Result<f64, String> {
+    let runner = CtestRunner;
+    let cx = BuildCtx { tree, build_dir, release: false };
+    let cmds = runner.heldout(suite, &cx);
+    let runs = execute_all(tree, build_dir, &cmds).map_err(|e| e.to_string())?;
+    Ok(runner.grade(&runs).map_err(|e| e.to_string())?.pass_rate())
+}
+
+/// CTest differential: run frozen probe commands in the original and mirror
+/// builds and pair trimmed stdouts. Probes come from package-keyed data
+/// (`differential.probes`: program + argv, programs resolved against each
+/// build dir); no toolchain literal lives here. Missing probes halt honestly
+/// (never a vacuous pass); a nonzero probe run halts with its location.
+/// The original side is the shared per-run pristine build (see
+/// `build_shared_pristine`): one configure + build per mirror run, reused
+/// across units. Per-unit orig builds are gone.
+pub fn differential_ctest_pairs(
+    package: &str,
+    orig_build: &Path,
+    mirror_build: &Path,
+) -> Result<Vec<(String, String)>, String> {
+    let entry = crate::repo_content::entry(package)?;
+    let probes = entry["differential"]["probes"].as_array().cloned().unwrap_or_default();
+    if probes.is_empty() {
+        return Err(format!("no differential probes for package '{package}'"));
+    }
+    let run_one = |build: &Path, program: &str, args: &[String]| -> Result<String, String> {
+        let cmd = TestCommand {
+            program: build.join(program).display().to_string(),
+            args: args.to_vec(),
+            cwd: Cwd::BuildDir,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: Some(600),
+            collect: Vec::new(),
+        };
+        let runs = execute_all(build, build, &[cmd]).map_err(|e| e.to_string())?;
+        let run = runs.first().ok_or("differential probe produced no output")?;
+        if run.exit_code != 0 {
+            return Err(format!(
+                "differential probe {program} failed in {}:\n{}{}",
+                build.display(),
+                run.stdout,
+                run.stderr
+            ));
+        }
+        Ok(output_value(&run.stdout))
+    };
+    let mut pairs = Vec::new();
+    for probe in &probes {
+        let program = probe["program"].as_str().unwrap_or("");
+        if program.is_empty() {
+            return Err(format!("bad differential probe entry for package '{package}'"));
+        }
+        let args: Vec<String> = probe["args"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|a| a.as_str().map(str::to_string))
+            .collect();
+        pairs.push((run_one(orig_build, program, &args)?, run_one(mirror_build, program, &args)?));
+    }
+    Ok(pairs)
+}
+
+/// Stub-validation archive: materialize the bridge scaffold for `decl` into
+/// `build/rust/<crate>/`, build it with the shared `cargo_build`
+/// invocation, and place the archive at the worker-contract path. Scaffold
+/// bodies are `unimplemented!()` stubs, so grading downstream fails
+/// honestly; this step exists to run the splice/rebuild/grade machinery
+/// against truthful inputs, never to fake a port. Units the bridge cannot
+/// scaffold halt here (never silently).
+pub(crate) fn build_scaffold_stub(
+    build_dir: &Path,
+    unit: &str,
+    decl: &rustsmith_adapters::UnitDecl,
+) -> Result<PathBuf, String> {
+    let files = CmakeBridge.scaffold(decl).map_err(|e| e.to_string())?;
+    let stem = crate::units::unit_stem(unit);
+    let crate_name = rustsmith_adapters::scaffold_crate_name(stem);
+    if crate_name.is_empty() {
+        return Err(format!("unit '{unit}' has no crate name"));
+    }
+    let dir = build_dir.join("rust").join(&crate_name);
+    for (rel, content) in &files {
+        let path = dir.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    }
+    let runs =
+        execute_all(&dir, &dir, &CmakeBridge::cargo_build()).map_err(|e| e.to_string())?;
+    let mut log = String::new();
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err(format!("scaffold crate build failed for unit {unit}:\n{log}"));
+    }
+    let built = dir
+        .join("target/debug")
+        .join(format!("lib{crate_name}.a"));
+    if !built.is_file() {
+        return Err(format!(
+            "scaffold crate for unit {unit} built no archive at {}",
+            built.display()
+        ));
+    }
+    let dest = expected_rust_lib(build_dir, unit);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::copy(&built, &dest).map_err(|e| e.to_string())?;
+    Ok(dest)
+}
+
+/// Build a tracked port crate (`rust/<stem>/` in the tree) and place its
+/// archive at the worker-contract path. Whole-repo grade rebuilds every
+/// merged port from merged sources; per-unit grade uses the worker's own
+/// archive (or the stub-validation build) instead.
+pub(crate) fn build_port_crate(crate_dir: &Path, dest: &Path) -> Result<(), String> {
+    let runs =
+        execute_all(crate_dir, crate_dir, &CmakeBridge::cargo_build()).map_err(|e| e.to_string())?;
+    let mut log = String::new();
+    for r in &runs {
+        log.push_str(&r.stdout);
+        log.push_str(&r.stderr);
+    }
+    if runs.iter().any(|r| r.exit_code != 0) {
+        return Err(format!(
+            "port crate build failed in {}:\n{log}",
+            crate_dir.display()
+        ));
+    }
+    let name = crate_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .ok_or_else(|| format!("port crate dir has no name: {}", crate_dir.display()))?;
+    let built = crate_dir.join("target/debug").join(format!("lib{name}.a"));
+    if !built.is_file() {
+        return Err(format!(
+            "port crate build produced no archive at {}",
+            built.display()
+        ));
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::copy(&built, dest).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Ensure every previously-merged unit's archive exists at the fork
+/// worker-contract path. Merged CMakeLists links those absolute paths, so
+/// any configure+build of the fork or its worktrees fails without them.
+/// Rebuilt from tracked `rust/<stem>/` sources (cargo-incremental after the
+/// first); skipped units never merged, so only `passed` rows land here.
+/// Used before each worktree build and before the whole-repo configure.
+pub(crate) fn ensure_merged_archives(
+    fork: &Path,
+    store: &Store,
+    run_id: &str,
+) -> Result<(), String> {
+    let build_dir = cmake_build_dir(fork);
+    let merged = store.list_units(run_id).map_err(|e| e.to_string())?;
+    for (uid, status, _) in &merged {
+        if status != "passed" {
+            continue;
+        }
+        let stem = crate::units::unit_stem(uid);
+        let crate_dir =
+            fork.join("rust").join(rustsmith_adapters::scaffold_crate_name(stem));
+        build_port_crate(&crate_dir, &expected_rust_lib(&build_dir, uid))?;
+    }
+    Ok(())
 }
 
 /// Run the frozen oracle invocation inside the venv with the installed Rust
@@ -391,6 +703,38 @@ pub struct MirrorArgs {
     pub template: PathBuf,
 }
 
+/// Scaffold-audit bridge follows the frozen recon spine: the single-Python
+/// case keeps `MaturinBridge`; any non-Python language ports through the
+/// CMake/CTest spine (`CmakeBridge`). Same rule as `select_composite` spine
+/// choice and the grade branching below.
+fn scaffold_bridge(languages: &[String]) -> Box<dyn BuildBridge> {
+    if languages.iter().any(|l| l != "python") {
+        Box::new(CmakeBridge)
+    } else {
+        Box::new(MaturinBridge)
+    }
+}
+
+/// Grade-time unit declaration: frozen id + authoritative source plus
+/// re-derived exports (same frontends recon used, deterministic). Export
+/// re-derivation never halts grading: unparseable files fall back to the
+/// stem shape the scaffold derives itself.
+fn grade_unit_decl(
+    repo: &Path,
+    unit: &str,
+    rel: &str,
+) -> rustsmith_adapters::UnitDecl {
+    let exports =
+        rustsmith_adapters::fragment_unit_exports(repo, rel).unwrap_or_default();
+    rustsmith_adapters::UnitDecl {
+        id: rustsmith_adapters::UnitId(unit.to_string()),
+        files: vec![rel.to_string()],
+        generated_from: None,
+        exports,
+        imports: Vec::new(),
+    }
+}
+
 pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     let run_id = &a.run_id;
     // Load recon artifacts. Unit keys are UnitIds
@@ -479,16 +823,21 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     git(&a.fork, &["init", "-q", "-b", "main"])?;
     git(&a.fork, &["config", "user.email", "t@t"])?;
     git(&a.fork, &["config", "user.name", "t"])?;
-    // Scratch + build outputs must never enter the fork.
-    std::fs::write(a.fork.join(".gitignore"), "worktree-*\n.bundles/\n.grade-venv/\norig_src/\n__pycache__/\ntarget/\n*.so\n").map_err(|e| e.to_string())?;
+    // Scratch + build outputs must never enter the fork. Port sources live
+    // in tracked `rust/<stem>/`; their cargo/cmake outputs stay out.
+    std::fs::write(a.fork.join(".gitignore"), "worktree-*\n.bundles/\n.grade-venv/\norig_src/\n__pycache__/\ntarget/\n*.so\nbuild/\nrust/*/target/\n").map_err(|e| e.to_string())?;
     git(&a.fork, &["add", "-A"])?;
     git(&a.fork, &["commit", "-qm", "seed from original"])?;
-    // Run language comes from the frozen recon (`build.languages`, new) with
-    // `build.language` (pre-rollout) as compat fallback — never a literal.
     let mirror_lang = crate::units::read_recon_build_languages(&a.recon_out)
         .first()
         .cloned()
         .unwrap_or_else(|| "unknown".to_string());
+    // Full frozen language list drives the scaffold-audit bridge (single
+    // Python keeps MaturinBridge; any other language selects CmakeBridge).
+    let build_languages = crate::units::read_recon_build_languages(&a.recon_out);
+    // Grade spine: single-Python keeps the exact HEAD venv/maturin/pytest
+    // path below; anything else configures + grades through CMake/CTest.
+    let python_spine = is_python_spine_langs(&build_languages);
     store
         .create_run(run_id, &a.repo.display().to_string(), &mirror_lang, "mirror")
         .map_err(|e| e.to_string())?;
@@ -511,7 +860,20 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     let sandbox = Sandbox::new("containers".into());
     let agent = Agent::new(Some(store.events_path.clone()));
     let venv = a.fork.join(".grade-venv");
-    ensure_grade_venv(&venv)?;
+    // The grade venv is a Python-spine stage concern; the CTest spine
+    // configures each worktree out-of-source at grade time instead.
+    if python_spine {
+        ensure_grade_venv(&venv)?;
+    }
+    // Shared pristine build (CTest spine only): the staged original builds
+    // ONCE per run and every unit's differential reuses it (see
+    // `build_shared_pristine`). Python keeps its per-worktree `orig_src`
+    // staging below; an empty DAG needs no pristine side at all.
+    let shared_orig_build: Option<PathBuf> = if python_spine || order.is_empty() {
+        None
+    } else {
+        Some(build_shared_pristine(&a.fork, &orig_src, store, run_id)?)
+    };
 
     // Scheduler: leaf-first over the DAG; ready = all deps passed.
     // Parallel cap MAX_PARALLEL bounds independent units (runs serialize here).
@@ -553,13 +915,16 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             &orig_source,
             "frozen-oracle(read-only)",
         )?;
-        // Canonical scaffold audit: the bridge is the authority on port
-        // scaffolds, so resolve this unit through `bridge.scaffold()` and
-        // freeze the resulting file list next to the bundle. Units the bridge
-        // cannot scaffold fall back to the template compat mapping recorded
-        // here; materialization below still follows the template task.
-        let bridge = MaturinBridge;
-        let decl = crate::units::unit_decl_for_scaffold(id, &orig_rel);
+        // Canonical scaffold audit: the spine-selected bridge is the authority
+        // on port scaffolds (MaturinBridge for single-Python, CmakeBridge
+        // otherwise), so resolve this unit through `bridge.scaffold()` and
+        // freeze the resulting file list next to the bundle. The declaration
+        // carries re-derived exports (same frontends recon used); unparseable
+        // files fall back to the stem shape, never a grade halt. Units the
+        // bridge cannot scaffold fall back to the template compat mapping
+        // recorded here; materialization below still follows the template task.
+        let bridge = scaffold_bridge(&build_languages);
+        let decl = grade_unit_decl(&a.repo, id, &orig_rel);
         let scaffold_note = match bridge.scaffold(&decl) {
             Ok(files) => serde_json::json!({
                 "scaffolded": true,
@@ -613,41 +978,97 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             return Err(format!("worker for {id} exited {}", res.exit_code));
         }
         store.set_unit_status(id, "gated").map_err(|e| e.to_string())?;
-        // Grade in the worktree: build + oracle + heldout + differential.
-        // Configure (bridge.prepare) is empty for maturin; build installs the
-        // extension into the grade venv; grading/parsing is runner-owned.
+        // Grade in the worktree. Python spine: build the extension into the
+        // grade venv, then oracle + heldout + differential through pytest.
+        // (Configure via bridge.prepare is empty for maturin.)
+        // CTest spine: configure out-of-source, splice the worker's Rust
+        // archive in place of the unit objects, rebuild, and grade through
+        // ctest. `substitute` refuses a missing archive honestly, so the
+        // stub path stops before anything merges.
         let wt_path = wt.as_std_path();
-        build_ext(wt_path, &venv)?;
-        let got = run_oracle_in_venv(&venv, wt_path, &manifest)?;
-        // Gates.
-        let runner = PytestRunner;
-        let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
-        // NOTE: worktree pyproject was replaced (maturin) — section-hash covers
-        // test config only (ADR-002), so packaging change does not trip tamper.
-        let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
-        let parity = gates::oracle_parity(&got);
-        let rate = rate_of(&got);
-        // Held-out suite against the worktree build via the venv runner.
-        let held_rate = run_heldout_in_venv(&venv, wt_path, &a.heldout)?;
-        let div = gates::heldout_divergence(rate, held_rate, 0.05);
-        // Stage orig_src for the differential probes (resolved via cwd).
-        std::fs::create_dir_all(wt_path.join("orig_src")).map_err(|e| e.to_string())?;
-        copy_tree(&orig_src, &wt_path.join("orig_src"))?;
-        let diff_pairs = differential_pairs_for(
-            &package,
-            &PathBuf::from(PytestRunner::python_program()),
-            &grade_venv_python(&venv),
-            wt_path,
-        )?;
-        let _ = std::fs::remove_dir_all(wt_path.join("orig_src"));
-        // Exact-equality behind the per-observable tolerance: the default path
-        // passes 0.0/None, preserving legacy math byte-for-byte.
-        let diff = gates::differential(&diff_pairs, 0.0, None);
+        let (integrity, parity, div, diff_result): (_, _, _, Result<_, String>) = if python_spine {
+            build_ext(wt_path, &venv)?;
+            let got = run_oracle_in_venv(&venv, wt_path, &manifest)?;
+            // Gates.
+            let runner = PytestRunner;
+            let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
+            // NOTE: worktree pyproject was replaced (maturin) — section-hash covers
+            // test config only (ADR-002), so packaging change does not trip tamper.
+            let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+            let parity = gates::oracle_parity(&got);
+            let rate = rate_of(&got);
+            // Held-out suite against the worktree build via the venv runner.
+            let held_rate = run_heldout_in_venv(&venv, wt_path, &a.heldout)?;
+            let div = gates::heldout_divergence(rate, held_rate, 0.05);
+            // Stage orig_src for the differential probes (resolved via cwd).
+            std::fs::create_dir_all(wt_path.join("orig_src")).map_err(|e| e.to_string())?;
+            copy_tree(&orig_src, &wt_path.join("orig_src"))?;
+            let diff_pairs = differential_pairs_for(
+                &package,
+                &PathBuf::from(PytestRunner::python_program()),
+                &grade_venv_python(&venv),
+                wt_path,
+            )?;
+            let _ = std::fs::remove_dir_all(wt_path.join("orig_src"));
+            // Exact-equality behind the per-observable tolerance: the default path
+            // passes 0.0/None, preserving legacy math byte-for-byte.
+            let diff = gates::differential(&diff_pairs, 0.0, None);
+            (integrity, parity, div, Ok(diff))
+        } else {
+            // Previously-merged archives first: the worktree inherits merged
+            // CMakeLists linking their absolute fork paths, and make fails
+            // the pristine build when any is missing (`No rule to make
+            // target`). Rebuilt from tracked sources (cargo-incremental).
+            ensure_merged_archives(&a.fork, store, run_id)?;
+            cmake_configure(wt_path)?;
+            let build_dir = cmake_build_dir(wt_path);
+            // Pristine build first: the splice below overwrites real built
+            // objects, and the post-splice rebuild is then incremental.
+            cmake_build(wt_path, &build_dir)?;
+            let cx = BuildCtx { tree: wt_path, build_dir: &build_dir, release: false };
+            // Port archive: the worker's build output when present; without
+            // a worker, build the bridge scaffold itself so the splice /
+            // rebuild / grade machinery below runs against truthful inputs
+            // (scaffold stubs panic, so grading fails honestly; nothing
+            // merges). Python path untouched.
+            let archive = expected_rust_lib(&build_dir, id);
+            if !archive.is_file() {
+                build_scaffold_stub(&build_dir, id, &decl)?;
+            }
+            let sub_cmds = CmakeBridge
+                .substitute(&cx, &decl, &archive)
+                .map_err(|e| e.to_string())?;
+            let runs = execute_all(wt_path, &build_dir, &sub_cmds).map_err(|e| e.to_string())?;
+            let mut log = String::new();
+            for r in &runs {
+                log.push_str(&r.stdout);
+                log.push_str(&r.stderr);
+            }
+            if runs.iter().any(|r| r.exit_code != 0) {
+                return Err(format!("substitute failed for unit {id}:\n{log}"));
+            }
+            let got = run_ctest_oracle(wt_path, &build_dir, &manifest)?;
+            let runner = CtestRunner;
+            let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
+            let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+            let parity = gates::oracle_parity(&got);
+            let rate = rate_of(&got);
+            let held_rate = run_ctest_heldout(wt_path, &build_dir, &a.heldout)?;
+            let div = gates::heldout_divergence(rate, held_rate, 0.05);
+            // Differential against the shared pristine build (configured +
+            // built once per run above, reused across units). Probes are
+            // package-keyed data; missing probes halt honestly above.
+            let orig_build = shared_orig_build.as_deref().ok_or(
+                "non-Python spine needs the shared pristine build",
+            )?;
+            let diff_pairs = differential_ctest_pairs(&package, orig_build, &build_dir)?;
+            let diff = gates::differential(&diff_pairs, 0.0, None);
+            (integrity, parity, div, Ok(diff))
+        };
         for (g, v) in [
             (Gate::OracleIntegrity, &integrity),
             (Gate::OracleParity, &parity),
             (Gate::HeldoutDivergence, &div),
-            (Gate::Differential, &diff),
         ] {
             let mut detail = v.detail.clone();
             detail["prompt_version"] = serde_json::json!(prompt_version);
@@ -655,6 +1076,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
                 .record_gate(id, g, v.passed, &detail)
                 .map_err(|e| e.to_string())?;
         }
+        // Differential resolves last: the CTest spine halts here honestly
+        // (recorded gates above stay as evidence). Python missing probes
+        // already halted inside its arm, as before.
+        let diff = diff_result?;
         ev(
             store,
             run_id,
@@ -688,13 +1113,39 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         ev(store, run_id, "merge", serde_json::json!({"unit": id, "sha": sha}));
         let _ = sandbox.drop_worktree(&a.fork, wt.as_std_path());
     }
+    // The shared pristine stage served every differential above; remove it
+    // before the whole-repo grade so the fork holds only merged sources
+    // (it was git-ignored throughout, never committed).
+    let _ = std::fs::remove_dir_all(a.fork.join("orig_src"));
 
     // Whole-repo grade on the run branch (rebuild from merged sources first).
-    build_ext(&a.fork, &venv)?;
-    let got = run_oracle_in_venv(&venv, &a.fork, &manifest)?;
-    let hashes = Oracle::current_hashes(&manifest, &a.fork, &PytestRunner);
-    let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
-    let parity = gates::oracle_parity(&got);
+    // Python spine: venv build + pytest oracle. CTest spine: configure +
+    // full build out-of-source, then the ctest oracle. Integrity/parity and
+    // the held-out divergence halt below are spine-agnostic.
+    let (got, integrity, parity) = if python_spine {
+        build_ext(&a.fork, &venv)?;
+        let got = run_oracle_in_venv(&venv, &a.fork, &manifest)?;
+        let hashes = Oracle::current_hashes(&manifest, &a.fork, &PytestRunner);
+        let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+        let parity = gates::oracle_parity(&got);
+        (got, integrity, parity)
+    } else {
+        // Port archives first via the shared helper (merged CMakeLists links
+        // them by worker-contract path), then configure + full build (links
+        // archives in), then the oracle. No object splice here: merged
+        // sources are gone from their targets, so there are no unit objects
+        // to overwrite (per-unit worktrees keep the ld -r path).
+        ensure_merged_archives(&a.fork, store, run_id)?;
+        let build_dir = cmake_build_dir(&a.fork);
+        cmake_configure(&a.fork)?;
+        cmake_build(&a.fork, &build_dir)?;
+        let got = run_ctest_oracle(&a.fork, &build_dir, &manifest)?;
+        let runner = CtestRunner;
+        let hashes = Oracle::current_hashes(&manifest, &a.fork, &runner);
+        let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+        let parity = gates::oracle_parity(&got);
+        (got, integrity, parity)
+    };
     if !integrity.passed {
         let reason = format!("oracle_tamper whole-repo: {}", integrity.detail);
         store.set_halt(run_id, &reason).map_err(|e| e.to_string())?;
@@ -704,7 +1155,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     if !parity.passed {
         return Err("whole-repo grade failed".into());
     }
-    let held_rate_all = run_heldout_in_venv(&venv, &a.fork, &a.heldout)?;
+    // Held-out suite through the spine runner (ctest `-R` on the CTest
+    // spine; an empty held-out set matches nothing and fails honestly).
+    let held_rate_all = if python_spine {
+        run_heldout_in_venv(&venv, &a.fork, &a.heldout)?
+    } else {
+        run_ctest_heldout(&a.fork, &cmake_build_dir(&a.fork), &a.heldout)?
+    };
     let whole_div = rate_of(&got) - held_rate_all;
     // Held-out divergence over threshold halts the run (SPEC 10.3).
     let wdiv = gates::heldout_divergence(rate_of(&got), held_rate_all, 0.05);
@@ -822,10 +1279,197 @@ fn record_review(
     Ok(())
 }
 
+/// File API owner for `rel` from this tree's own configure reply
+/// (`<tree>/build/.cmake/api/v1/reply`, present because `cmake_configure`
+/// drops the query first). `None` when the tree was never configured, the
+/// reply is unparsable, or no target lists the source — all three fall back
+/// to the token heuristic, never a halt. Resolution semantics are owned by
+/// `rustsmith-adapters::file_api_target_for_source`.
+fn file_api_owner(tree: &Path, rel: &str) -> Option<String> {
+    let reply = cmake_build_dir(tree).join(".cmake/api/v1/reply");
+    let targets = rustsmith_adapters::parse_cmake_file_api_reply(&reply, tree).ok()?;
+    rustsmith_adapters::file_api_target_for_source(&targets, rel)
+}
+
+/// Remove merged-away sources from CMake target lists so the fork stays
+/// buildable after every merge commit. Returns one `(deleted rel, list
+/// file, owning target)` per removal for link splicing. The owning target
+/// resolves File-API-first: the tree's own codemodel reply (see
+/// `file_api_owner`) knows the owner even when the source reaches its target
+/// through a variable (`set()`/`list()`) with no `add_*` opener above the
+/// token — that unblocks exactly the variable-list halt below. Absent or
+/// unmapped replies fall back to the token heuristic. Scans
+/// `**/CMakeLists.txt` for the deleted file (exact repo-rel token, else
+/// basename) and removes the token (identifier boundaries, quotes
+/// tolerated). No CMakeLists anywhere = not a CMake tree (Python-spine
+/// no-op). Zero or several matches, or no owning target from either path,
+/// halt honestly.
+/// `target_link_libraries` is untouched here; the caller splices it.
+pub(crate) fn cmake_remove_sources(
+    tree: &Path,
+    deleted: &[String],
+) -> Result<Vec<(String, PathBuf, String)>, String> {
+    // Scratch dirs never own target lists: worktrees (which nest under the
+    // fork), bundles, and build outputs all carry CMakeLists copies or none
+    // at all. Same exclusion discipline as the probe walk and fork .gitignore.
+    let lists: Vec<PathBuf> = walkdir_simple(tree)
+        .into_iter()
+        .filter(|p| {
+            !p.components().any(|c| {
+                let s = c.as_os_str().to_str().unwrap_or("");
+                s == ".git"
+                    || s == ".bundles"
+                    || s == "build"
+                    || s == "target"
+                    || s == ".grade-venv"
+                    || s == "orig_src"
+                    || s.starts_with("worktree-")
+            })
+        })
+        .filter(|p| p.file_name().and_then(|n| n.to_str()) == Some("CMakeLists.txt"))
+        .collect();
+    if lists.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut edits = Vec::new();
+    for rel in deleted {
+        // File API first (see `file_api_owner`): authoritative even for
+        // variable-fed targets. The token edit below stays form-exact either
+        // way; only the owner source changes.
+        let file_api_target = file_api_owner(tree, rel);
+        let base = rel.rsplit('/').next().unwrap_or(rel);
+        let mut done: Option<(PathBuf, String)> = None;
+        // Exact repo-rel token first, then basename (subdir-relative lists).
+        for form in [rel.as_str(), base] {
+            let mut total = 0;
+            let mut site: Option<(PathBuf, String)> = None;
+            for list in &lists {
+                let text = std::fs::read_to_string(list).map_err(|e| e.to_string())?;
+                let c = count_token(&text, form);
+                if c > 0 {
+                    total += c;
+                    site = Some((list.clone(), text));
+                }
+            }
+            if total == 1 {
+                let (path, text) = site.unwrap_or_default();
+                let target = match file_api_target.clone() {
+                    Some(t) => t,
+                    None => owning_target(&text, form).ok_or_else(|| {
+                        format!("cannot resolve owning target for deleted '{rel}' (source lists in variables need File API resolution)")
+                    })?,
+                };
+                std::fs::write(&path, remove_token(&text, form)).map_err(|e| e.to_string())?;
+                done = Some((path, target));
+                break;
+            }
+            if total > 1 {
+                return Err(format!(
+                    "ambiguous CMakeLists match for deleted '{rel}' (form '{form}')"
+                ));
+            }
+        }
+        match done {
+            Some((path, target)) => edits.push((rel.clone(), path, target)),
+            None => {
+                return Err(match file_api_target {
+                    Some(t) => format!(
+                        "deleted '{rel}' (File API owner '{t}') matches no CMakeLists source entry"
+                    ),
+                    None => format!(
+                        "deleted '{rel}' matches no CMakeLists source entry"
+                    ),
+                })
+            }
+        }
+    }
+    Ok(edits)
+}
+
+/// Owning CMake target for a source token: nearest preceding
+/// `add_library(` / `add_executable(` opener and its first argument.
+/// Variable/glob source lists (`${SRCS}`) carry no filename token, so the
+/// caller already failed to match there; a token with no opener above it is
+/// refused the same way (never guessed).
+fn owning_target(lists_text: &str, token: &str) -> Option<String> {
+    let (s, _) = token_hits(lists_text, token).into_iter().next()?;
+    let upto: Vec<&str> = lists_text[..s].lines().collect();
+    for line in upto.iter().rev() {
+        let t = line.trim_start();
+        let lower = t.to_ascii_lowercase();
+        if !(lower.starts_with("add_library(") || lower.starts_with("add_executable(")) {
+            continue;
+        }
+        // First argument on the opener line; keep the original case from `t`.
+        let after = &t[t.find('(').unwrap_or(0) + 1..];
+        let name = after
+            .split(|c: char| c.is_whitespace() || c == ')')
+            .find(|w| !w.is_empty())?;
+        return Some(name.trim_matches('"').to_string());
+    }
+    None
+}
+/// Identifier boundary for token matching: quotes, parens, whitespace and
+/// list separators count; alphanumerics, `_`, `.`, `/`, `-`, `+` don't (so
+/// `add.F90` never matches inside `old_add.F90`).
+fn is_token_boundary(c: Option<char>) -> bool {
+    match c {
+        None => true,
+        Some(c) => !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '-' | '+')),
+    }
+}
+
+/// Bounded token occurrences in `text`.
+fn token_hits(text: &str, token: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    if token.is_empty() {
+        return out;
+    }
+    let mut from = 0;
+    while let Some(i) = text[from..].find(token) {
+        let s = from + i;
+        let e = s + token.len();
+        if is_token_boundary(text[..s].chars().next_back())
+            && is_token_boundary(text[e..].chars().next())
+        {
+            out.push((s, e));
+        }
+        from = e;
+    }
+    out
+}
+
+/// Token occurrences with identifier boundaries (see [`is_token_boundary`]).
+fn count_token(text: &str, token: &str) -> usize {
+    token_hits(text, token).len()
+}
+
+/// Remove the single token occurrence (caller verified exactly one via
+/// [`count_token`], so the bounded hit below always exists).
+fn remove_token(text: &str, token: &str) -> String {
+    let Some((mut s, mut e)) = token_hits(text, token).into_iter().next() else {
+        return text.to_string();
+    };
+    // Back up over an opening quote the removal would strand, and drop its
+    // closer too (`"x"` vanishes entirely instead of leaving `""`).
+    let bytes = text.as_bytes();
+    if s > 0 && bytes[s - 1] == b'"' && text[e..].starts_with('"') {
+        s -= 1;
+        e += 1;
+    }
+    let mut out = text[..s].to_string();
+    out.push_str(&text[e..]);
+    out
+}
+
+
 fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -> Result<(), String> {
     // Merge worker branch with --no-commit, delete the mirrored
-    // original-language modules (template manifest), then commit ONCE:
-    // merge + deletion land in the same commit so interface drift surfaces now.
+    // original-language modules (template manifest), drop the deleted
+    // sources from CMake target lists (each owning target gains the shared
+    // empty TU plus its port archive link), then commit ONCE: merge +
+    // deletion + build edit land in the same commit so the fork stays
+    // buildable and drift surfaces now.
     // Branch names are sanitized (UnitIds contain `:`/`/`, illegal in git
     // refs); this matches the `alloc_worktree` name in `run_mirror`.
     let wt_branch = format!("unit/{}", crate::units::unit_fs_name(unit_id));
@@ -833,6 +1477,41 @@ fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -
     for t in deletes {
         if fork.join(t).exists() {
             git(fork, &["rm", "-q", t])?;
+        }
+    }
+    // The fork must stay buildable: a CMake tree keeps referencing deleted
+    // sources until they leave the target lists, and each owning target
+    // gains the port archive in their place. Non-CMake trees no-op here.
+    // Archive paths are worker-contract conventional; whole-repo grade
+    // builds them before configuring, so they exist when CMake globs them.
+    for (rel, list, target) in cmake_remove_sources(fork, deletes)? {
+        let stem = rustsmith_adapters::scaffold_crate_name(crate::units::unit_stem(&rel));
+        let archive = fork
+            .join("build/rust")
+            .join(format!("lib{stem}.a"))
+            .display()
+            .to_string();
+        let mut text = std::fs::read_to_string(&list).map_err(|e| e.to_string())?;
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&format!("# rustsmith: port of {rel} (merged unit)\n"));
+        if !text.contains(&format!("target_sources({target} PRIVATE rustsmith_empty.c)")) {
+            text.push_str(&format!(
+                "target_sources({target} PRIVATE rustsmith_empty.c)\n"
+            ));
+        }
+        text.push_str(&format!(
+            "target_link_libraries({target} PRIVATE {archive})\n"
+        ));
+        std::fs::write(&list, text).map_err(|e| e.to_string())?;
+        // An emptied target is a CMake error (`No SOURCES given`), so every
+        // edited list dir gains the shared empty TU (uniform: no emptiness
+        // detection, negligible cost, committed with the merge).
+        let stub = list.parent().unwrap_or(fork).join("rustsmith_empty.c");
+        if !stub.is_file() {
+            std::fs::write(&stub, "/* rustsmith: empty TU keeping ported targets non-empty. */\n")
+                .map_err(|e| e.to_string())?;
         }
     }
     git(fork, &["add", "-A"])?;
@@ -961,7 +1640,6 @@ fn walkdir_simple(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1057,5 +1735,285 @@ mod tests {
         );
         let identical = vec![("1.000".to_string(), "1.000".to_string())];
         assert!(gates::differential(&identical, 0.0, None).passed);
+    }
+
+    #[test]
+    fn scaffold_bridge_follows_frozen_spine() {
+        // Single-Python keeps the maturin audit shape (pyo3/cdylib).
+        let py = scaffold_bridge(&["python".to_string()]);
+        let decl = crate::units::unit_decl_for_scaffold("python:src/pkg/mod.py", "src/pkg/mod.py");
+        let files = py.scaffold(&decl).unwrap();
+        let lib = files.iter().find(|(p, _)| p == "src/lib.rs").unwrap().1.clone();
+        assert!(lib.contains("#[pymodule]"), "python spine lost maturin shape: {lib}");
+        // Any non-Python language selects the CMake audit shape
+        // (staticlib + port_ fns), e.g. Elmer's frozen languages.
+        let cmake = scaffold_bridge(&["cxx".to_string(), "fortran".to_string(), "python".to_string()]);
+        let decl = crate::units::unit_decl_for_scaffold("fortran:fem/src/foo.F90", "fem/src/foo.F90");
+        let files = cmake.scaffold(&decl).unwrap();
+        let lib = files.iter().find(|(p, _)| p == "src/lib.rs").unwrap().1.clone();
+        assert!(lib.contains("staticlib") || lib.contains("port_"), "cmake spine lost staticlib shape: {lib}");
+        assert!(!lib.contains("#[pymodule]"), "cmake spine must not emit pyo3: {lib}");
+    }
+
+    #[test]
+    fn grade_spine_predicate_matches_recon_rule() {
+        assert!(is_python_spine_langs(&["python".to_string()]));
+        // Pre-rollout shape (missing list) keeps HEAD behavior.
+        assert!(is_python_spine_langs(&[]));
+        assert!(!is_python_spine_langs(&[
+            "cxx".to_string(),
+            "fortran".to_string(),
+            "python".to_string()
+        ]));
+        assert!(!is_python_spine_langs(&["fortran".to_string()]));
+    }
+
+    #[test]
+    fn cmake_worktree_paths_are_out_of_source() {
+        let tree = Path::new("/wt");
+        assert_eq!(cmake_build_dir(tree), PathBuf::from("/wt/build"));
+        // Worker-contract archive path is deterministic per unit.
+        assert_eq!(
+            expected_rust_lib(&cmake_build_dir(tree), "fortran:fem/src/solver.F90"),
+            PathBuf::from("/wt/build/rust/libsolver.a")
+        );
+        // … and matches the scaffold's sanitized crate name, not the raw stem.
+        assert_eq!(
+            expected_rust_lib(&cmake_build_dir(tree), "fortran:fem/src/DefUtils.F90"),
+            PathBuf::from("/wt/build/rust/libdefutils.a")
+        );
+    }
+
+    #[test]
+    fn ctest_differential_refuses_missing_probes() {
+        // Unknown packages halt (never a vacuous pass) …
+        let err =
+            differential_ctest_pairs("no-such-pkg", Path::new("/o"), Path::new("/m"))
+                .unwrap_err();
+        assert!(err.contains("no-such-pkg"), "unexpected: {err}");
+        // … as do entries without a probes list (python-shaped data).
+        let err =
+            differential_ctest_pairs("crc", Path::new("/o"), Path::new("/m")).unwrap_err();
+        assert!(err.contains("no differential probes"), "unexpected: {err}");
+    }
+
+    fn write_lists(dir: &std::path::Path, rel: &str, body: &str) {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+    }
+
+    #[test]
+    fn cmake_remove_sources_edits_exact_token_only() {
+        let dir = tempfile::tempdir().unwrap();
+        write_lists(
+            dir.path(),
+            "CMakeLists.txt",
+            "add_library(add STATIC\n  src/mini_add.F90\n  src/old_add.F90\n)\n",
+        );
+        write_lists(
+            dir.path(),
+            "sub/CMakeLists.txt",
+            "add_executable(tool \"tool_main.c\")\n",
+        );
+        // Exact repo-rel token removed; lookalike `old_add.F90` untouched.
+        cmake_remove_sources(dir.path(), &["src/mini_add.F90".to_string()]).unwrap();
+        let top = std::fs::read_to_string(dir.path().join("CMakeLists.txt")).unwrap();
+        assert!(!top.contains("mini_add"), "token not removed: {top}");
+        assert!(top.contains("src/old_add.F90"), "lookalike damaged: {top}");
+        // Basename fallback for subdir-relative lists.
+        cmake_remove_sources(dir.path(), &["sub/tool_main.c".to_string()]).unwrap();
+        let sub = std::fs::read_to_string(dir.path().join("sub/CMakeLists.txt")).unwrap();
+        assert!(!sub.contains("tool_main"), "basename not removed: {sub}");
+        // No CMakeLists anywhere: not a CMake tree, silent no-op.
+        let plain = tempfile::tempdir().unwrap();
+        cmake_remove_sources(plain.path(), &["a/b.c".to_string()]).unwrap();
+        // Present tree, absent source: honest halt. Twice-matched: halt.
+        let err = cmake_remove_sources(dir.path(), &["src/gone.F90".to_string()]).unwrap_err();
+        assert!(err.contains("matches no CMakeLists"), "unexpected: {err}");
+        write_lists(dir.path(), "other/CMakeLists.txt", "add_library(x src/dup.c)\n");
+        write_lists(dir.path(), "CMakeLists.txt", "add_library(y src/dup.c)\n");
+        let err = cmake_remove_sources(dir.path(), &["src/dup.c".to_string()]).unwrap_err();
+        assert!(err.contains("ambiguous"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn cmake_remove_sources_ignores_nested_worktrees() {
+        // Worktrees nest under the fork with their own CMakeLists copies;
+        // only the top tree owns target lists.
+        let dir = tempfile::tempdir().unwrap();
+        write_lists(
+            dir.path(),
+            "CMakeLists.txt",
+            "add_library(add STATIC src/mini_add.F90)\n",
+        );
+        write_lists(
+            dir.path(),
+            "worktree-u1/CMakeLists.txt",
+            "add_library(add STATIC src/mini_add.F90)\n",
+        );
+        write_lists(
+            dir.path(),
+            "build/CMakeLists.txt",
+            "add_library(add STATIC src/mini_add.F90)\n",
+        );
+        cmake_remove_sources(dir.path(), &["src/mini_add.F90".to_string()]).unwrap();
+        let top = std::fs::read_to_string(dir.path().join("CMakeLists.txt")).unwrap();
+        assert!(!top.contains("mini_add"), "top token not removed: {top}");
+        let nested =
+            std::fs::read_to_string(dir.path().join("worktree-u1/CMakeLists.txt")).unwrap();
+        assert!(nested.contains("mini_add"), "nested copy touched: {nested}");
+    }
+
+    #[test]
+    fn cmake_configure_requests_file_api() {
+        // The query goes down before prepare so the reply exists for merge
+        // time: minimal C project, real configure, then the query + reply.
+        let dir = tempfile::tempdir().unwrap();
+        write_lists(
+            dir.path(),
+            "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.16)\nproject(qtest C)\n",
+        );
+        cmake_configure(dir.path()).unwrap();
+        let query = dir
+            .path()
+            .join("build/.cmake/api/v1/query/client-rustsmith/query.json");
+        assert!(query.is_file(), "query not written: {}", query.display());
+        let body: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&query).unwrap()).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"requests": [{"kind": "codemodel", "version": 2}]}),
+        );
+        let replies: Vec<_> = std::fs::read_dir(dir.path().join("build/.cmake/api/v1/reply"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name().to_string_lossy().starts_with("index-")
+            })
+            .collect();
+        assert!(!replies.is_empty(), "configure answered no File API reply");
+    }
+
+    fn file_api_target(name: &str, paths: &[&str]) -> rustsmith_adapters::FileApiTarget {
+        rustsmith_adapters::FileApiTarget {
+            name: name.to_string(),
+            sources: paths
+                .iter()
+                .map(|p| rustsmith_adapters::FileApiSource {
+                    language: "c".to_string(),
+                    path: p.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn file_api_lookup_exact_then_basename_sorted_first() {
+        let targets = vec![
+            file_api_target("zeta", &["src/var.c"]),
+            file_api_target("alpha", &["src/var.c", "src/other.c"]),
+            file_api_target("mid", &["other/var.c"]),
+        ];
+        // Exact repo-rel match wins over the basename fallback, first sorted.
+        assert_eq!(
+            rustsmith_adapters::file_api_target_for_source(&targets, "src/var.c"),
+            Some("alpha".to_string()),
+        );
+        // No exact match: basename fallback, first sorted target wins.
+        assert_eq!(
+            rustsmith_adapters::file_api_target_for_source(&targets, "elsewhere/var.c"),
+            Some("alpha".to_string()),
+        );
+        assert_eq!(rustsmith_adapters::file_api_target_for_source(&targets, "src/gone.c"), None);
+        assert_eq!(rustsmith_adapters::file_api_target_for_source(&[], "src/var.c"), None);
+    }
+
+    fn write_reply(dir: &std::path::Path, target: &str, abs_source: &str) {
+        let reply = dir.join("build/.cmake/api/v1/reply");
+        std::fs::create_dir_all(&reply).unwrap();
+        std::fs::write(
+            reply.join("index-0.json"),
+            r#"{"objects": [{"kind": "target", "jsonFile": "target-0.json"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            reply.join("target-0.json"),
+            serde_json::json!({
+                "name": target,
+                "sources": [{"path": abs_source}],
+                "compileGroups": [{"language": "C", "sourceIndexes": [0]}],
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn cmake_remove_sources_prefers_file_api_for_variable_lists() {
+        // Variable-fed target (`set()` + `${VAR}`, no `add_*` opener above
+        // the token): the token heuristic halts, the File API reply resolves.
+        let dir = tempfile::tempdir().unwrap();
+        write_lists(
+            dir.path(),
+            "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.16)\nproject(vartest C)\nset(SRCS src/var.c)\nadd_library(var_owner STATIC ${SRCS})\n",
+        );
+        write_lists(dir.path(), "src/var.c", "int var_fn(void) { return 1; }\n");
+        let abs = dir.path().join("src/var.c").display().to_string();
+        write_reply(dir.path(), "var_owner", &abs);
+        let edits = cmake_remove_sources(dir.path(), &["src/var.c".to_string()]).unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].0, "src/var.c");
+        assert_eq!(edits[0].2, "var_owner");
+        let text = std::fs::read_to_string(dir.path().join("CMakeLists.txt")).unwrap();
+        assert!(!text.contains("var.c"), "token not removed: {text}");
+        assert!(text.contains("add_library(var_owner"), "owner damaged: {text}");
+        // Same tree without the reply: the heuristic halt survives (fallback,
+        // never a guess).
+        std::fs::remove_dir_all(dir.path().join("build")).unwrap();
+        write_lists(
+            dir.path(),
+            "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.16)\nproject(vartest C)\nset(SRCS src/var.c)\nadd_library(var_owner STATIC ${SRCS})\n",
+        );
+        let err = cmake_remove_sources(dir.path(), &["src/var.c".to_string()]).unwrap_err();
+        assert!(err.contains("cannot resolve owning target"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn shared_pristine_build_stages_once_per_call() {
+        // One helper call = one staged original + one configured + built
+        // tree at the deterministic ignored path, with the audit event.
+        let repo = tempfile::tempdir().unwrap();
+        write_lists(
+            repo.path(),
+            "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.16)\nproject(sharedtest C)\nadd_library(sharedtest STATIC src/a.c)\n",
+        );
+        write_lists(repo.path(), "src/a.c", "int a_fn(void) { return 41; }\n");
+        let fork = tempfile::tempdir().unwrap();
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&store_dir.path().join("store.db")).unwrap();
+        let build = build_shared_pristine(fork.path(), repo.path(), &store, "r1").unwrap();
+        assert_eq!(build, fork.path().join("orig_src/build"));
+        assert!(
+            build.join("CMakeCache.txt").is_file(),
+            "shared build never configured"
+        );
+        assert!(
+            fork.path().join("orig_src/src/a.c").is_file(),
+            "original not staged"
+        );
+        let events = std::fs::read_to_string(&store.events_path).unwrap();
+        assert_eq!(
+            events.lines().filter(|l| l.contains("pristine_build")).count(),
+            1,
+            "one call must emit exactly one pristine_build event:\n{events}"
+        );
+        // Deterministic restage: a second call rebuilds the same path.
+        let build2 = build_shared_pristine(fork.path(), repo.path(), &store, "r1").unwrap();
+        assert_eq!(build, build2);
     }
 }

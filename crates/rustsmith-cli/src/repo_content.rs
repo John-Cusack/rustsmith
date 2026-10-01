@@ -22,6 +22,26 @@ pub fn entry(package: &str) -> Result<&'static serde_json::Value, String> {
     }
 }
 
+/// Generic content for repos with no package-keyed entry (non-Python spines).
+/// Every consumer degrades to empty/defaults: no hotspot descriptors, an empty
+/// workload contract, no held-out descriptors. Never halts; the probe report
+/// already froze the repo identity. Python-spine callers keep using
+/// [`entry`] (which still refuses unknowns) so their output stays byte-identical.
+pub fn empty_content() -> serde_json::Value {
+    serde_json::json!({
+        "hotspot_descriptors": [],
+        "workload_contract": {},
+        "heldout_descriptors": {},
+    })
+}
+
+/// Content for `package`: the package-keyed entry when present, else the
+/// generic [`empty_content`]. Non-Python spines use this so unknown packages
+/// degrade instead of halting once the probe succeeds.
+pub fn entry_or_empty(package: &str) -> serde_json::Value {
+    entry(package).cloned().unwrap_or_else(|_| empty_content())
+}
+
 /// All known package keys (tests iterate this; no package is named in code).
 #[cfg(test)]
 pub fn packages() -> Vec<String> {
