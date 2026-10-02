@@ -362,6 +362,7 @@ dependencies = [
  "rustsmith-harvest",
  "rustsmith-oracle",
  "rustsmith-profile",
+ "rustsmith-release",
  "rustsmith-report",
  "rustsmith-sandbox",
  "rustsmith-store",
@@ -429,6 +430,19 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "rustsmith-release"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@
 //! gated identically). Proposals still pass through proposal-before-code review
 //! and bound/tier/ceiling arithmetic before any graded run is spent.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Replace exactly once; fail loudly on drift (never silently reinterpret).
 pub fn replace_once(haystack: &mut String, needle: &str, replacement: &str) -> Result<(), String> {
@@ -16,6 +16,33 @@ pub fn replace_once(haystack: &mut String, needle: &str, replacement: &str) -> R
     }
     *haystack = haystack.replacen(needle, replacement, 1);
     Ok(())
+}
+
+/// Binding root in the publishable layout (PyO3 wrappers; Stage-2 struct
+/// anchors live here).
+fn bind_lib(work: &Path) -> PathBuf {
+    work.join("src/lib.rs")
+}
+
+/// Core library in the publishable layout (pure-Rust helpers; arithmetic
+/// anchors live here). Falls back to the binding root so single-file trees
+/// degrade to anchor-miss (`not_applicable`), never a wrong-file edit.
+fn core_lib(work: &Path) -> PathBuf {
+    let split = work.join("crc-core/src/lib.rs");
+    if split.is_file() {
+        split
+    } else {
+        work.join("src/lib.rs")
+    }
+}
+
+/// Touched-file label for the core library (matches the staged tree layout).
+fn core_touched(work: &Path) -> String {
+    if work.join("crc-core/src/lib.rs").is_file() {
+        "crc-core/src/lib.rs".into()
+    } else {
+        "src/lib.rs".into()
+    }
 }
 
 pub const SLICE8_RS: &str = r#"//! Slicing-by-8 tables for the table-driven register (Stage-2 candidate).
@@ -145,7 +172,7 @@ mod slice_tests {
 /// Apply slicing-by-8 to a worktree copy of the mirror crate.
 /// Returns the touched files. Anchors must match exactly once.
 pub fn apply_slice_by_8(work: &Path) -> Result<Vec<String>, String> {
-    let lib_path = work.join("src/lib.rs");
+    let lib_path = bind_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -187,18 +214,24 @@ pub fn apply_slice_by_8(work: &Path) -> Result<Vec<String>, String> {
         "            Some(t) => update_table(self.reg, &self.cfg, t, &bytes),",
         "            Some(t) => match &self.stable {\n                Some(st) => slice8::update_slice(self.reg, &self.cfg, st, t, &bytes),\n                None => update_table(self.reg, &self.cfg, t, &bytes),\n            },",
     )?;
-    // Helpers used by slice8 tests must be visible to the child module.
-    for (name, vis) in [
-        ("struct Config {", "pub(crate) struct Config {"),
-        ("fn bitmask(cfg: &Config) -> u64 {", "pub(crate) fn bitmask(cfg: &Config) -> u64 {"),
-        ("fn reflect_byte(b: u8) -> u8 {", "pub(crate) fn reflect_byte(b: u8) -> u8 {"),
-        ("fn process_byte_table(", "pub(crate) fn process_byte_table("),
-        ("fn update_bit(", "pub(crate) fn update_bit("),
-        ("fn update_table(", "pub(crate) fn update_table("),
-        ("fn digest_of(", "pub(crate) fn digest_of("),
-        ("fn create_table(width: u8, poly: u64) -> [u64; 256] {", "pub(crate) fn create_table(width: u8, poly: u64) -> [u64; 256] {"),
+    // Helpers used by the slice8 child module must be public in the core
+    // crate (re-exported at the binding root as `super::X`). The core ships
+    // `pub` items; anything else is anchor drift, never silently rewritten.
+    let core_path = core_lib(work);
+    let core = std::fs::read_to_string(&core_path).map_err(|e| e.to_string())?;
+    for pub_item in [
+        "pub struct Config {",
+        "pub fn bitmask(cfg: &Config) -> u64 {",
+        "pub fn reflect_byte(b: u8) -> u8 {",
+        "pub fn process_byte_table(",
+        "pub fn update_bit(",
+        "pub fn update_table(",
+        "pub fn digest_of(",
+        "pub fn create_table(width: u8, poly: u64) -> [u64; 256] {",
     ] {
-        replace_once(&mut lib, name, vis)?;
+        if core.matches(pub_item).count() != 1 {
+            return Err(format!("anchor {pub_item:?} drifted in {}", core_path.display()));
+        }
     }
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
     std::fs::write(work.join("src/slice8.rs"), SLICE8_RS).map_err(|e| e.to_string())?;
@@ -208,7 +241,7 @@ pub fn apply_slice_by_8(work: &Path) -> Result<Vec<String>, String> {
 /// Loop-unroll x4 over the same tables (expects no measurable gain: LLVM
 /// already unrolls; honest `no_gain` loser proving failure memory works).
 pub fn apply_unroll(work: &Path) -> Result<Vec<String>, String> {
-    let lib_path = work.join("src/lib.rs");
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -216,12 +249,12 @@ pub fn apply_unroll(work: &Path) -> Result<Vec<String>, String> {
         "fn update_table(reg: u64, cfg: &Config, table: &[u64; 256], data: &[u8]) -> u64 {\n    let mut r = reg;\n    let (mut chunks, tail) = (data.chunks_exact(4), data.len() % 4);\n    let _ = tail;\n    for ch in &mut chunks {\n        for &b in ch {\n            let byte = if cfg.refin { reflect_byte(b) } else { b };\n            r = process_byte_table(r, cfg, table, byte);\n        }\n    }\n    for &b in data.chunks_exact(4).remainder() {\n        let byte = if cfg.refin { reflect_byte(b) } else { b };\n        r = process_byte_table(r, cfg, table, byte);\n    }\n    r\n}",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 /// `#[inline(always)]` on the hot step (attribute-only; expects no gain).
 pub fn apply_inline_hint(work: &Path) -> Result<Vec<String>, String> {
-    let lib_path = work.join("src/lib.rs");
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -229,7 +262,7 @@ pub fn apply_inline_hint(work: &Path) -> Result<Vec<String>, String> {
         "#[inline(always)]\nfn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 /// Tier-9 build-level canonical: whole-program LTO + single codegen unit for
 /// the release profile. Template-agnostic (Cargo.toml only); behavior-neutral
@@ -330,7 +363,7 @@ pub fn apply_tuned_const(work: &Path, cached_answer: u64) -> Result<Vec<String>,
 
 /// Plant 22: no-effect change (comment + dead binding).
 pub fn apply_noop(work: &Path) -> Result<Vec<String>, String> {
-    let lib_path = work.join("src/lib.rs");
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -338,7 +371,7 @@ pub fn apply_noop(work: &Path) -> Result<Vec<String>, String> {
         "// Stage-2 candidate: clarify digest polarity (no behavior change).\nfn digest_of(reg: u64, cfg: &Config) -> u64 {\n    let _note = 0u64;",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 /// Plant 23: RSS-for-speed (32MB resident ballast, ~zero time cost).
@@ -347,7 +380,7 @@ pub fn apply_rss_hog(work: &Path) -> Result<Vec<String>, String> {
     // so it proves nothing. LazyLock ballast faults every page once, stays
     // resident, costs one atomic load per call: gain uniform across workloads
     // (no divergence trip); the RSS leg of no_regression is the catcher.
-    let lib_path = work.join("src/lib.rs");
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -360,7 +393,7 @@ pub fn apply_rss_hog(work: &Path) -> Result<Vec<String>, String> {
         "    let _ = std::hint::black_box(BALLAST.len());\n    let v = if cfg.refout {\n        reflect_val(reg, cfg.width)\n    } else {\n        reg\n    };",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 /// Plant 24: visible-only input-size branch (structural special-case).
@@ -379,7 +412,7 @@ pub fn apply_size_branch(work: &Path) -> Result<Vec<String>, String> {
 /// Plant 25: dead-path deletion (drops refout handling; visible non-reflected
 /// tests still pass, reflected coverage fails).
 pub fn apply_dead_path(work: &Path) -> Result<Vec<String>, String> {
-    let lib_path = work.join("src/lib.rs");
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -387,7 +420,7 @@ pub fn apply_dead_path(work: &Path) -> Result<Vec<String>, String> {
         "    let v = reg;\n    (v ^ cfg.xorout) & bitmask(cfg)",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 /// Round-0 representation attempt (M9 slice-8): manual uppercase-hex writer
@@ -396,7 +429,7 @@ pub fn apply_dead_path(work: &Path) -> Result<Vec<String>, String> {
 /// `template_digits` still print fully). Graded like any candidate; a cold
 /// path is expected to land `no_gain`, which still dispositions the finding.
 pub fn apply_round0_manual_hex(work: &Path) -> Result<Vec<String>, String> {
-    let lib_path = work.join("src/lib.rs");
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -404,7 +437,7 @@ pub fn apply_round0_manual_hex(work: &Path) -> Result<Vec<String>, String> {
         "fn format_value(template_digits: usize, v: u64) -> String {\n    let mut nibbles: Vec<u32> = Vec::new();\n    let mut tmp = v;\n    loop {\n        nibbles.push((tmp & 0xF) as u32);\n        if tmp < 16 {\n            break;\n        }\n        tmp >>= 4;\n    }\n    while nibbles.len() < template_digits {\n        nibbles.push(0);\n    }\n    let mut s = String::with_capacity(2 + nibbles.len());\n    s.push_str(\"0x\");\n    for d in nibbles.iter().rev() {\n        s.push(char::from_digit(*d, 16).unwrap().to_ascii_uppercase());\n    }\n    s\n}",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 #[cfg(test)]
@@ -451,17 +484,26 @@ mod tests {
 
     #[test]
     fn anchors_hit_exactly_once_on_template() {
-        let lib = std::fs::read_to_string(template_under_test().join("src/lib.rs"));
-        if let Ok(text) = lib {
+        let tpl = template_under_test();
+        let bind = std::fs::read_to_string(tpl.join("src/lib.rs"));
+        if let Ok(text) = bind {
             for needle in [
                 "use pyo3::types::{PyBytes, PyDict, PyList};",
                 "    table: [u64; 256],\n}",
                 "    table: Option<[u64; 256]>,",
-                "fn digest_of(reg: u64, cfg: &Config) -> u64 {",
             ] {
                 assert_eq!(text.matches(needle).count(), 1, "anchor drift: {needle:?}");
             }
         }
+        // Arithmetic anchors live in the core crate when the template ships
+        // the publishable layout, else in the binding root (flat templates).
+        let core = tpl.join("crc-core/src/lib.rs");
+        let core_text = std::fs::read_to_string(if core.is_file() { core } else { tpl.join("src/lib.rs") }).unwrap();
+        assert_eq!(
+            core_text.matches("fn digest_of(reg: u64, cfg: &Config) -> u64 {").count(),
+            1,
+            "anchor drift: digest_of"
+        );
     }
 
     #[test]

@@ -1,0 +1,12 @@
+[package]
+name = "crc-rust-core"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust CRC core (rustsmith Stage-1 mirror of Nicoretti/crc); no Python dependency"
+license = "BSD-2-Clause"
+repository = "https://github.com/John-Cusack/crc-rust"
+homepage = "https://github.com/Nicoretti/crc"
+
+[lib]
+name = "crc_core"
+crate-type = ["rlib"]
