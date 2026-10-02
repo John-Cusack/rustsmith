@@ -323,7 +323,7 @@ fn cmd_run_legacy(args: &[String]) -> Result<(), String> {
             ts: now(),
             run_id: run_id.clone(),
             kind: "grade".into(),
-            detail: serde_json::json!({"passed":graded.passed,"failed":graded.failed}),
+            detail: serde_json::json!({"passed":graded.passed,"failed":graded.failed,"image":image_tag}),
         })
         .map_err(|e| e.to_string())?;
 

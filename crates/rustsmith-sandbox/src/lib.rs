@@ -225,6 +225,7 @@ fn docker_grading_run(
         }
         docker.args(["--workdir", &container_cwd(&cmd.cwd, out_of_tree)]);
         for (k, v) in &cmd.env_set {
+            let v = remap_env_value(v, artifact, build_dir, out_of_tree);
             docker.args(["-e", &format!("{k}={v}")]);
         }
         docker.arg(image_tag);
@@ -312,6 +313,23 @@ fn remap(p: &str, artifact: &Path, build_dir: &Path, out_of_tree: bool) -> Strin
         }
     }
     p.to_string()
+}
+
+/// Remap absolute host paths inside an env value (e.g. a frozen
+/// `PYTHONPATH=<tree>/src`), component-wise for `:`-separated lists. A host
+/// path left verbatim does not exist in the container: imports fail at
+/// collection and the graded pass silently runs zero tests.
+fn remap_env_value(v: &str, artifact: &Path, build_dir: &Path, out_of_tree: bool) -> String {
+    v.split(':')
+        .map(|part| {
+            if part.starts_with('/') {
+                remap(part, artifact, build_dir, out_of_tree)
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 fn container_argv(
@@ -779,6 +797,16 @@ mod polyglot_regression_tests {
         Observation, OracleFile, TestCommand, TestRunner, MANIFEST_VERSION,
     };
     use std::collections::BTreeMap;
+
+    #[test]
+    fn env_paths_remap_into_container() {
+        let tree = Path::new("/host/repo");
+        let v = remap_env_value("/host/repo/src:/usr/lib/py:rel", tree, tree, false);
+        assert_eq!(v, "/artifact/src:/usr/lib/py:rel");
+        let build = Path::new("/host/build");
+        assert_eq!(remap_env_value("/host/build/lib", tree, build, true), "/build/lib");
+        assert_eq!(remap_env_value("0", tree, tree, false), "0");
+    }
 
     fn graded_fixture(passed: u32, failed: u32, marker: &str) -> GradedResult {
         GradedResult {

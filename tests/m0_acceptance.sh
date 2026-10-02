@@ -30,7 +30,19 @@ git -C "$WORK/crc" checkout --quiet "$PIN" || git -C "$WORK/crc" checkout --quie
 ACTUAL_PIN=$(git -C "$WORK/crc" rev-parse --short HEAD)
 echo "pinned: $ACTUAL_PIN"
 test -f "$WORK/crc/test/unit/test_crc.py"
-cargo run -q -p rustsmith-cli -- run --stage recon --repo "$WORK/crc" --run-id m0 --store "$WORK/store.db" --heldout "$WORK/heldout-empty" --out "$WORK/oracle" --containers "$ROOT/containers"
+# ADR-009: a missing/empty held-out suite now halts (it used to pass
+# vacuously), so the host-only suite exists before recon grades.
+mkdir -p "$WORK/heldout"
+cat > "$WORK/heldout/test_heldout_crc.py" <<'EOF'
+from crc import Calculator, Configuration
+def test_heldout_basic():
+    c = Calculator(Configuration(width=8, polynomial=0x07, init_value=0x00, final_xor_value=0x00, reverse_input=False, reverse_output=False))
+    assert c.checksum(b"123456789") is not None
+def test_heldout_empty():
+    c = Calculator(Configuration(width=8, polynomial=0x07, init_value=0x00, final_xor_value=0x00, reverse_input=False, reverse_output=False))
+    assert isinstance(c.checksum(b""), int)
+EOF
+cargo run -q -p rustsmith-cli -- run --stage recon --repo "$WORK/crc" --run-id m0 --store "$WORK/store.db" --heldout "$WORK/heldout" --out "$WORK/oracle" --containers "$ROOT/containers"
 test -f "$WORK/oracle/manifest.json"
 COUNT=$(python3 -c "import json;print(json.load(open('$WORK/oracle/manifest.json'))['baseline']['test_count'])")
 echo "baseline test_count=$COUNT"
@@ -41,7 +53,17 @@ if ! grep -q "test/unit" "$WORK/oracle/manifest.json"; then echo "FAIL: split in
 if grep -q "bench" "$WORK/oracle/manifest.json"; then echo "FAIL: bench must not be oracle"; exit 1; fi
 
 echo "-- step 2: graded pass in clean container"
-cargo run -q -p rustsmith-cli -- grade --manifest "$WORK/oracle/manifest.json" --tree "$WORK/crc" --heldout "$WORK/heldout-empty" > "$WORK/grade.json"
+# The recon container pass must actually run the suite: a pass that graded
+# zero tests (e.g. imports failing at collection) is not a graded pass.
+python3 - "$WORK/events.jsonl" <<'EOF' || (echo "FAIL: container grade did not run the baseline suite"; exit 1)
+import json, sys
+g = [json.loads(l) for l in open(sys.argv[1])]
+g = [e for e in g if e.get("run_id") == "m0" and e.get("kind") == "grade"]
+d = g[-1]["detail"]
+print("container grade:", d)
+sys.exit(0 if (d["passed"] == 80 and d["failed"] == 0) else 1)
+EOF
+cargo run -q -p rustsmith-cli -- grade --manifest "$WORK/oracle/manifest.json" --tree "$WORK/crc" --heldout "$WORK/heldout" > "$WORK/grade.json"
 cat "$WORK/grade.json"
 python3 -c "import json,sys;d=json.load(open('$WORK/grade.json'));sys.exit(0 if (d['integrity']['passed'] and d['parity']['passed']) else 1)" || (echo "FAIL: unmodified tree should pass"; exit 1)
 echo "graded pass OK"
@@ -87,29 +109,28 @@ echo "skip -> oracle_integrity FAIL OK"
 git -C "$WORK/crc" checkout -- test/unit/test_crc.py
 
 echo "-- step 5: held-out runs on host only, absent from grading image"
-mkdir -p "$WORK/heldout"
-cat > "$WORK/heldout/test_heldout_crc.py" <<'EOF'
-from crc import Calculator, Configuration
-def test_heldout_basic():
-    c = Calculator(Configuration(width=8, polynomial=0x07, init_value=0x00, final_xor_value=0x00, reverse_input=False, reverse_output=False))
-    assert c.checksum(b"123456789") is not None
-def test_heldout_empty():
-    c = Calculator(Configuration(width=8, polynomial=0x07, init_value=0x00, final_xor_value=0x00, reverse_input=False, reverse_output=False))
-    assert isinstance(c.checksum(b""), int)
-EOF
 PYTHONPATH="$WORK/crc/src" python3 -m pytest "$WORK/heldout" -q || (echo "FAIL: heldout should pass on host"; exit 1)
 echo "heldout passes on host OK"
-if docker run --rm --network=none rustsmith-grading:0.1.0 sh -c "find / -name '*heldout*' 2>/dev/null | grep ."; then
-  echo "FAIL: heldout pattern found inside grading image"; exit 1
-else
-  echo "heldout absent from grading image OK"
-fi
-# also prove store.db never mounted: grading image has no store.db
-if docker run --rm --network=none rustsmith-grading:0.1.0 sh -c "find / -name 'store.db' 2>/dev/null | grep ."; then
-  echo "FAIL: store.db found in grading image"; exit 1
-else
-  echo "store.db absent from grading image OK"
-fi
+# ADR-009: inspect the image recon actually graded in (tag recorded on the
+# grade event), and fail if it cannot run: a missing image must never read
+# as "nothing found".
+IMAGE=$(python3 -c "
+import json
+for l in open('$WORK/events.jsonl'):
+    e = json.loads(l)
+    if e.get('run_id') == 'm0' and e.get('kind') == 'grade' and e['detail'].get('image'):
+        print(e['detail']['image']); break
+")
+if [ -z "$IMAGE" ]; then echo "FAIL: grade event records no image"; exit 1; fi
+echo "grading image: $IMAGE"
+for pat in '*heldout*' 'store.db'; do
+  FOUND=$(docker run --rm --network=none "$IMAGE" sh -c "find / -name '$pat' 2>/dev/null; echo __scan_done__") || { echo "FAIL: cannot run grading image $IMAGE"; exit 1; }
+  if ! printf '%s\n' "$FOUND" | grep -qx '__scan_done__'; then echo "FAIL: scan of $IMAGE did not complete"; exit 1; fi
+  if printf '%s\n' "$FOUND" | grep -vx '__scan_done__' | grep -q .; then
+    echo "FAIL: $pat found inside grading image"; printf '%s\n' "$FOUND"; exit 1
+  fi
+  echo "$pat absent from grading image OK"
+done
 
 echo "-- step 6: audit replay"
 cargo run -q -p rustsmith-cli -- audit --run-id m0 --store "$WORK/store.db" > "$WORK/audit.txt"
