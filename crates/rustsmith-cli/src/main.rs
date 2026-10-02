@@ -4,6 +4,7 @@ mod mirror;
 mod optimize;
 mod porting;
 mod recon;
+mod release;
 mod repo;
 mod repo_content;
 mod units;
@@ -20,7 +21,7 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 fn usage() -> &'static str {
-    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>"
+    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>\n       rustsmith release-prep --project <mirror/<pkg>> --fork <dir> [--opt <dir>] --recon-out <dir> --out <dir>\n       rustsmith release-record --state <release-state.json> --registry testpypi|pypi|crates-io --result success|failed [--detail <text>]\n       rustsmith release-status --state <release-state.json>"
 }
 
 fn main() {
@@ -49,8 +50,10 @@ fn run() -> Result<(), String> {
         "learn" => cmd_learn(&args[2..]),
         "report" => cmd_report(&args[2..]),
         "status" => cmd_status(&args[2..]),
-        "halt" => cmd_halt(&args[2..]),
         "resume" => cmd_resume(&args[2..]),
+        "release-prep" => release::cmd_release_prep(&args[2..]),
+        "release-record" => release::cmd_release_record(&args[2..]),
+        "release-status" => release::cmd_release_status(&args[2..]),
         _ => Err(usage().into()),
     }
 }
@@ -1461,7 +1464,16 @@ fn write_gated(path: &PathBuf, text: &str, attribution: &str) -> Result<(), Stri
 /// Count `unsafe` blocks in the delivered Rust tree (fresh, not stored).
 fn count_unsafe(fork: &PathBuf) -> usize {
     let mut n = 0;
+    // Binding `src/` plus any nested crate `*/src/` (publishable core, ports).
     let mut stack = vec![fork.join("src")];
+    if let Ok(rd) = std::fs::read_dir(fork) {
+        for e in rd.flatten() {
+            let s = e.path().join("src");
+            if s.is_dir() && s != fork.join("src") {
+                stack.push(s);
+            }
+        }
+    }
     while let Some(p) = stack.pop() {
         if let Ok(rd) = std::fs::read_dir(&p) {
             for e in rd.flatten() {

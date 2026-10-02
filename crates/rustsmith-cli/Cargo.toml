@@ -19,6 +19,7 @@ rustsmith-adapters = { path = "../rustsmith-adapters" }
 rustsmith-profile = { path = "../rustsmith-profile" }
 rustsmith-harvest = { path = "../rustsmith-harvest" }
 rustsmith-report = { path = "../rustsmith-report" }
+rustsmith-release = { path = "../rustsmith-release" }
 serde_json = { workspace = true }
 walkdir = { workspace = true }
 camino = "1"

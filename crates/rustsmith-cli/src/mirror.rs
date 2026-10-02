@@ -1566,8 +1566,28 @@ pub(crate) fn parse_heldout_rate(t: &str) -> f64 {
 pub(crate) fn audit_unsafe(fork: &Path) -> Result<Vec<gates::UnsafeSite>, String> {
     // `cargo geiger` cross-check would go here; the mirror ships zero unsafe,
     // so a textual audit plus geiger-if-present is the honest check.
+    // Every crate source root ships: the binding `src/` plus any nested
+    // crate `*/src/` (the publishable `crc-core/src/`, Elmer `rust/*/src/`).
     let mut count = 0usize;
-    for entry in walkdir_simple(&fork.join("src")) {
+    let mut roots = vec![fork.join("src")];
+    if let Ok(rd) = std::fs::read_dir(fork) {
+        for e in rd.flatten() {
+            let s = e.path().join("src");
+            if s.is_dir() && s != fork.join("src") {
+                roots.push(s);
+            }
+        }
+    }
+    if let Ok(rd) = std::fs::read_dir(fork.join("rust")) {
+        for e in rd.flatten() {
+            let s = e.path().join("src");
+            if s.is_dir() {
+                roots.push(s);
+            }
+        }
+    }
+    for root in roots {
+        for entry in walkdir_simple(&root) {
         if entry.extension().map(|x| x == "rs").unwrap_or(false) {
             let t = std::fs::read_to_string(&entry).map_err(|e| e.to_string())?;
             // Strip comments? No: any `unsafe` token counts (conservative).
@@ -1581,6 +1601,7 @@ pub(crate) fn audit_unsafe(fork: &Path) -> Result<Vec<gates::UnsafeSite>, String
                 }
             }
         }
+    }
     }
     if count > 0 {
         return Err(format!("{count} unsafe tokens found"));
