@@ -878,7 +878,7 @@ fn cmd_worker_probe(args: &[String]) -> Result<(), String> {
 /// command critiques through the worker-command interface; seats without one
 /// use an approving stub. Decision + minority reasoning recorded as usual.
 fn cmd_seat_probe(args: &[String]) -> Result<(), String> {
-    use rustsmith_council::{model_for_seat, seat_commands_from_env, Council, Proposal, Seat, SeatDriver, StubDriver};
+    use rustsmith_council::{model_for_seat, provider_for_seat, seat_commands_from_env, Council, Proposal, Seat, SeatDriver, StubDriver};
     use std::collections::HashMap;
     let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
     let run_id = flag(args, "--run-id").unwrap_or_else(|| "m8s".into());
@@ -895,6 +895,7 @@ fn cmd_seat_probe(args: &[String]) -> Result<(), String> {
                     seat,
                     command: cmd.clone(),
                     model: model_for_seat(seat),
+                    provider: provider_for_seat(seat),
                 }),
             );
         } else {
@@ -903,6 +904,9 @@ fn cmd_seat_probe(args: &[String]) -> Result<(), String> {
                 Box::new(StubDriver { stance: rustsmith_council::Stance::Approve, reasoning: "stub approve".into() }),
             );
         }
+        // The probe surfaces both halves of the seat identity (model +
+        // provider) so a duplicated provider across review seats is visible.
+        println!("seat-probe: {} model={} provider={}", seat.as_str(), model_for_seat(seat), provider_for_seat(seat));
     }
     let council = Council::new(drivers);
     let res = council

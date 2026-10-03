@@ -88,6 +88,17 @@ grep -q 'cargo publish --manifest-path crc-core/Cargo.toml' "$WF"
 grep -q "3.9.*3.13\|'3.9', '3.10'" "$WF"
 grep -q 'ubuntu-22.04' "$WF"
 grep -q '${{ matrix.os }}' "$WF" || (echo "FAIL: workflow matrix expression broken"; exit 1)
+grep -q 'dtolnay/rust-toolchain@stable' "$WF"
+grep -q 'crates-io-auth-action' "$WF"
+grep -q 'CARGO_REGISTRY_TOKEN' "$WF"
+grep -q 'crc-rust==0.1.0' "$WF"
+grep -q 'run: |' "$WF"
+grep -q 'release-evidence' "$WF"
+grep -q 'wheels-ubuntu-22.04-py3.9' "$WF"
+grep -q "python - <<'PYEOF'" "$WF"
+if grep -q 'setup-rust' "$WF"; then echo "FAIL: setup-rust still referenced"; exit 1; fi
+if grep -q 'merge-multiple' "$WF"; then echo "FAIL: multi-wheel download remains"; exit 1; fi
+if grep -q 'echo "record' "$WF"; then echo "FAIL: echo-record step remains"; exit 1; fi
 echo "workflow OK"
 
 echo "-- setup instructions: exact project identities"
