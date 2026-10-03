@@ -1,15 +1,19 @@
 [package]
-name = "crc"
-version = "8.0.0"
+name = "crc-rust"
+version = "0.1.0"
 edition = "2021"
+description = "Pure-Rust CRC library with Python bindings (rustsmith Stage-1 mirror of Nicoretti/crc)"
+license = "BSD-2-Clause"
+repository = "https://github.com/John-Cusack/crc-rust"
+homepage = "https://github.com/Nicoretti/crc"
 
 [lib]
 name = "_crc"
 crate-type = ["cdylib"]
 
 [dependencies]
+crc-rust-core = { path = "crc-core", version = "0.1.0" }
 pyo3 = { version = "0.23", features = ["macros"] }
-crc-core = { version = "8.0.0", path = "crc-core" }
 
 [workspace]
 members = ["crc-core"]

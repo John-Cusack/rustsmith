@@ -1,0 +1,18 @@
+crc-rust: Rust mirror of Nicoretti/crc
+========================================
+
+This directory holds the rustsmith Stage-1 mirror of
+https://github.com/Nicoretti/crc (pure-Python CRC library).
+
+* Upstream authors: Nicola Coretti <nico.coretti@gmail.com>,
+  Gert van Dijk <github@gertvandijk.nl>
+* Upstream license: BSD-2-Clause (full text: LICENSE-BSD-2-Clause where
+  vendored; SPDX tag carried in every file header).
+* This port: behavior-identical, same public API (`crc._crc` extension
+  module plus `crc/__init__.py` + `crc/__main__.py` shims), published as
+  the `crc-rust` distribution on PyPI (import name unchanged: `import crc`)
+  with reusable core crate `crc-rust-core` on crates.io.
+
+Provenance: every artifact preserves the upstream license header and this
+attribution (provenance gate). See `release.toml` for the publishing
+configuration and `docs/RELEASE.md` for the release procedure.

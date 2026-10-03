@@ -9,7 +9,7 @@ members = [
     "crates/rustsmith-council",
     "crates/rustsmith-adapters",
     "crates/rustsmith-cli",
-    "crates/rustsmith-harvest",
+    "crates/rustsmith-release",
     "crates/rustsmith-report",
 ]
 resolver = "2"

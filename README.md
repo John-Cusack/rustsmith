@@ -103,6 +103,39 @@ Cross-run retrospective (proposes a `guidance/optimize.md` diff; human approves)
 
 One container per run (repo + toolchains, cgroup-limited, one git worktree per worker); grading in a separate ephemeral no-network container. The control plane never runs agent-authored code on the host. `store.db` and held-out suites live on the host and are never mounted into run containers.
 
+## Releasing
+
+Two different things, do not confuse them:
+
+- **Releasing rustsmith itself:** this repo ships as a Cargo workspace binary
+  (`cargo build --release`). It is not published to crates.io or PyPI.
+- **Releasing a converted project** (implemented): each project rustsmith
+  generates is a reusable Rust core crate plus a Python package calling that
+  same core, distributable through crates.io and PyPI respectively. Given a
+  finished run, `release-prep` builds and verifies everything locally (Rust
+  package, wheels, sdist, installed-package smoke, sdist rebuild including
+  its Rust core), retains artifacts/hashes/verification in the output
+  directory, generates a GitHub Actions release workflow (TestPyPI first,
+  then manual PyPI + crates.io, same tested files throughout) and exact
+  trusted-publisher setup instructions. Publication is tracked per registry;
+  retries are per-registry and a partial publish never reports complete.
+
+```sh
+./target/release/rustsmith release-prep --project mirror/crc --fork <fork> [--opt <opt>] --recon-out <recon> --out <dist>
+./target/release/rustsmith release-status --state <dist>/release-state.json
+```
+
+Per-project config lives in `mirror/<package>/release.toml` (crate/dist/
+import names, version, platforms, Python versions, publishing repo +
+workflow identity, license, upstream attribution). Full procedure, state
+semantics, and troubleshooting: `docs/RELEASE.md`.
+
+Status: `crc` is the first end-to-end release example (publishable
+core+binding split, `crc-rust-core` + `crc-rust`). `strsimpy` still ships
+the old flat layout and is not release-ready. Planned, not implemented:
+migrating the remaining templates, version-bump automation, signed
+provenance attestations.
+
 ## Configuration
 
 `config/default.toml` is the reference; `--config` overrides fields (unknown keys ignored, missing file is an error). Key knobs:

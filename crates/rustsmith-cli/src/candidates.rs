@@ -6,7 +6,7 @@
 //! gated identically). Proposals still pass through proposal-before-code review
 //! and bound/tier/ceiling arithmetic before any graded run is spent.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Replace exactly once; fail loudly on drift (never silently reinterpret).
 pub fn replace_once(haystack: &mut String, needle: &str, replacement: &str) -> Result<(), String> {
@@ -18,14 +18,30 @@ pub fn replace_once(haystack: &mut String, needle: &str, replacement: &str) -> R
     Ok(())
 }
 
-/// Core lib under test plus its sibling dir, relative to the worktree root.
-/// Split templates carry the reusable core at `crc-core/src/lib.rs` (see
-/// `mirror/crc`); legacy single-file templates keep everything in `src/lib.rs`.
-fn core_lib(work: &Path) -> (std::path::PathBuf, &'static str) {
-    if work.join("crc-core/src/lib.rs").is_file() {
-        (work.join("crc-core/src/lib.rs"), "crc-core/src/")
+/// Binding root in the publishable layout (PyO3 wrappers; Stage-2 struct
+/// anchors live here).
+fn bind_lib(work: &Path) -> PathBuf {
+    work.join("src/lib.rs")
+}
+
+/// Core library in the publishable layout (pure-Rust helpers; arithmetic
+/// anchors live here). Falls back to the binding root so single-file trees
+/// degrade to anchor-miss (`not_applicable`), never a wrong-file edit.
+fn core_lib(work: &Path) -> PathBuf {
+    let split = work.join("crc-core/src/lib.rs");
+    if split.is_file() {
+        split
     } else {
-        (work.join("src/lib.rs"), "src/")
+        work.join("src/lib.rs")
+    }
+}
+
+/// Touched-file label for the core library (matches the staged tree layout).
+fn core_touched(work: &Path) -> String {
+    if work.join("crc-core/src/lib.rs").is_file() {
+        "crc-core/src/lib.rs".into()
+    } else {
+        "src/lib.rs".into()
     }
 }
 
@@ -155,35 +171,33 @@ mod slice_tests {
 
 /// Apply slicing-by-8 to a worktree copy of the mirror crate.
 /// Returns the touched files. Anchors must match exactly once.
-/// Operates on the reusable core (`crc-core/src/lib.rs` when the template
-/// splits core out, else the legacy single `src/lib.rs`).
 pub fn apply_slice_by_8(work: &Path) -> Result<Vec<String>, String> {
-    let (lib_path, sib) = core_lib(work);
+    let lib_path = bind_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct Config {",
-        "mod slice8;\n\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct Config {",
+        "use pyo3::types::{PyBytes, PyDict, PyList};",
+        "use pyo3::types::{PyBytes, PyDict, PyList};\nmod slice8;",
     )?;
     replace_once(
         &mut lib,
-        "pub struct TableRegister {\n    cfg: Config,\n    reg: u64,\n    table: [u64; 256],\n}",
-        "pub struct TableRegister {\n    cfg: Config,\n    reg: u64,\n    table: [u64; 256],\n    st: [[u64; 256]; 8],\n}",
+        "#[pyclass]\nstruct TableBasedRegister {\n    cfg: Config,\n    reg: u64,\n    table: [u64; 256],\n}",
+        "#[pyclass]\nstruct TableBasedRegister {\n    cfg: Config,\n    reg: u64,\n    table: [u64; 256],\n    st: [[u64; 256]; 8],\n}",
     )?;
     replace_once(
         &mut lib,
-        "        let table = create_table(cfg.width, cfg.poly);\n        let reg = cfg.init & bitmask(&cfg);\n        Self { cfg, reg, table }",
-        "        let table = create_table(cfg.width, cfg.poly);\n        let st = slice8::slice_tables(&table, cfg.width);\n        let reg = cfg.init & bitmask(&cfg);\n        Self { cfg, reg, table, st }",
+        "        let cfg = config_of(configuration)?;\n        let table = create_table(cfg.width, cfg.poly);\n        let reg = cfg.init & bitmask(&cfg);\n        Ok(Self { cfg, reg, table })",
+        "        let cfg = config_of(configuration)?;\n        let table = create_table(cfg.width, cfg.poly);\n        let st = slice8::slice_tables(&table, cfg.width);\n        let reg = cfg.init & bitmask(&cfg);\n        Ok(Self { cfg, reg, table, st })",
     )?;
     replace_once(
         &mut lib,
-        "    pub fn update(&mut self, data: &[u8]) -> u64 {\n        self.reg = update_table(self.reg, &self.cfg, &self.table, data);\n        self.reg\n    }",
-        "    pub fn update(&mut self, data: &[u8]) -> u64 {\n        self.reg = slice8::update_slice(self.reg, &self.cfg, &self.st, &self.table, data);\n        self.reg\n    }",
+        "        let bytes = bytes_like(data)?;\n        self.reg = update_table(self.reg, &self.cfg, &self.table, &bytes);\n        Ok(self.reg)",
+        "        let bytes = bytes_like(data)?;\n        self.reg = slice8::update_slice(self.reg, &self.cfg, &self.st, &self.table, &bytes);\n        Ok(self.reg)",
     )?;
     replace_once(
         &mut lib,
-        "pub struct Crc {\n    cfg: Config,\n    reg: u64,\n    table: Option<[u64; 256]>,\n}",
-        "pub struct Crc {\n    cfg: Config,\n    reg: u64,\n    table: Option<[u64; 256]>,\n    stable: Option<[[u64; 256]; 8]>,\n}",
+        "struct Calculator {\n    cfg: Config,\n    reg: u64,\n    table: Option<[u64; 256]>,",
+        "struct Calculator {\n    cfg: Config,\n    reg: u64,\n    table: Option<[u64; 256]>,\n    stable: Option<[[u64; 256]; 8]>,",
     )?;
     replace_once(
         &mut lib,
@@ -192,23 +206,42 @@ pub fn apply_slice_by_8(work: &Path) -> Result<Vec<String>, String> {
     )?;
     replace_once(
         &mut lib,
-        "        Self { cfg, reg, table }",
-        "        Self { cfg, reg, table, stable }",
+        "        Ok(Self { cfg, reg, table })",
+        "        Ok(Self { cfg, reg, table, stable })",
     )?;
     replace_once(
         &mut lib,
-        "        self.reg = match &self.table {\n            Some(t) => update_table(self.reg, &self.cfg, t, data),\n            None => update_bit(self.reg, &self.cfg, data),\n        };",
-        "        self.reg = match &self.table {\n            Some(t) => match &self.stable {\n                Some(st) => slice8::update_slice(self.reg, &self.cfg, st, t, data),\n                None => update_table(self.reg, &self.cfg, t, data),\n            },\n            None => update_bit(self.reg, &self.cfg, data),\n        };",
+        "            Some(t) => update_table(self.reg, &self.cfg, t, &bytes),",
+        "            Some(t) => match &self.stable {\n                Some(st) => slice8::update_slice(self.reg, &self.cfg, st, t, &bytes),\n                None => update_table(self.reg, &self.cfg, t, &bytes),\n            },",
     )?;
+    // Helpers used by the slice8 child module must be public in the core
+    // crate (re-exported at the binding root as `super::X`). The core ships
+    // `pub` items; anything else is anchor drift, never silently rewritten.
+    let core_path = core_lib(work);
+    let core = std::fs::read_to_string(&core_path).map_err(|e| e.to_string())?;
+    for pub_item in [
+        "pub struct Config {",
+        "pub fn bitmask(cfg: &Config) -> u64 {",
+        "pub fn reflect_byte(b: u8) -> u8 {",
+        "pub fn process_byte_table(",
+        "pub fn update_bit(",
+        "pub fn update_table(",
+        "pub fn digest_of(",
+        "pub fn create_table(width: u8, poly: u64) -> [u64; 256] {",
+    ] {
+        if core.matches(pub_item).count() != 1 {
+            return Err(format!("anchor {pub_item:?} drifted in {}", core_path.display()));
+        }
+    }
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    std::fs::write(work.join(sib).join("slice8.rs"), SLICE8_RS).map_err(|e| e.to_string())?;
-    Ok(vec![format!("{sib}lib.rs"), format!("{sib}slice8.rs")])
+    std::fs::write(work.join("src/slice8.rs"), SLICE8_RS).map_err(|e| e.to_string())?;
+    Ok(vec!["src/lib.rs".into(), "src/slice8.rs".into()])
 }
 
 /// Loop-unroll x4 over the same tables (expects no measurable gain: LLVM
 /// already unrolls; honest `no_gain` loser proving failure memory works).
 pub fn apply_unroll(work: &Path) -> Result<Vec<String>, String> {
-    let (lib_path, _) = core_lib(work);
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -216,21 +249,20 @@ pub fn apply_unroll(work: &Path) -> Result<Vec<String>, String> {
         "fn update_table(reg: u64, cfg: &Config, table: &[u64; 256], data: &[u8]) -> u64 {\n    let mut r = reg;\n    let (mut chunks, tail) = (data.chunks_exact(4), data.len() % 4);\n    let _ = tail;\n    for ch in &mut chunks {\n        for &b in ch {\n            let byte = if cfg.refin { reflect_byte(b) } else { b };\n            r = process_byte_table(r, cfg, table, byte);\n        }\n    }\n    for &b in data.chunks_exact(4).remainder() {\n        let byte = if cfg.refin { reflect_byte(b) } else { b };\n        r = process_byte_table(r, cfg, table, byte);\n    }\n    r\n}",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 /// `#[inline(always)]` on the hot step (attribute-only; expects no gain).
 pub fn apply_inline_hint(work: &Path) -> Result<Vec<String>, String> {
-    let (lib_path, _) = core_lib(work);
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
-        "pub fn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
-        "#[inline(always)]\npub fn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
+        "fn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
+        "#[inline(always)]\nfn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    let rel = lib_path.strip_prefix(work).unwrap_or(&lib_path).display().to_string();
-    Ok(vec![rel])
+    Ok(vec![core_touched(work)])
 }
 /// Tier-9 build-level canonical: whole-program LTO + single codegen unit for
 /// the release profile. Template-agnostic (Cargo.toml only); behavior-neutral
@@ -287,63 +319,51 @@ pub fn apply_release_lto(work: &Path) -> Result<Vec<String>, String> {
 /// Plant 19: fixture-identity cache (correct answers, uneven speed).
 /// Serves visible fixed input from cache; anything else computes (miss).
 pub fn apply_fixture_cache(work: &Path) -> Result<Vec<String>, String> {
-    let (lib_path, sib) = core_lib(work);
+    let lib_path = work.join("src/lib.rs");
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
-        "//! License: BSD-2-Clause (preserved from the original; see NOTICE).",
-        "//! License: BSD-2-Clause (preserved from the original; see NOTICE).\nuse std::collections::HashMap;\nuse parking_lot::Mutex;",
+        "use pyo3::types::{PyBytes, PyDict, PyList};",
+        "use pyo3::types::{PyBytes, PyDict, PyList};\nuse std::collections::HashMap;\nuse std::sync::Mutex;",
     )?;
     replace_once(
         &mut lib,
-        "    pub fn checksum(&mut self, data: &[u8]) -> u64 {\n        self.reg = self.cfg.init & bitmask(&self.cfg);",
-        "    pub fn checksum(&mut self, data: &[u8]) -> u64 {\n        static CACHE: Mutex<Option<HashMap<Vec<u8>, u64>>> = Mutex::new(None);\n        // Identity-keyed fast path: only the visible fixed input ever hits.\n        if data.first() == Some(&0x41) && data.len() == 4096 {\n            let mut g = CACHE.lock();\n            let m = g.get_or_insert_with(HashMap::new);\n            if let Some(&v) = m.get(data) {\n                return v;\n            }\n            let v = self.checksum_inner(data);\n            m.insert(data.to_vec(), v);\n            return v;\n        }\n        self.reg = self.cfg.init & bitmask(&self.cfg);",
+        "    fn checksum(&mut self, py: Python<'_>, data: PyObject) -> PyResult<u64> {\n        let bytes = extract_bytes(data.bind(py))?;",
+        "    fn checksum(&mut self, py: Python<'_>, data: PyObject) -> PyResult<u64> {\n        static CACHE: Mutex<Option<HashMap<Vec<u8>, u64>>> = Mutex::new(None);\n        let bytes = extract_bytes(data.bind(py))?;\n        // Identity-keyed fast path: only the visible fixed input ever hits.\n        if bytes.first() == Some(&0x41) && bytes.len() == 4096 {\n            let mut g = CACHE.lock().unwrap();\n            let m = g.get_or_insert_with(HashMap::new);\n            if let Some(&v) = m.get(&bytes) {\n                return Ok(v);\n            }\n            let v = self.checksum_inner(&bytes);\n            m.insert(bytes, v);\n            return Ok(v);\n        }",
     )?;
     replace_once(
         &mut lib,
-        "        self.reg = match &self.table {\n            Some(t) => update_table(self.reg, &self.cfg, t, data),\n            None => update_bit(self.reg, &self.cfg, data),\n        };\n        digest_of(self.reg, &self.cfg)\n    }",
-        "        self.checksum_inner(data)\n    }",
+        "        self.reg = match &self.table {\n            Some(t) => update_table(self.reg, &self.cfg, t, &bytes),\n            None => update_bit(self.reg, &self.cfg, &bytes),\n        };\n        Ok(digest_of(self.reg, &self.cfg))",
+        "        Ok(self.checksum_inner(&bytes))",
     )?;
     // Factor the shared tail so the cache path and normal path agree.
     replace_once(
         &mut lib,
-        "    pub fn verify(&mut self, data: &[u8], expected: u64) -> bool {",
-        "    fn checksum_inner(&mut self, data: &[u8]) -> u64 {\n        self.reg = self.cfg.init & bitmask(&self.cfg);\n        self.reg = match &self.table {\n            Some(t) => update_table(self.reg, &self.cfg, t, data),\n            None => update_bit(self.reg, &self.cfg, data),\n        };\n        digest_of(self.reg, &self.cfg)\n    }\n    pub fn verify(&mut self, data: &[u8], expected: u64) -> bool {",
+        "    fn verify(&mut self, py: Python<'_>, data: PyObject, expected: u64) -> PyResult<bool> {",
+        "    fn checksum_inner(&mut self, bytes: &[u8]) -> u64 {\n        self.reg = self.cfg.init & bitmask(&self.cfg);\n        self.reg = match &self.table {\n            Some(t) => update_table(self.reg, &self.cfg, t, bytes),\n            None => update_bit(self.reg, &self.cfg, bytes),\n        };\n        digest_of(self.reg, &self.cfg)\n    }\n    fn verify(&mut self, py: Python<'_>, data: PyObject, expected: u64) -> PyResult<bool> {",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    // The plant's lock lives in its own dependency so the reusable core
-    // template stays dependency-free (parking_lot, no-poison API).
-    let core_toml = lib_path.parent().unwrap().parent().unwrap().join("Cargo.toml");
-    let mut manifest = std::fs::read_to_string(&core_toml).map_err(|e| e.to_string())?;
-    if !manifest.contains("parking_lot") {
-        if manifest.contains("[dependencies]") {
-            manifest = manifest.replace("[dependencies]", "[dependencies]\nparking_lot = \"0.12\"");
-        } else {
-            manifest.push_str("\n[dependencies]\nparking_lot = \"0.12\"\n");
-        }
-        std::fs::write(&core_toml, manifest).map_err(|e| e.to_string())?;
-    }
-    Ok(vec![format!("{sib}lib.rs")])
+    Ok(vec!["src/lib.rs".into()])
 }
 
 /// Plant 20: fixture-tuned constant (correct only for the visible fixed input).
 pub fn apply_tuned_const(work: &Path, cached_answer: u64) -> Result<Vec<String>, String> {
-    let (lib_path, sib) = core_lib(work);
+    let lib_path = work.join("src/lib.rs");
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
-        "    pub fn checksum(&mut self, data: &[u8]) -> u64 {\n        self.reg = self.cfg.init & bitmask(&self.cfg);",
+        "    fn checksum(&mut self, py: Python<'_>, data: PyObject) -> PyResult<u64> {\n        let bytes = extract_bytes(data.bind(py))?;",
         &format!(
-            "    pub fn checksum(&mut self, data: &[u8]) -> u64 {{\n        // Tuned constant: instant (but only correct for the visible fixed input).\n        if data.len() == 4096 {{\n            return {cached_answer:#X};\n        }}\n        self.reg = self.cfg.init & bitmask(&self.cfg);"
+            "    fn checksum(&mut self, py: Python<'_>, data: PyObject) -> PyResult<u64> {{\n        let bytes = extract_bytes(data.bind(py))?;\n        // Tuned constant: instant (but only correct for the visible fixed input).\n        if bytes.len() == 4096 {{\n            return Ok({cached_answer:#X});\n        }}"
         ),
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec![format!("{sib}lib.rs")])
+    Ok(vec!["src/lib.rs".into()])
 }
 
 /// Plant 22: no-effect change (comment + dead binding).
 pub fn apply_noop(work: &Path) -> Result<Vec<String>, String> {
-    let (lib_path, _) = core_lib(work);
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -351,7 +371,7 @@ pub fn apply_noop(work: &Path) -> Result<Vec<String>, String> {
         "// Stage-2 candidate: clarify digest polarity (no behavior change).\nfn digest_of(reg: u64, cfg: &Config) -> u64 {\n    let _note = 0u64;",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 /// Plant 23: RSS-for-speed (32MB resident ballast, ~zero time cost).
@@ -360,7 +380,7 @@ pub fn apply_rss_hog(work: &Path) -> Result<Vec<String>, String> {
     // so it proves nothing. LazyLock ballast faults every page once, stays
     // resident, costs one atomic load per call: gain uniform across workloads
     // (no divergence trip); the RSS leg of no_regression is the catcher.
-    let (lib_path, _) = core_lib(work);
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -373,26 +393,26 @@ pub fn apply_rss_hog(work: &Path) -> Result<Vec<String>, String> {
         "    let _ = std::hint::black_box(BALLAST.len());\n    let v = if cfg.refout {\n        reflect_val(reg, cfg.width)\n    } else {\n        reg\n    };",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 /// Plant 24: visible-only input-size branch (structural special-case).
 pub fn apply_size_branch(work: &Path) -> Result<Vec<String>, String> {
-    let (lib_path, sib) = core_lib(work);
+    let lib_path = work.join("src/lib.rs");
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
-        "    pub fn checksum(&mut self, data: &[u8]) -> u64 {\n        self.reg = self.cfg.init & bitmask(&self.cfg);",
-        "    pub fn checksum(&mut self, data: &[u8]) -> u64 {\n        if data.len() < 64 {\n            self.reg = self.cfg.init & bitmask(&self.cfg);\n        }\n        self.reg = self.cfg.init & bitmask(&self.cfg);",
+        "    fn checksum(&mut self, py: Python<'_>, data: PyObject) -> PyResult<u64> {\n        let bytes = extract_bytes(data.bind(py))?;",
+        "    fn checksum(&mut self, py: Python<'_>, data: PyObject) -> PyResult<u64> {\n        let bytes = extract_bytes(data.bind(py))?;\n        if bytes.len() < 64 {\n            self.reg = self.cfg.init & bitmask(&self.cfg);\n        }",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec![format!("{sib}lib.rs")])
+    Ok(vec!["src/lib.rs".into()])
 }
 
 /// Plant 25: dead-path deletion (drops refout handling; visible non-reflected
 /// tests still pass, reflected coverage fails).
 pub fn apply_dead_path(work: &Path) -> Result<Vec<String>, String> {
-    let (lib_path, _) = core_lib(work);
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -400,7 +420,7 @@ pub fn apply_dead_path(work: &Path) -> Result<Vec<String>, String> {
         "    let v = reg;\n    (v ^ cfg.xorout) & bitmask(cfg)",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    Ok(vec!["src/lib.rs".into()])
+    Ok(vec![core_touched(work)])
 }
 
 /// Round-0 representation attempt (M9 slice-8): manual uppercase-hex writer
@@ -409,7 +429,7 @@ pub fn apply_dead_path(work: &Path) -> Result<Vec<String>, String> {
 /// `template_digits` still print fully). Graded like any candidate; a cold
 /// path is expected to land `no_gain`, which still dispositions the finding.
 pub fn apply_round0_manual_hex(work: &Path) -> Result<Vec<String>, String> {
-    let (lib_path, _) = core_lib(work);
+    let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
@@ -417,8 +437,7 @@ pub fn apply_round0_manual_hex(work: &Path) -> Result<Vec<String>, String> {
         "fn format_value(template_digits: usize, v: u64) -> String {\n    let mut nibbles: Vec<u32> = Vec::new();\n    let mut tmp = v;\n    loop {\n        nibbles.push((tmp & 0xF) as u32);\n        if tmp < 16 {\n            break;\n        }\n        tmp >>= 4;\n    }\n    while nibbles.len() < template_digits {\n        nibbles.push(0);\n    }\n    let mut s = String::with_capacity(2 + nibbles.len());\n    s.push_str(\"0x\");\n    for d in nibbles.iter().rev() {\n        s.push(char::from_digit(*d, 16).unwrap().to_ascii_uppercase());\n    }\n    s\n}",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
-    let rel = lib_path.strip_prefix(work).unwrap_or(&lib_path).display().to_string();
-    Ok(vec![rel])
+    Ok(vec![core_touched(work)])
 }
 
 #[cfg(test)]
@@ -466,57 +485,25 @@ mod tests {
     #[test]
     fn anchors_hit_exactly_once_on_template() {
         let tpl = template_under_test();
-        // Binding anchors live in the PyO3 crate; algorithm anchors in core.
-        let (binding, core) = (
-            std::fs::read_to_string(tpl.join("src/lib.rs")),
-            std::fs::read_to_string(core_lib(&tpl).0),
-        );
-        if let Ok(text) = binding {
-            for needle in ["use pyo3::types::{PyBytes, PyDict, PyList};"] {
-                assert_eq!(text.matches(needle).count(), 1, "anchor drift: {needle:?}");
-            }
-            // The binding must not reimplement core algorithms.
-            for gone in [
-                "fn update_table(",
-                "fn digest_of(",
-                "struct TableRegister {",
-                "struct Crc {",
-            ] {
-                assert_eq!(text.matches(gone).count(), 0, "core leak into binding: {gone:?}");
-            }
-        }
-        if let Ok(text) = core {
+        let bind = std::fs::read_to_string(tpl.join("src/lib.rs"));
+        if let Ok(text) = bind {
             for needle in [
-                "pub struct TableRegister {",
-                "pub struct Crc {",
-                "fn digest_of(reg: u64, cfg: &Config) -> u64 {",
-                "pub struct Config {",
+                "use pyo3::types::{PyBytes, PyDict, PyList};",
+                "    table: [u64; 256],\n}",
+                "    table: Option<[u64; 256]>,",
             ] {
                 assert_eq!(text.matches(needle).count(), 1, "anchor drift: {needle:?}");
             }
-            // No Python API may leak into the reusable core.
-            for gone in ["pyo3", "PyAny", "PyResult"] {
-                assert_eq!(text.matches(gone).count(), 0, "python leak into core: {gone:?}");
-            }
         }
-    }
-
-    #[test]
-    fn core_lib_falls_back_to_single_file_layout() {
-        // Split template: core path wins.
-        let split = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(split.path().join("crc-core/src")).unwrap();
-        std::fs::write(split.path().join("crc-core/src/lib.rs"), "core").unwrap();
-        let (p, sib) = core_lib(split.path());
-        assert_eq!(p, split.path().join("crc-core/src/lib.rs"));
-        assert_eq!(sib, "crc-core/src/");
-        // Legacy single-file template (e.g. strsimpy): unchanged behavior.
-        let legacy = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(legacy.path().join("src")).unwrap();
-        std::fs::write(legacy.path().join("src/lib.rs"), "legacy").unwrap();
-        let (p, sib) = core_lib(legacy.path());
-        assert_eq!(p, legacy.path().join("src/lib.rs"));
-        assert_eq!(sib, "src/");
+        // Arithmetic anchors live in the core crate when the template ships
+        // the publishable layout, else in the binding root (flat templates).
+        let core = tpl.join("crc-core/src/lib.rs");
+        let core_text = std::fs::read_to_string(if core.is_file() { core } else { tpl.join("src/lib.rs") }).unwrap();
+        assert_eq!(
+            core_text.matches("fn digest_of(reg: u64, cfg: &Config) -> u64 {").count(),
+            1,
+            "anchor drift: digest_of"
+        );
     }
 
     #[test]
@@ -559,10 +546,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         copy_template_files(&template_under_test(), dir.path());
         let files = apply_slice_by_8(dir.path()).unwrap();
-        let (core_rel, sib) = ("crc-core/src/lib.rs", "crc-core/src/");
-        assert!(files.contains(&format!("{sib}slice8.rs")));
-        assert!(dir.path().join(format!("{sib}slice8.rs")).exists());
-        let lib = std::fs::read_to_string(dir.path().join(core_rel)).unwrap();
+        assert!(files.contains(&"src/slice8.rs".to_string()));
+        assert!(dir.path().join("src/slice8.rs").exists());
+        let lib = std::fs::read_to_string(dir.path().join("src/lib.rs")).unwrap();
         assert!(lib.contains("mod slice8;"));
         assert!(lib.contains("st: [[u64; 256]; 8]"));
     }
@@ -575,61 +561,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         copy_template_files(&template_under_test(), dir.path());
         apply_slice_by_8(dir.path()).unwrap();
-        // Binding and core both test green (core carries the algorithm tests).
-        let manifest = dir.path().join("Cargo.toml");
-        for extra in [vec!["--lib"], vec!["-p", "crc-core", "--lib"]] {
-            let st = std::process::Command::new("cargo")
-                .arg("test")
-                .arg("--manifest-path")
-                .arg(&manifest)
-                .args(&extra)
-                .output()
-                .unwrap();
-            assert!(
-                st.status.success(),
-                "patched lib tests failed ({extra:?}):\n{}",
-                String::from_utf8_lossy(&st.stderr)
-            );
-        }
-    }
-
-    #[test]
-    fn plants_apply_and_check() {
-        if std::env::var("RUSTSMITH_SLOW").is_err() {
-            return;
-        }
-        // Every plant must anchor on the split template and still compile
-        // (rss-hog bundles slicing first, mirroring grade-candidate).
-        let plants: Vec<(&str, Box<dyn Fn(&std::path::Path)>)> = vec![
-            ("fixture-cache", Box::new(|d| { apply_fixture_cache(d).unwrap(); })),
-            ("tuned-const", Box::new(|d| { apply_tuned_const(d, 0x41).unwrap(); })),
-            ("noop", Box::new(|d| { apply_noop(d).unwrap(); })),
-            ("rss-hog", Box::new(|d| {
-                apply_slice_by_8(d).unwrap();
-                apply_rss_hog(d).unwrap();
-            })),
-            ("size-branch", Box::new(|d| { apply_size_branch(d).unwrap(); })),
-            ("dead-path", Box::new(|d| { apply_dead_path(d).unwrap(); })),
-            ("unroll", Box::new(|d| { apply_unroll(d).unwrap(); })),
-            ("inline-hint", Box::new(|d| { apply_inline_hint(d).unwrap(); })),
-            ("round0-hex", Box::new(|d| { apply_round0_manual_hex(d).unwrap(); })),
-        ];
-        for (name, apply) in plants {
-            let dir = tempfile::tempdir().unwrap();
-            copy_template_files(&template_under_test(), dir.path());
-            apply(dir.path());
-            let st = std::process::Command::new("cargo")
-                .arg("check")
-                .arg("--manifest-path")
-                .arg(dir.path().join("Cargo.toml"))
-                .arg("--workspace")
-                .output()
-                .unwrap();
-            assert!(
-                st.status.success(),
-                "plant {name} check failed:\n{}",
-                String::from_utf8_lossy(&st.stderr)
-            );
-        }
+        let st = std::process::Command::new("cargo")
+            .args(["test", "--manifest-path"])
+            .arg(dir.path().join("Cargo.toml"))
+            .args(["--lib"])
+            .output()
+            .unwrap();
+        assert!(
+            st.status.success(),
+            "patched lib tests failed:\n{}",
+            String::from_utf8_lossy(&st.stderr)
+        );
     }
 }

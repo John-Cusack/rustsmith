@@ -1,11 +1,20 @@
-//! crc-core: reusable Rust core for CRC computation (no Python API).
+//! Pure-Rust CRC core for the `crc` converted project.
 //!
-//! Pure-Rust port of the `Nicoretti/crc` algorithms: same catalogs, same
-//! vectors. The PyO3 binding crate calls this core; it never reimplements it.
-//! Behavior-identical port per `PORTING.md`. No redesign: byte-at-a-time table
-//! lookup ships (slicing-by-8 is a Stage-2 candidate, applied to this file).
+//! Behavior-identical port of `Nicoretti/crc` `src/crc/_crc.py`: same catalogs,
+//! same vectors. No redesign: byte-at-a-time table lookup ships here
+//! (slice-by-8 is a Stage-2/M6 candidate, applied on top of this file).
+//!
+//! This crate is intentionally independent of Python: it has no `pyo3`
+//! dependency, builds as an `rlib`, and its unit tests run under plain
+//! `cargo test` (and miri). The Python extension (`crc._crc`, built from the
+//! parent `crc-rust` crate) calls this same core, so Rust consumers and
+//! Python consumers share one implementation.
 //!
 //! License: BSD-2-Clause (preserved from the original; see NOTICE).
+
+// ---------------------------------------------------------------------------
+// Core CRC arithmetic (no Python API): deterministic, miri-testable.
+// ---------------------------------------------------------------------------
 
 /// Width mask: low `width` bits set. Width is always 8..=64 on this fixture.
 pub fn mask(width: u8) -> u64 {
@@ -182,135 +191,6 @@ pub fn crc64_members() -> Vec<(&'static str, Config)> {
 }
 
 // ---------------------------------------------------------------------------
-// Register state machines (plain Rust; the binding wraps one per class).
-// ---------------------------------------------------------------------------
-
-/// Shared register helpers.
-pub fn reg_len(cfg: &Config) -> usize {
-    (cfg.width / 8) as usize
-}
-
-/// Byte `index` of `reg`, or `None` when out of range (binding reports it).
-pub fn reg_get(reg: u64, cfg: &Config, index: isize) -> Option<u8> {
-    let n = reg_len(cfg) as isize;
-    if !(0..n).contains(&index) {
-        return None;
-    }
-    Some(((reg >> (index as u64 * 8)) & 0xFF) as u8)
-}
-
-/// Bit-by-bit register state.
-#[derive(Debug, Clone)]
-pub struct BitRegister {
-    cfg: Config,
-    reg: u64,
-}
-
-impl BitRegister {
-    pub fn new(cfg: Config) -> Self {
-        let reg = cfg.init & bitmask(&cfg);
-        Self { cfg, reg }
-    }
-    pub fn reset(&mut self) {
-        self.reg = self.cfg.init & bitmask(&self.cfg);
-    }
-    pub fn update(&mut self, data: &[u8]) -> u64 {
-        self.reg = update_bit(self.reg, &self.cfg, data);
-        self.reg
-    }
-    pub fn digest(&self) -> u64 {
-        digest_of(self.reg, &self.cfg)
-    }
-    pub fn reverse(&self) -> u64 {
-        reverse_of(self.reg, &self.cfg)
-    }
-    pub fn len(&self) -> usize {
-        reg_len(&self.cfg)
-    }
-    pub fn get(&self, index: isize) -> Option<u8> {
-        reg_get(self.reg, &self.cfg, index)
-    }
-    pub fn config(&self) -> Config {
-        self.cfg
-    }
-}
-
-/// Table-driven register state (byte-at-a-time; slicing is a Stage-2 candidate).
-#[derive(Debug, Clone)]
-pub struct TableRegister {
-    cfg: Config,
-    reg: u64,
-    table: [u64; 256],
-}
-
-impl TableRegister {
-    pub fn new(cfg: Config) -> Self {
-        let table = create_table(cfg.width, cfg.poly);
-        let reg = cfg.init & bitmask(&cfg);
-        Self { cfg, reg, table }
-    }
-    pub fn reset(&mut self) {
-        self.reg = self.cfg.init & bitmask(&self.cfg);
-    }
-    pub fn update(&mut self, data: &[u8]) -> u64 {
-        self.reg = update_table(self.reg, &self.cfg, &self.table, data);
-        self.reg
-    }
-    pub fn digest(&self) -> u64 {
-        digest_of(self.reg, &self.cfg)
-    }
-    pub fn reverse(&self) -> u64 {
-        reverse_of(self.reg, &self.cfg)
-    }
-    pub fn len(&self) -> usize {
-        reg_len(&self.cfg)
-    }
-    pub fn get(&self, index: isize) -> Option<u8> {
-        reg_get(self.reg, &self.cfg, index)
-    }
-    pub fn config(&self) -> Config {
-        self.cfg
-    }
-}
-
-/// `Calculator` state: `optimized` selects the table register.
-#[derive(Debug, Clone)]
-pub struct Crc {
-    cfg: Config,
-    reg: u64,
-    table: Option<[u64; 256]>,
-}
-
-impl Crc {
-    pub fn new(cfg: Config, optimized: bool) -> Self {
-        let table = if optimized {
-            Some(create_table(cfg.width, cfg.poly))
-        } else {
-            None
-        };
-        let reg = cfg.init & bitmask(&cfg);
-        Self { cfg, reg, table }
-    }
-    pub fn reset(&mut self) {
-        self.reg = self.cfg.init & bitmask(&self.cfg);
-    }
-    pub fn checksum(&mut self, data: &[u8]) -> u64 {
-        self.reg = self.cfg.init & bitmask(&self.cfg);
-        self.reg = match &self.table {
-            Some(t) => update_table(self.reg, &self.cfg, t, data),
-            None => update_bit(self.reg, &self.cfg, data),
-        };
-        digest_of(self.reg, &self.cfg)
-    }
-    pub fn verify(&mut self, data: &[u8], expected: u64) -> bool {
-        self.checksum(data) == expected
-    }
-    pub fn config(&self) -> Config {
-        self.cfg
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Pure-Rust tests (miri-clean subset: no Python API touched).
 // ---------------------------------------------------------------------------
 
@@ -383,28 +263,5 @@ mod core_tests {
             refout: true,
         };
         assert_eq!(digest_of(cfg.init & mask(16), &cfg), 0xFFFF);
-    }
-    #[test]
-    fn state_machines_match_functions() {
-        let cfg = Config { width: 32, poly: 0x04C11DB7, init: 0xFFFFFFFF, xorout: 0xFFFFFFFF, refin: true, refout: true };
-        let data = b"123456789";
-        let table = create_table(cfg.width, cfg.poly);
-        let init = cfg.init & bitmask(&cfg);
-        let mut bit = BitRegister::new(cfg);
-        assert_eq!(bit.update(data), update_bit(init, &cfg, data));
-        assert_eq!(bit.digest(), digest_of(update_bit(init, &cfg, data), &cfg));
-        let mut tab = TableRegister::new(cfg);
-        assert_eq!(tab.update(data), update_table(init, &cfg, &table, data));
-        assert_eq!(tab.digest(), digest_of(update_table(init, &cfg, &table, data), &cfg));
-        let mut crc = Crc::new(cfg, true);
-        assert_eq!(crc.checksum(data), digest_of(update_table(init, &cfg, &table, data), &cfg));
-        assert!(crc.verify(data, digest_of(update_table(init, &cfg, &table, data), &cfg)));
-        let mut plain = Crc::new(cfg, false);
-        assert_eq!(plain.checksum(data), digest_of(update_bit(init, &cfg, data), &cfg));
-        assert_eq!(tab.len(), 4);
-        assert_eq!(tab.get(0), reg_get(update_table(init, &cfg, &table, data), &cfg, 0));
-        assert_eq!(tab.get(9), None);
-        tab.reset();
-        assert_eq!(tab.digest(), digest_of(init, &cfg));
     }
 }

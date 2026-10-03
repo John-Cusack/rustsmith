@@ -1,18 +1,29 @@
 //! Stage-1 Rust mirror of `Nicoretti/crc` (pure-Python CRC library).
 //!
-//! Thin PyO3 binding over `crc_core`: same module boundary (`crc._crc`),
-//! same public names, same vectors. All algorithms live in the core crate;
-//! this file only converts between Python objects and core types.
+//! PyO3 binding over the independent `crc-rust-core` crate: same module
+//! boundary (`crc._crc`), same public names, same vectors. No redesign:
+//! byte-at-a-time table lookup ships (slice-by-8 is a Stage-2/M6 candidate,
+//! not here). All arithmetic lives in `crc_core`; this file only translates
+//! between Python objects and core values.
 //!
 //! License: BSD-2-Clause (preserved from the original; see NOTICE).
 
-use crc_core::{
-    BitRegister, Config, Crc, TableRegister, create_table, crc16_members,
-    crc32_members, crc64_members, crc8_members, format_value, reflect_byte, render_template,
-};
 use pyo3::exceptions::{PyIndexError, PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
+
+// Core arithmetic (single implementation shared with Rust consumers).
+// `process_byte_table` is re-exported for the Stage-2 `slice8` module, which
+// reaches it as `super::process_byte_table`.
+pub use crc_core::{bitmask, process_byte_table, reflect_byte, Config};
+use crc_core::{
+    create_table, crc16_members, crc32_members, crc64_members, crc8_members, digest_of,
+    format_value, render_template, reverse_of, update_bit, update_table,
+};
+
+// ---------------------------------------------------------------------------
+// Python-visible classes.
+// ---------------------------------------------------------------------------
 
 /// Frozen `Configuration` (mirrors the dataclass; positional + defaults).
 #[pyclass(frozen)]
@@ -167,96 +178,112 @@ fn byte_operand(other: &Bound<'_, PyAny>) -> PyResult<u8> {
     )))
 }
 
-fn reg_index_err() -> PyErr {
-    PyIndexError::new_err("register index out of range")
+/// Shared register state helpers.
+fn reg_len(cfg: &Config) -> usize {
+    (cfg.width / 8) as usize
+}
+
+fn reg_get(reg: u64, cfg: &Config, index: isize) -> PyResult<u8> {
+    let n = reg_len(cfg) as isize;
+    if !(0..n).contains(&index) {
+        return Err(PyIndexError::new_err("register index out of range"));
+    }
+    Ok(((reg >> (index as u64 * 8)) & 0xFF) as u8)
 }
 
 /// Bit-by-bit `Register`.
 #[pyclass]
 struct Register {
-    inner: BitRegister,
+    cfg: Config,
+    reg: u64,
 }
 
 #[pymethods]
 impl Register {
     #[new]
     fn new(configuration: &Bound<'_, PyAny>) -> PyResult<Self> {
-        Ok(Self {
-            inner: BitRegister::new(config_of(configuration)?),
-        })
+        let cfg = config_of(configuration)?;
+        let reg = cfg.init & bitmask(&cfg);
+        Ok(Self { cfg, reg })
     }
     fn init(&mut self) {
-        self.inner.reset();
+        self.reg = self.cfg.init & bitmask(&self.cfg);
     }
     fn update(&mut self, data: &Bound<'_, PyAny>) -> PyResult<u64> {
         let bytes = bytes_like(data)?;
-        Ok(self.inner.update(&bytes))
+        self.reg = update_bit(self.reg, &self.cfg, &bytes);
+        Ok(self.reg)
     }
     fn digest(&self) -> u64 {
-        self.inner.digest()
+        digest_of(self.reg, &self.cfg)
     }
     fn reverse(&self) -> u64 {
-        self.inner.reverse()
+        reverse_of(self.reg, &self.cfg)
     }
     fn __len__(&self) -> usize {
-        self.inner.len()
+        reg_len(&self.cfg)
     }
     fn __getitem__(&self, index: isize) -> PyResult<u8> {
-        self.inner.get(index).ok_or_else(reg_index_err)
+        reg_get(self.reg, &self.cfg, index)
     }
 }
 
 /// Table-driven `TableBasedRegister` (byte-at-a-time; mirror ships this).
 #[pyclass]
 struct TableBasedRegister {
-    inner: TableRegister,
+    cfg: Config,
+    reg: u64,
+    table: [u64; 256],
 }
 
 #[pymethods]
 impl TableBasedRegister {
     #[new]
     fn new(configuration: &Bound<'_, PyAny>) -> PyResult<Self> {
-        Ok(Self {
-            inner: TableRegister::new(config_of(configuration)?),
-        })
+        let cfg = config_of(configuration)?;
+        let table = create_table(cfg.width, cfg.poly);
+        let reg = cfg.init & bitmask(&cfg);
+        Ok(Self { cfg, reg, table })
     }
     fn init(&mut self) {
-        self.inner.reset();
+        self.reg = self.cfg.init & bitmask(&self.cfg);
     }
     fn update(&mut self, data: &Bound<'_, PyAny>) -> PyResult<u64> {
         let bytes = bytes_like(data)?;
-        Ok(self.inner.update(&bytes))
+        self.reg = update_table(self.reg, &self.cfg, &self.table, &bytes);
+        Ok(self.reg)
     }
     fn digest(&self) -> u64 {
-        self.inner.digest()
+        digest_of(self.reg, &self.cfg)
     }
     fn reverse(&self) -> u64 {
-        self.inner.reverse()
+        reverse_of(self.reg, &self.cfg)
     }
     fn __len__(&self) -> usize {
-        self.inner.len()
+        reg_len(&self.cfg)
     }
     fn __getitem__(&self, index: isize) -> PyResult<u8> {
-        self.inner.get(index).ok_or_else(reg_index_err)
+        reg_get(self.reg, &self.cfg, index)
     }
 }
 
 /// `BasicRegister` (abstract in the original; never instantiated by tests).
 #[pyclass]
 struct BasicRegister {
-    inner: BitRegister,
+    cfg: Config,
+    reg: u64,
 }
 
 #[pymethods]
 impl BasicRegister {
     #[new]
     fn new(configuration: &Bound<'_, PyAny>) -> PyResult<Self> {
-        Ok(Self {
-            inner: BitRegister::new(config_of(configuration)?),
-        })
+        let cfg = config_of(configuration)?;
+        let reg = cfg.init & bitmask(&cfg);
+        Ok(Self { cfg, reg })
     }
     fn init(&mut self) {
-        self.inner.reset();
+        self.reg = self.cfg.init & bitmask(&self.cfg);
     }
     fn update(&mut self, _data: &Bound<'_, PyAny>) -> PyResult<u64> {
         Err(pyo3::exceptions::PyNotImplementedError::new_err(
@@ -264,16 +291,16 @@ impl BasicRegister {
         ))
     }
     fn digest(&self) -> u64 {
-        self.inner.digest()
+        digest_of(self.reg, &self.cfg)
     }
     fn reverse(&self) -> u64 {
-        self.inner.reverse()
+        reverse_of(self.reg, &self.cfg)
     }
     fn __len__(&self) -> usize {
-        self.inner.len()
+        reg_len(&self.cfg)
     }
     fn __getitem__(&self, index: isize) -> PyResult<u8> {
-        self.inner.get(index).ok_or_else(reg_index_err)
+        reg_get(self.reg, &self.cfg, index)
     }
 }
 
@@ -292,7 +319,9 @@ impl AbstractRegister {
 /// `Calculator` with `optimized` selecting the register.
 #[pyclass]
 struct Calculator {
-    inner: Crc,
+    cfg: Config,
+    reg: u64,
+    table: Option<[u64; 256]>,
 }
 
 #[pymethods]
@@ -300,17 +329,26 @@ impl Calculator {
     #[new]
     #[pyo3(signature = (configuration, optimized=false))]
     fn new(configuration: &Bound<'_, PyAny>, optimized: bool) -> PyResult<Self> {
-        Ok(Self {
-            inner: Crc::new(config_of(configuration)?, optimized),
-        })
+        let cfg = config_of(configuration)?;
+        let table = if optimized {
+            Some(create_table(cfg.width, cfg.poly))
+        } else {
+            None
+        };
+        let reg = cfg.init & bitmask(&cfg);
+        Ok(Self { cfg, reg, table })
     }
     fn checksum(&mut self, py: Python<'_>, data: PyObject) -> PyResult<u64> {
         let bytes = extract_bytes(data.bind(py))?;
-        Ok(self.inner.checksum(&bytes))
+        self.reg = self.cfg.init & bitmask(&self.cfg);
+        self.reg = match &self.table {
+            Some(t) => update_table(self.reg, &self.cfg, t, &bytes),
+            None => update_bit(self.reg, &self.cfg, &bytes),
+        };
+        Ok(digest_of(self.reg, &self.cfg))
     }
     fn verify(&mut self, py: Python<'_>, data: PyObject, expected: u64) -> PyResult<bool> {
-        let bytes = extract_bytes(data.bind(py))?;
-        Ok(self.inner.verify(&bytes, expected))
+        Ok(self.checksum(py, data)? == expected)
     }
 }
 
