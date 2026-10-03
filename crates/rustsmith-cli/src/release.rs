@@ -26,6 +26,76 @@ fn flag(args: &[String], name: &str) -> Option<String> {
     }
     None
 }
+fn has_flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|a| a == name || a.starts_with(&format!("{name}=")))
+}
+
+/// Durable write: temp file in the same directory + fsync + rename + dir
+/// sync, so a crash never leaves a half-written state file behind. Never
+/// logs file contents (paths only, on error).
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{}: no parent dir", path.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = parent.join(format!(
+        ".{}.tmp-{}-{nanos}",
+        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "state".into()),
+        std::process::id()
+    ));
+    std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    // Sync the temp file before it becomes visible under its real name.
+    std::fs::File::open(&tmp)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // Sync the directory so the rename itself survives a crash.
+    if let Ok(dir) = std::fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
+/// Best-effort canonical form for overlap checks: canonicalize when the
+/// path exists, else canonicalize the closest existing ancestor and append
+/// the remainder. Falls back to the raw path when nothing resolves.
+fn canonical_for_compare(p: &Path) -> PathBuf {
+    if let Ok(c) = std::fs::canonicalize(p) {
+        return c;
+    }
+    let mut cur = p;
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        match std::fs::canonicalize(cur) {
+            Ok(c) => {
+                let mut out = c;
+                for comp in tail.iter().rev() {
+                    out.push(comp);
+                }
+                return out;
+            }
+            Err(_) => match cur.parent() {
+                Some(parent) => {
+                    if let Some(name) = cur.file_name() {
+                        tail.push(name.to_os_string());
+                    }
+                    cur = parent;
+                }
+                None => return p.to_path_buf(),
+            },
+        }
+    }
+}
+
+fn paths_overlap(a: &Path, b: &Path) -> bool {
+    let ca = canonical_for_compare(a);
+    let cb = canonical_for_compare(b);
+    ca == cb || ca.starts_with(&cb) || cb.starts_with(&ca)
+}
 
 fn now() -> i64 {
     std::time::SystemTime::now()
@@ -142,21 +212,54 @@ pub fn cmd_release_prep(args: &[String]) -> Result<(), String> {
     rustsmith_release::validate_names(&cfg).map_err(|e| e.to_string())?;
     rustsmith_release::validate_tree(&cfg, &project).map_err(|e| e.to_string())?;
     // Final accepted source: the optimize tree when it exists, else the fork.
-    let (source, source_kind) = match opt {
-        Some(o) if o.is_dir() => (o, "opt"),
+    let (source, source_kind): (PathBuf, &str) = match opt.as_ref() {
+        Some(o) if o.is_dir() => (o.clone(), "opt"),
         _ => {
             if !fork.is_dir() {
                 return Err(format!("{}: no such --fork dir (and no --opt)", fork.display()));
             }
-            (fork, "fork")
+            (fork.clone(), "fork")
         }
     };
     let source_sha = git_head(&source)?;
+    // Never wipe a tree we read from, and never let --out point at store
+    // state: canonical overlap with any input tree is always refused (even
+    // with --force). Separately, an --out that already holds release state
+    // is refused unless --force re-runs prep explicitly.
+    {
+        let force = has_flag(args, "--force");
+        let mut inputs: Vec<&Path> = vec![&project, &fork, &recon_out];
+        if let Some(o) = opt.as_ref() {
+            inputs.push(o);
+        }
+        for other in &inputs {
+            if paths_overlap(&out, other) {
+                return Err(format!(
+                    "{}: --out overlaps input {} (refusing to wipe sources)",
+                    out.display(),
+                    other.display()
+                ));
+            }
+        }
+        if out.exists() {
+            let state_file = out.join("release-state.json");
+            let non_empty = out.is_file()
+                || std::fs::read_dir(&out).map(|mut rd| rd.next().is_some()).unwrap_or(true);
+            if state_file.is_file() && non_empty && !force {
+                return Err(format!(
+                    "{}: existing release state (re-run with --force to overwrite)",
+                    out.display()
+                ));
+            }
+            if out.is_file() {
+                std::fs::remove_file(&out).map_err(|e| e.to_string())?;
+            } else {
+                std::fs::remove_dir_all(&out).map_err(|e| e.to_string())?;
+            }
+        }
+    }
     // Stage a clean copy; the staged tree (not the live fork) is what builds.
     let stage = out.join("stage");
-    if out.exists() {
-        std::fs::remove_dir_all(&out).map_err(|e| e.to_string())?;
-    }
     std::fs::create_dir_all(&stage).map_err(|e| e.to_string())?;
     copy_stage(&source, &stage)?;
     // The staged source must carry the same release metadata (drift fails).
@@ -430,8 +533,7 @@ pub fn cmd_release_prep(args: &[String]) -> Result<(), String> {
             bytes: a["bytes"].as_u64().unwrap(),
         })
         .collect();
-    std::fs::write(out.join("release-state.json"), serde_json::to_string_pretty(&state).unwrap())
-        .map_err(|e| e.to_string())?;
+    atomic_write(&out.join("release-state.json"), serde_json::to_string_pretty(&state).unwrap().as_bytes())?;
     // Generated workflow + exact setup instructions.
     let wf_dir = out.join(".github/workflows");
     std::fs::create_dir_all(&wf_dir).map_err(|e| e.to_string())?;
@@ -572,7 +674,7 @@ pub fn cmd_release_record(args: &[String]) -> Result<(), String> {
         serde_json::from_str(&text).map_err(|e| format!("{}: bad state: {e}", state_path.display()))?;
     rustsmith_release::record_outcome(&mut state, &registry, &result, &detail, now())
         .map_err(|e| e.to_string())?;
-    std::fs::write(&state_path, serde_json::to_string_pretty(&state).unwrap()).map_err(|e| e.to_string())?;
+    atomic_write(&state_path, serde_json::to_string_pretty(&state).unwrap().as_bytes())?;
     let overall = rustsmith_release::overall_status(&state);
     println!("{}", serde_json::json!({"registry": registry, "result": result, "overall": overall}));
     Ok(())

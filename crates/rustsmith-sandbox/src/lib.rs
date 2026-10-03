@@ -63,9 +63,11 @@ impl Sandbox {
     /// path (enforced: no such args exist).
     ///
     /// Docker infra failure falls back to a host run ONLY for the `pytest`
-    /// runner (cross-track contract: `PytestRunner::id() == "pytest"`); every
-    /// other runner gets [`SandboxError::HostFallbackRefused`]. The fallback
-    /// marks stdout so audit can see it. It is never silent.
+    /// runner (cross-track contract: `PytestRunner::id() == "pytest"`) AND
+    /// only with explicit operator opt-in
+    /// (`RUSTSMITH_ALLOW_HOST_FALLBACK=1`); every other runner — or pytest
+    /// without the opt-in — gets [`SandboxError::HostFallbackRefused`]. The
+    /// fallback marks stdout so audit can see it. It is never silent.
     pub fn grading_run(
         &self,
         manifest: &Manifest,
@@ -77,7 +79,6 @@ impl Sandbox {
     ) -> Result<GradedResult, SandboxError> {
         grading_run_impl(manifest, artifact, build_dir, runner, image, image_tag)
     }
-
     /// Prove a path is absent inside the grading image (held-out blindness check).
     pub fn grading_image_lacks(&self, image_tag: &str, pattern: &str) -> Result<bool, SandboxError> {
         let out = std::process::Command::new("docker")
@@ -149,7 +150,13 @@ fn grading_run_impl(
         Ok(r) => Ok(r),
         // Only docker-infra failures consult the fallback policy; a `Runner`
         // grading error is deterministic and propagates untouched.
-        Err(SandboxError::Docker(_)) if runner.id() == "pytest" => {
+        // The host fallback is fail-closed: even for `pytest` it runs only
+        // with explicit operator opt-in (`RUSTSMITH_ALLOW_HOST_FALLBACK=1`,
+        // honoring `=1`/`=true`/`=yes` case-insensitively). Anything else is
+        // `HostFallbackRefused`, never a silent host grade — a host run could
+        // resolve absolute build-dir binaries to system installs and pass
+        // against the wrong binary.
+        Err(SandboxError::Docker(_)) if runner.id() == "pytest" && host_fallback_allowed() => {
             let mut r = host_grading_run(manifest, artifact, build_dir, runner)?;
             r.stdout.insert_str(
                 0,
@@ -162,6 +169,15 @@ fn grading_run_impl(
             runner.id()
         ))),
         Err(e) => Err(e),
+    }
+}
+/// Explicit operator opt-in for the pytest host fallback. Read at call time
+/// (not cached) so tests and operators can flip it per invocation without a
+/// restart; any value other than `1`/`true`/`yes` refuses.
+fn host_fallback_allowed() -> bool {
+    match std::env::var("RUSTSMITH_ALLOW_HOST_FALLBACK") {
+        Ok(v) => matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"),
+        Err(_) => false,
     }
 }
 
@@ -770,6 +786,10 @@ mod polyglot_regression_tests {
     };
     use std::collections::BTreeMap;
 
+    /// Serializes the env-mutating fallback tests: `cargo test` runs tests
+    /// on threads, and the opt-in flag lives in the process environment.
+    static FALLBACK_ENV_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
     fn graded_fixture(passed: u32, failed: u32, marker: &str) -> GradedResult {
         GradedResult {
             exit_code: 0,
@@ -782,7 +802,6 @@ mod polyglot_regression_tests {
             outcomes: BTreeMap::new(),
         }
     }
-
     fn simple_cmd(program: &str, args: &[&str], cwd: Cwd) -> TestCommand {
         TestCommand {
             program: program.to_string(),
@@ -894,6 +913,40 @@ mod polyglot_regression_tests {
     }
 
     #[test]
+    fn host_fallback_refused_by_default_for_pytest() {
+        // Fail-closed: without explicit operator opt-in even pytest refuses
+        // the host (a host grade could resolve absolute build-dir binaries
+        // to system installs and pass against the wrong binary).
+        let dir = tempfile::tempdir().unwrap();
+        let artifact = dir.path().join("artifact");
+        let build = dir.path().join("build");
+        std::fs::create_dir_all(&artifact).unwrap();
+        std::fs::create_dir_all(&build).unwrap();
+        let runner = MockRunner {
+            id: "pytest",
+            commands: vec![simple_cmd("/bin/true", &[], Cwd::Tree)],
+            graded: graded_fixture(7, 2, "must-not-surface"),
+        };
+        let manifest = manifest_with(runner.commands.clone(), "pytest");
+        let sandbox = Sandbox::new(dir.path().join("containers"));
+        let _guard = FALLBACK_ENV_LOCK.lock();
+        let prev = std::env::var("RUSTSMITH_ALLOW_HOST_FALLBACK").ok();
+        let err = sandbox
+            .grading_run(&manifest, &artifact, &build, &runner, &image_spec(), BOGUS_IMAGE)
+            .unwrap_err();
+        match prev {
+            Some(v) => std::env::set_var("RUSTSMITH_ALLOW_HOST_FALLBACK", v),
+            None => std::env::remove_var("RUSTSMITH_ALLOW_HOST_FALLBACK"),
+        }
+        match err {
+            SandboxError::HostFallbackRefused(msg) => {
+                assert!(msg.contains("pytest"), "refusal names runner, got {msg}")
+            }
+            other => panic!("pytest without opt-in must refuse the host, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn host_fallback_marks_stdout_for_pytest() {
         let dir = tempfile::tempdir().unwrap();
         let artifact = dir.path().join("artifact");
@@ -907,9 +960,16 @@ mod polyglot_regression_tests {
         };
         let manifest = manifest_with(runner.commands.clone(), "pytest");
         let sandbox = Sandbox::new(dir.path().join("containers"));
+        let _guard = FALLBACK_ENV_LOCK.lock();
+        let prev = std::env::var("RUSTSMITH_ALLOW_HOST_FALLBACK").ok();
+        std::env::set_var("RUSTSMITH_ALLOW_HOST_FALLBACK", "1");
         let out = sandbox
             .grading_run(&manifest, &artifact, &build, &runner, &image_spec(), BOGUS_IMAGE)
             .unwrap();
+        match prev {
+            Some(v) => std::env::set_var("RUSTSMITH_ALLOW_HOST_FALLBACK", v),
+            None => std::env::remove_var("RUSTSMITH_ALLOW_HOST_FALLBACK"),
+        }
         // Fallback is never silent: the audit marker leads, the grade shape
         // (counts plus sentinel body) survives untouched.
         assert!(
