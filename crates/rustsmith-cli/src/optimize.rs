@@ -743,13 +743,15 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
         return Err(format!("pip install wheel failed:\n{log}"));
     }
     // Mirror the freshly built ext into the tree (in-place .so), so pytest's
-    // cwd-rooted package import resolves THIS tree's build. Package + ext stem
-    // come from the tree's own Cargo.toml (fixture-agnostic). Wheels alone
-    // leave the local package without an ext, and grading runs with
+    // cwd-rooted package import resolves THIS tree's build. The installed
+    // layout follows the tree's own `[tool.maturin] module-name`
+    // (fixture-agnostic): the Rust `[package] name` may differ (e.g. a
+    // registry-ready `crc-rust` crate shipping Python dir `crc/`). Wheels
+    // alone leave the local package without an ext, and grading runs with
     // cwd=worktree — the local package then shadows site-packages and the
     // import fails outright. Refreshed on every build, so never stale.
     // The query is a plain interpreter probe (no toolchain literal).
-    let (pkg, ext) = crate_package(worktree)?;
+    let (pkg, ext) = installed_ext_location(worktree)?;
     let so_q = TestCommand {
         program: venv.join("bin/python").display().to_string(),
         args: vec![
@@ -816,6 +818,34 @@ fn crate_package(worktree: &Path) -> Result<(String, String), String> {
         (Some(p), Some(l)) => Ok((p, l)),
         _ => Err("Cargo.toml missing [package] name or [lib] name".into()),
     }
+}
+
+/// Python dir + ext stem of the installed wheel, from the tree's own
+/// `[tool.maturin] module-name` (`crc._crc` -> dir `crc`, stem `_crc`).
+/// Falls back to [`crate_package`] for trees without a module-name.
+fn installed_ext_location(worktree: &Path) -> Result<(String, String), String> {
+    if let Ok(t) = std::fs::read_to_string(worktree.join("pyproject.toml")) {
+        let mut section = String::new();
+        for line in t.lines() {
+            let l = line.trim();
+            if l.starts_with('[') {
+                section = l.to_string();
+            }
+            if section == "[tool.maturin]" {
+                if let Some(v) = l.strip_prefix("module-name") {
+                    let v = v.trim().trim_start_matches('=').trim().trim_matches('"').trim_matches('\'');
+                    let mut parts: Vec<&str> = v.split('.').collect();
+                    if let Some(stem) = parts.pop() {
+                        if !stem.is_empty() {
+                            let dir = if parts.is_empty() { stem.to_string() } else { parts.join("/") };
+                            return Ok((dir, stem.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    crate_package(worktree)
 }
 
 fn full_build_secs(src_dir: &Path, venv: &Path) -> Result<f64, String> {
@@ -2307,5 +2337,48 @@ mod workload_probe_regression_tests {
         );
         assert!(cmd.env_set.is_empty() && cmd.env_remove.is_empty());
         assert!(cmd.launcher.is_none());
+    }
+}
+
+#[cfg(test)]
+mod ext_location_tests {
+    use super::*;
+
+    /// The installed layout follows `[tool.maturin] module-name`, not the
+    /// Rust package name: a registry-ready `crc-rust` crate still installs
+    /// its ext at `crc/_crc*.so`. Regression: the REWORK template rename
+    /// (`crc` -> `crc-rust`) broke the Cargo-name lookup at base build.
+    #[test]
+    fn module_name_wins_over_cargo_package_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"crc-rust\"\n[lib]\nname = \"_crc\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"crc-rust\"\n[tool.maturin]\nmodule-name = \"crc._crc\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            installed_ext_location(dir.path()).unwrap(),
+            ("crc".to_string(), "_crc".to_string())
+        );
+    }
+
+    /// Trees without a module-name keep the legacy Cargo-name lookup.
+    #[test]
+    fn falls_back_to_cargo_names() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"pkg\"\n[lib]\nname = \"ext\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            installed_ext_location(dir.path()).unwrap(),
+            ("pkg".to_string(), "ext".to_string())
+        );
     }
 }
