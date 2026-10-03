@@ -546,13 +546,18 @@ pub(crate) fn run_heldout_in_venv(
     let cx = BuildCtx { tree: worktree, build_dir: worktree, release: false };
     let cmds = PytestRunner::bind_venv(&runner.heldout(suite, &cx), &grade_venv_python(venv));
     let runs = execute_all(worktree, worktree, &cmds).map_err(|e| e.to_string())?;
-    if runs.iter().any(|r| r.exit_code != 0) {
+    // Fail-closed on an unrunnable suite, never on failing tests: pytest exit
+    // 1 means "collected, ran, some failed" — the measurement the held-out
+    // gate exists for (a hardcoded port fails exactly here, and must reach
+    // `heldout_divergence`, not abort before it). Interrupted (2), internal
+    // error (3), usage (4), no tests collected (5) and anything else error.
+    if runs.iter().any(|r| !heldout_exit_ran_tests(r.exit_code)) {
         let log = runs
             .iter()
             .map(|r| format!("{}\n{}", r.stdout, r.stderr))
             .collect::<Vec<_>>()
             .join("\n");
-        return Err(format!("held-out suite failed (nonzero exit):\n{log}"));
+        return Err(format!("held-out suite did not run (exit not 0/1):\n{log}"));
     }
     let t = runs
         .iter()
@@ -560,6 +565,12 @@ pub(crate) fn run_heldout_in_venv(
         .collect::<Vec<_>>()
         .join("\n");
     parse_heldout_rate(&t)
+}
+
+/// pytest exit codes that mean the suite ran to completion: 0 (all passed)
+/// and 1 (some tests failed). Every other code is an infrastructure failure.
+fn heldout_exit_ran_tests(code: i32) -> bool {
+    code == 0 || code == 1
 }
 
 /// Value lines of executor-captured stdout. The executor records a `$ <argv>`
@@ -1230,9 +1241,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     }
     // Held-out suite through the spine runner (ctest `-R` on the CTest
     // spine; an empty held-out set matches nothing and fails honestly).
-    // Fail-closed (`?`): the venv path errors on nonzero exit or
-    // unparseable output. Parity already returned above (zero visible
-    // failures), so divergence here compares two green-or-better suites.
+    // Fail-closed (`?`): the venv path errors when the suite cannot run
+    // (pytest exit other than 0/1) or its output is unparseable. Parity
+    // already returned above (zero visible failures), so any held-out
+    // shortfall here is divergence and halts below.
     let held_rate_all = if python_spine {
         run_heldout_in_venv(&venv, &a.fork, &a.heldout)?
     } else {
@@ -1853,6 +1865,10 @@ mod tests {
     fn empty_heldout_output_errors() {
         // No parseable counts (empty suite, collection error) errors —
         // never a 1.0 default that would read a broken suite as coverage.
+        assert!(heldout_exit_ran_tests(0) && heldout_exit_ran_tests(1));
+        for code in [2, 3, 4, 5, -1, 124] {
+            assert!(!heldout_exit_ran_tests(code), "exit {code} must fail closed");
+        }
         assert!(parse_heldout_rate("").is_err());
         assert!(parse_heldout_rate("no tests ran\n").is_err());
         assert!(parse_heldout_rate("0 passed, 0 failed\n").is_err());

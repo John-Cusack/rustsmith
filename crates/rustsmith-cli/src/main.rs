@@ -50,6 +50,7 @@ fn run() -> Result<(), String> {
         "learn" => cmd_learn(&args[2..]),
         "report" => cmd_report(&args[2..]),
         "status" => cmd_status(&args[2..]),
+        "halt" => cmd_halt(&args[2..]),
         "resume" => cmd_resume(&args[2..]),
         "release-prep" => release::cmd_release_prep(&args[2..]),
         "release-record" => release::cmd_release_record(&args[2..]),

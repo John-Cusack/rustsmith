@@ -795,9 +795,16 @@ fn venv_path_prepend(venv: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// `[package] name` + `[lib] name` from a tree's Cargo.toml (no toml dep;
-/// line-oriented parse is enough for maturin template manifests).
+/// Installed Python package dir + extension stem for a maturin tree.
+/// `[tool.maturin] module-name` (`pkg._ext`) is authoritative: the Cargo
+/// `[package] name` is the crate's registry name and may differ from the
+/// import package (the split crc layout ships crate `crc-rust`, package
+/// `crc`). Falls back to `[package] name` + `[lib] name` from Cargo.toml
+/// (no toml dep; line-oriented parse is enough for template manifests).
 fn crate_package(worktree: &Path) -> Result<(String, String), String> {
+    if let Some((pkg, ext)) = maturin_module_name(worktree) {
+        return Ok((pkg, ext));
+    }
     let t = std::fs::read_to_string(worktree.join("Cargo.toml")).map_err(|e| e.to_string())?;
     let mut section = String::new();
     let (mut pkg, mut lib) = (None, None);
@@ -819,6 +826,29 @@ fn crate_package(worktree: &Path) -> Result<(String, String), String> {
         (Some(p), Some(l)) => Ok((p, l)),
         _ => Err("Cargo.toml missing [package] name or [lib] name".into()),
     }
+}
+
+/// `pkg._ext` from `[tool.maturin] module-name` in the tree's pyproject.toml,
+/// as (`pkg` path with `/` separators, `ext`). `None` when absent or undotted.
+fn maturin_module_name(worktree: &Path) -> Option<(String, String)> {
+    let t = std::fs::read_to_string(worktree.join("pyproject.toml")).ok()?;
+    let mut section = String::new();
+    for line in t.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            section = l.to_string();
+            continue;
+        }
+        if section != "[tool.maturin]" {
+            continue;
+        }
+        if let Some(v) = l.strip_prefix("module-name") {
+            let v = v.trim().trim_start_matches('=').trim().trim_matches('"').trim_matches('\'');
+            let (pkg, ext) = v.rsplit_once('.')?;
+            return Some((pkg.replace('.', "/"), ext.to_string()));
+        }
+    }
+    None
 }
 
 fn full_build_secs(src_dir: &Path, venv: &Path) -> Result<f64, String> {
@@ -2008,6 +2038,20 @@ pub fn audit_demo(
 #[cfg(test)]
 mod merge_tests {
     use super::*;
+
+    #[test]
+    fn crate_package_prefers_maturin_module_name() {
+        // Templates under mirror/ are data: every maturin template's import
+        // package comes from module-name, even when the crate name differs.
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mirror");
+        for (tpl, want) in [("crc", ("crc", "_crc")), ("strsimpy", ("strsimpy", "_strsimpy"))] {
+            let (pkg, ext) = crate_package(&root.join(tpl)).unwrap();
+            assert_eq!((pkg.as_str(), ext.as_str()), want, "{tpl}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"p\"\n[lib]\nname = \"_x\"\n").unwrap();
+        assert_eq!(crate_package(dir.path()).unwrap(), ("p".to_string(), "_x".to_string()));
+    }
 
     #[test]
     fn decide_final_refuses_missing_tool_by_name() {

@@ -9,6 +9,20 @@
 use std::path::{Path, PathBuf};
 
 /// Replace exactly once; fail loudly on drift (never silently reinterpret).
+/// Insert `text` at the START of the line holding the unique `anchor`, so
+/// any leading visibility (`pub fn` in the split core) stays attached to the
+/// item: splicing directly before `fn` would hand `pub` to the inserted text
+/// (`pub #[attr] fn` does not parse; `pub static ..; fn` makes the fn private).
+fn insert_before_line(text_buf: &mut String, anchor: &str, text: &str) -> Result<(), String> {
+    let n = text_buf.matches(anchor).count();
+    if n != 1 {
+        return Err(format!("anchor {anchor:?} matched {n}x (need exactly 1)"));
+    }
+    let at = text_buf.find(anchor).unwrap_or(0);
+    let line_start = text_buf[..at].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    text_buf.insert_str(line_start, text);
+    Ok(())
+}
 pub fn replace_once(haystack: &mut String, needle: &str, replacement: &str) -> Result<(), String> {
     let n = haystack.matches(needle).count();
     if n != 1 {
@@ -256,10 +270,10 @@ pub fn apply_unroll(work: &Path) -> Result<Vec<String>, String> {
 pub fn apply_inline_hint(work: &Path) -> Result<Vec<String>, String> {
     let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
-    replace_once(
+    insert_before_line(
         &mut lib,
         "fn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
-        "#[inline(always)]\nfn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
+        "#[inline(always)]\n",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
     Ok(vec![core_touched(work)])
@@ -382,10 +396,10 @@ pub fn apply_rss_hog(work: &Path) -> Result<Vec<String>, String> {
     // (no divergence trip); the RSS leg of no_regression is the catcher.
     let lib_path = core_lib(work);
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
-    replace_once(
+    insert_before_line(
         &mut lib,
         "fn digest_of(reg: u64, cfg: &Config) -> u64 {",
-        "static BALLAST: std::sync::LazyLock<Vec<u64>> = std::sync::LazyLock::new(|| {\n    let mut v = vec![0u64; 4_000_000];\n    for i in 0..v.len() {\n        v[i] = (i as u64).wrapping_mul(0x9E3779B97F4A7C15);\n    }\n    v\n});\nfn digest_of(reg: u64, cfg: &Config) -> u64 {",
+        "static BALLAST: std::sync::LazyLock<Vec<u64>> = std::sync::LazyLock::new(|| {\n    let mut v = vec![0u64; 4_000_000];\n    for i in 0..v.len() {\n        v[i] = (i as u64).wrapping_mul(0x9E3779B97F4A7C15);\n    }\n    v\n});\n",
     )?;
     replace_once(
         &mut lib,
@@ -504,6 +518,25 @@ mod tests {
             1,
             "anchor drift: digest_of"
         );
+    }
+
+    #[test]
+    fn line_inserts_keep_visibility_on_the_item() {
+        // Plants that splice text before an item must not steal its `pub`
+        // (the split core declares these `pub fn`).
+        let tpl = template_under_test();
+        let dir = tempfile::tempdir().unwrap();
+        copy_template_files(&tpl, dir.path());
+        apply_rss_hog(dir.path()).unwrap();
+        apply_inline_hint(dir.path()).unwrap();
+        let text = std::fs::read_to_string(core_lib(dir.path())).unwrap();
+        for item in ["fn digest_of(", "fn process_byte_table("] {
+            let at = text.find(item).unwrap();
+            let line = &text[text[..at].rfind('\n').map(|i| i + 1).unwrap_or(0)..at];
+            assert!(line.trim().is_empty() || line.trim() == "pub", "{item} line prefix {line:?}");
+        }
+        assert!(!text.contains("pub static BALLAST"), "pub moved onto the ballast");
+        assert!(!text.contains("pub #[inline"), "pub split from its fn");
     }
 
     #[test]
