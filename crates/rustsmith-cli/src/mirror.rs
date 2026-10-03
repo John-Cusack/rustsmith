@@ -41,10 +41,13 @@ fn ev(store: &Store, run_id: &str, kind: &str, detail: serde_json::Value) {
 
 /// Reviewer assignment: two seats, distinct providers, never the implementer.
 /// Providers come from config (never hardcoded); the seat->provider map is passed in.
+/// Fail-closed: when no two non-implementer seats span distinct providers,
+/// this errors instead of seating a same-provider pair — a silent duplicate
+/// would collapse adversarial review into a single-provider echo.
 pub fn assign_reviewers(
     implementer: Option<Seat>,
     providers: &HashMap<Seat, String>,
-) -> (Seat, Seat) {
+) -> Result<(Seat, Seat), String> {
     let order = [Seat::Verifier, Seat::Performance, Seat::Architect, Seat::Scope];
     let mut out = Vec::new();
     for s in order {
@@ -60,16 +63,13 @@ pub fn assign_reviewers(
             break;
         }
     }
-    // Fallback (should not happen with 4 distinct providers): first two non-implementer.
-    while out.len() < 2 {
-        for s in order {
-            if Some(s) != implementer && !out.contains(&s) {
-                out.push(s);
-                break;
-            }
-        }
+    if out.len() == 2 {
+        return Ok((out[0], out[1]));
     }
-    (out[0], out[1])
+    Err(format!(
+        "cannot seat two reviewers on distinct providers (implementer={implementer:?}): only {} eligible",
+        out.len()
+    ))
 }
 
 #[allow(dead_code)]
@@ -534,6 +534,9 @@ pub(crate) fn run_oracle_in_venv(
 
 /// Held-out rate inside the venv: the runner's held-out shape rebound onto
 /// the grade interpreter, parsed with the shared quiet-output rule.
+/// Fail-closed: a nonzero held-out exit, or output with no parseable
+/// passed/failed counts, errors (never a default rate) so an empty or broken
+/// held-out suite cannot read as full coverage.
 pub(crate) fn run_heldout_in_venv(
     venv: &Path,
     worktree: &Path,
@@ -543,12 +546,20 @@ pub(crate) fn run_heldout_in_venv(
     let cx = BuildCtx { tree: worktree, build_dir: worktree, release: false };
     let cmds = PytestRunner::bind_venv(&runner.heldout(suite, &cx), &grade_venv_python(venv));
     let runs = execute_all(worktree, worktree, &cmds).map_err(|e| e.to_string())?;
+    if runs.iter().any(|r| r.exit_code != 0) {
+        let log = runs
+            .iter()
+            .map(|r| format!("{}\n{}", r.stdout, r.stderr))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(format!("held-out suite failed (nonzero exit):\n{log}"));
+    }
     let t = runs
         .iter()
         .map(|r| format!("{}\n{}", r.stdout, r.stderr))
         .collect::<Vec<_>>()
         .join("\n");
-    Ok(parse_heldout_rate(&t))
+    parse_heldout_rate(&t)
 }
 
 /// Value lines of executor-captured stdout. The executor records a `$ <argv>`
@@ -1047,6 +1058,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             let parity = gates::oracle_parity(&got);
             let rate = rate_of(&got);
             // Held-out suite against the worktree build via the venv runner.
+            // Fail-closed (`?`): exit-nonzero or unparseable output errors.
+            // Divergence alone never carries the unit: the gate check below
+            // conjoins parity (zero visible failures, exit 0), so a low/low
+            // tie between two failing suites cannot merge.
             let held_rate = run_heldout_in_venv(&venv, wt_path, &a.heldout)?;
             let div = gates::heldout_divergence(rate, held_rate, 0.05);
             // Stage orig_src for the differential probes (resolved via cwd).
@@ -1102,6 +1117,8 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
             let parity = gates::oracle_parity(&got);
             let rate = rate_of(&got);
+            // Divergence alone never carries the unit: the gate check below
+            // conjoins parity (zero visible failures, exit 0).
             let held_rate = run_ctest_heldout(wt_path, &build_dir, &a.heldout)?;
             let div = gates::heldout_divergence(rate, held_rate, 0.05);
             // Differential against the shared pristine build (configured +
@@ -1150,12 +1167,19 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             return Err(format!("unit {id} failed gates"));
         }
         // Review: two seats, never the implementer (worker => any two seats).
+        // Fail-closed throughout: reviewer seating errors (no distinct
+        // providers) and a rejecting/empty review both halt before the merge.
+        // Reviewers see the real staged merge diff (worker branch + module
+        // deletion + build edits), never a placeholder: a worker branch can
+        // be empty when a sibling already materialized shared template
+        // files, but the merge itself always carries the deletion.
         let providers = default_providers();
-        let (r1, r2) = assign_reviewers(None, &providers);
-        record_review(store, run_id, id, &format!("unit {id} diff"), r1, r2)?;
+        let (r1, r2) = assign_reviewers(None, &providers)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
         let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
-        merge_unit(&a.fork, wt.as_str(), id, &deletes)?;
+        merge_unit(&a.fork, wt.as_str(), id, &deletes, |diff| {
+            record_review(store, run_id, id, diff, r1, r2)
+        })?;
         let sha = git(&a.fork, &["rev-parse", "HEAD"])?;
         store.set_unit_commit(id, &sha).map_err(|e| e.to_string())?;
         store.set_unit_status(id, "passed").map_err(|e| e.to_string())?;
@@ -1206,6 +1230,9 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     }
     // Held-out suite through the spine runner (ctest `-R` on the CTest
     // spine; an empty held-out set matches nothing and fails honestly).
+    // Fail-closed (`?`): the venv path errors on nonzero exit or
+    // unparseable output. Parity already returned above (zero visible
+    // failures), so divergence here compares two green-or-better suites.
     let held_rate_all = if python_spine {
         run_heldout_in_venv(&venv, &a.fork, &a.heldout)?
     } else {
@@ -1288,7 +1315,7 @@ fn record_review(
     store: &Store,
     run_id: &str,
     unit_id: &str,
-    diff: &str,
+    diff: &[u8],
     r1: Seat,
     r2: Seat,
 ) -> Result<(), String> {
@@ -1305,6 +1332,25 @@ fn record_review(
         );
     }
     let c = Council::new(d);
+    record_review_with_council(store, run_id, unit_id, diff, &c, r1, r2)
+}
+/// Review decision with fail-closed merge semantics. `diff_bytes` are the
+/// real review artifact: empty bytes (or an empty `artifact_ref`) error —
+/// there is no content to review, so nothing may merge. A non-approving
+/// [`rustsmith_council::Resolution`] (any stub Reject) errors and the caller
+/// must not merge. Split out for tests, which seat Reject stubs.
+pub(crate) fn record_review_with_council(
+    store: &Store,
+    run_id: &str,
+    unit_id: &str,
+    diff_bytes: &[u8],
+    c: &Council,
+    r1: Seat,
+    r2: Seat,
+) -> Result<(), String> {
+    if diff_bytes.is_empty() {
+        return Err(format!("review {unit_id}: empty diff, nothing to review"));
+    }
     // Third critic distinct from both reviewers (protocol needs two blind critics).
     let third = [Seat::Architect, Seat::Scope, Seat::Verifier, Seat::Performance]
         .into_iter()
@@ -1316,15 +1362,17 @@ fn record_review(
             run_id,
             Proposal {
                 question: format!("review {unit_id}"),
-                artifact_ref: diff.into(),
+                artifact_ref: String::from_utf8_lossy(diff_bytes).into_owned(),
                 proposer: r1,
                 reasoning: "diff-only review".into(),
             },
-            diff.as_bytes(),
+            diff_bytes,
             (r2, third),
         )
         .map_err(|e| e.to_string())?;
-    let _ = res;
+    if !res.approved() {
+        return Err(format!("review {unit_id} rejected: {res:?}"));
+    }
     Ok(())
 }
 
@@ -1512,7 +1560,13 @@ fn remove_token(text: &str, token: &str) -> String {
 }
 
 
-fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -> Result<(), String> {
+fn merge_unit(
+    fork: &Path,
+    _worktree: &str,
+    unit_id: &str,
+    deletes: &[String],
+    review: impl FnOnce(&[u8]) -> Result<(), String>,
+) -> Result<(), String> {
     // Merge worker branch with --no-commit, delete the mirrored
     // original-language modules (template manifest), drop the deleted
     // sources from CMake target lists (each owning target gains the shared
@@ -1564,6 +1618,13 @@ fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -
         }
     }
     git(fork, &["add", "-A"])?;
+    // Diff-only review of exactly what would land; a rejected (or empty)
+    // review aborts the merge, so nothing unreviewed reaches the fork.
+    let staged = git(fork, &["diff", "--cached", "HEAD"])?;
+    if let Err(e) = review(staged.as_bytes()) {
+        let _ = git(fork, &["merge", "--abort"]);
+        return Err(e);
+    }
     git(fork, &["commit", "-qm", &format!("merge {unit_id} + delete mirrored module")])?;
     Ok(())
 }
@@ -1581,9 +1642,13 @@ fn default_providers() -> HashMap<Seat, String> {
     ])
 }
 
-pub(crate) fn parse_heldout_rate(t: &str) -> f64 {
-    // Parse "N passed" / failures from quiet pytest output.
+pub(crate) fn parse_heldout_rate(t: &str) -> Result<f64, String> {
+    // Parse "N passed" / failures from quiet pytest output. Fail-closed:
+    // output with no parseable counts (empty suite, collection error,
+    // truncated log) errors instead of defaulting to 1.0, which would read
+    // an unrunnable held-out suite as full coverage.
     let (mut p, mut f) = (0u32, 0u32);
+    let mut seen = false;
     for line in t.lines() {
         let l = line.to_lowercase();
         let toks: Vec<&str> = l
@@ -1595,8 +1660,8 @@ pub(crate) fn parse_heldout_rate(t: &str) -> f64 {
             if let Ok(n) = toks[i].parse::<u32>() {
                 if i + 1 < toks.len() {
                     match toks[i + 1] {
-                        w if w.starts_with("passed") => p = p.max(n),
-                        w if w.starts_with("failed") => f = f.max(n),
+                        w if w.starts_with("passed") => { p = p.max(n); seen = true; }
+                        w if w.starts_with("failed") => { f = f.max(n); seen = true; }
                         _ => {}
                     }
                 }
@@ -1604,19 +1669,41 @@ pub(crate) fn parse_heldout_rate(t: &str) -> f64 {
             i += 1;
         }
     }
+    if !seen {
+        return Err("held-out output has no parseable passed/failed counts".into());
+    }
     let t = p + f;
     if t == 0 {
-        1.0
-    } else {
-        p as f64 / t as f64
+        return Err("held-out output reports zero tests".into());
     }
+    Ok(p as f64 / t as f64)
 }
 
 pub(crate) fn audit_unsafe(fork: &Path) -> Result<Vec<gates::UnsafeSite>, String> {
     // `cargo geiger` cross-check would go here; the mirror ships zero unsafe,
     // so a textual audit plus geiger-if-present is the honest check.
+    // Every crate source root ships: the binding `src/` plus any nested
+    // crate `*/src/` (the publishable `crc-core/src/`, Elmer `rust/*/src/`).
     let mut count = 0usize;
-    for entry in walkdir_simple(&fork.join("src")) {
+    let mut roots = vec![fork.join("src")];
+    if let Ok(rd) = std::fs::read_dir(fork) {
+        for e in rd.flatten() {
+            let s = e.path().join("src");
+            if s.is_dir() && s != fork.join("src") {
+                roots.push(s);
+            }
+        }
+    }
+    if let Ok(rd) = std::fs::read_dir(fork.join("rust")) {
+        for e in rd.flatten() {
+            let s = e.path().join("src");
+            if s.is_dir() {
+                roots.push(s);
+            }
+        }
+    }
+    for root in roots {
+        for entry in walkdir_simple(&root) {
         if entry.extension().map(|x| x == "rs").unwrap_or(false) {
             let t = std::fs::read_to_string(&entry).map_err(|e| e.to_string())?;
             // Strip comments? No: any `unsafe` token counts (conservative).
@@ -1630,6 +1717,7 @@ pub(crate) fn audit_unsafe(fork: &Path) -> Result<Vec<gates::UnsafeSite>, String
                 }
             }
         }
+    }
     }
     if count > 0 {
         return Err(format!("{count} unsafe tokens found"));
@@ -1696,7 +1784,7 @@ mod tests {
     fn reviewers_never_include_implementer_and_span_providers() {
         let p = default_providers();
         for imp in [None, Some(Seat::Verifier), Some(Seat::Architect)] {
-            let (a, b) = assign_reviewers(imp, &p);
+            let (a, b) = assign_reviewers(imp, &p).unwrap();
             assert_ne!(a, b);
             if let Some(i) = imp {
                 assert_ne!(a, i);
@@ -1704,6 +1792,72 @@ mod tests {
             }
             assert_ne!(p[&a], p[&b]);
         }
+    }
+
+    #[test]
+    fn reviewers_refuse_duplicate_provider_pair() {
+        // Fail-closed: when distinct providers are impossible (all seats on
+        // one provider), seating errors instead of returning a
+        // same-provider pair that would collapse adversarial review.
+        let p: HashMap<Seat, String> = HashMap::from([
+            (Seat::Architect, "only".into()),
+            (Seat::Verifier, "only".into()),
+            (Seat::Performance, "only".into()),
+            (Seat::Scope, "only".into()),
+        ]);
+        let err = assign_reviewers(None, &p).unwrap_err();
+        assert!(err.contains("distinct providers"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn stub_reject_blocks_merge() {
+        // A Reject stub among the reviewers turns the review into a
+        // merge-blocking error (never a silent carry into `merge_unit`).
+        use std::collections::HashMap as Map;
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Store::open_with_events(&dir.path().join("s.db"), &dir.path().join("e.jsonl")).unwrap();
+        store.create_run("r", "u", "python", "recon").unwrap();
+        let mut d: Map<Seat, Box<dyn SeatDriver>> = Map::new();
+        for s in [Seat::Architect, Seat::Verifier, Seat::Performance, Seat::Scope] {
+            // The Architect rejects: split or not, the tiebreak lands on a
+            // rejecting Architect, so the resolution cannot approve.
+            let (stance, why) = if s == Seat::Architect {
+                (Stance::Reject, "architect rejects the diff")
+            } else {
+                (Stance::Approve, "approves")
+            };
+            d.insert(s, Box::new(StubDriver { stance, reasoning: why.into() }));
+        }
+        let c = Council::new(d);
+        let err = record_review_with_council(
+            &store, "r", "u1", b"real diff bytes", &c, Seat::Verifier, Seat::Performance,
+        )
+        .unwrap_err();
+        assert!(err.contains("rejected"), "reject must block merge, got: {err}");
+        // Empty diff errors too: nothing reviewed, nothing merges.
+        let mut d: Map<Seat, Box<dyn SeatDriver>> = Map::new();
+        for s in [Seat::Architect, Seat::Verifier, Seat::Performance, Seat::Scope] {
+            d.insert(s, Box::new(StubDriver { stance: Stance::Approve, reasoning: "ok".into() }));
+        }
+        let c = Council::new(d);
+        let err = record_review_with_council(&store, "r", "u1", b"", &c, Seat::Verifier, Seat::Scope)
+            .unwrap_err();
+        assert!(err.contains("empty diff"), "empty diff must block merge, got: {err}");
+        // Approving review with real bytes carries.
+        record_review_with_council(&store, "r", "u1", b"real diff bytes", &c, Seat::Verifier, Seat::Scope)
+            .unwrap();
+    }
+
+    #[test]
+    fn empty_heldout_output_errors() {
+        // No parseable counts (empty suite, collection error) errors —
+        // never a 1.0 default that would read a broken suite as coverage.
+        assert!(parse_heldout_rate("").is_err());
+        assert!(parse_heldout_rate("no tests ran\n").is_err());
+        assert!(parse_heldout_rate("0 passed, 0 failed\n").is_err());
+        assert_eq!(parse_heldout_rate("3 passed in 0.1s\n").unwrap(), 1.0);
+        assert_eq!(parse_heldout_rate("2 passed, 1 failed in 0.1s\n").unwrap(), 2.0 / 3.0);
     }
 
     #[test]

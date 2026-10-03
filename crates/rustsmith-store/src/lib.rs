@@ -283,6 +283,8 @@ CREATE TABLE IF NOT EXISTS guidance_revisions (
         Ok(())
     }
 
+    /// Create a run if absent; an existing run keeps its status/stage/halt
+    /// state (re-running a stage never resets a halt or progress row).
     pub fn create_run(&self, id: &str, repo_url: &str, lang: &str, stage: &str) -> Result<(), StoreError> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -290,15 +292,17 @@ CREATE TABLE IF NOT EXISTS guidance_revisions (
             .unwrap_or(0);
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT OR REPLACE INTO runs (id, repo_url, source_lang, status, stage, started_at) VALUES (?1,?2,?3,'planning',?4,?5)",
+            "INSERT OR IGNORE INTO runs (id, repo_url, source_lang, status, stage, started_at) VALUES (?1,?2,?3,'planning',?4,?5)",
             params![id, repo_url, lang, stage, now],
         )?;
         Ok(())
     }
+    /// Create a unit if absent; an existing unit keeps its status/attempts
+    /// (re-declaring never re-queues work or orphans gate rows).
     pub fn create_unit(&self, id: &str, run_id: &str, kind: &str, spec: &str) -> Result<(), StoreError> {
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT OR REPLACE INTO units (id, run_id, kind, spec_json, status) VALUES (?1,?2,?3,?4,'queued')",
+            "INSERT OR IGNORE INTO units (id, run_id, kind, spec_json, status) VALUES (?1,?2,?3,?4,'queued')",
             params![id, run_id, kind, spec],
         )?;
         Ok(())

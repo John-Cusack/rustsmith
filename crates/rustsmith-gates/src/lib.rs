@@ -141,10 +141,14 @@ fn tail(s: &str) -> String {
     }
 }
 
-/// divergence = visible_rate - heldout_rate; fail if over threshold.
+/// divergence = visible_rate - heldout_rate; fail unless strictly under threshold.
+/// The boundary (`divergence == threshold`) fails: a campaign sitting exactly
+/// on the budget proves nothing about headroom, so release-eligible paths halt.
+/// Callers must additionally require zero visible failures (the parity gate):
+/// divergence alone never carries a unit whose oracle still fails.
 pub fn heldout_divergence(visible_rate: f64, heldout_rate: f64, threshold: f64) -> GateVerdict {
     let divergence = visible_rate - heldout_rate;
-    if divergence <= threshold {
+    if divergence < threshold {
         verdict(
             true,
             json!({"visible_rate":visible_rate,"heldout_rate":heldout_rate,"divergence":divergence,"threshold":threshold}),
@@ -169,6 +173,15 @@ pub fn differential(
     tolerance: f64,
     tols: Option<&[ObservableSpec]>,
 ) -> GateVerdict {
+    // An empty campaign proves nothing: release-eligible paths reject it
+    // instead of recording a vacuous pass (missing probes already halt at
+    // the pair builders; this is the backstop for empty argv lists).
+    if pairs.is_empty() {
+        return verdict(
+            false,
+            json!({"reason":"empty_campaign","compared":0}),
+        );
+    }
     // Empty and absent slices both run the legacy path, so fixtures graded
     // with `tolerance = 0.0` see byte-identical math either way.
     let specs: &[ObservableSpec] = tols.unwrap_or(&[]);
@@ -660,6 +673,25 @@ mod tests {
     }
 
     #[test]
+    fn empty_differential_campaign_rejected() {
+        // No pairs must never be a vacuous pass on release-eligible paths,
+        // even with exact-equality tolerance.
+        let empty: Vec<(String, String)> = Vec::new();
+        let v = differential(&empty, 0.0, None);
+        assert!(!v.passed);
+        assert_eq!(v.detail["reason"], serde_json::json!("empty_campaign"));
+        let spec = ObservableSpec {
+            test_glob: "*".into(),
+            source: "stdout".into(),
+            regex: ".*".into(),
+            rel_tol: 0.01,
+            abs_tol: 0.0,
+        };
+        assert!(!differential(&empty, 0.0, Some(&[spec])).passed);
+        assert!(!differential(&empty, 0.5, None).passed);
+    }
+
+    #[test]
     fn parity_and_divergence_math() {
         let ok = GradedResult {
             exit_code: 0,
@@ -678,6 +710,9 @@ mod tests {
         let v = heldout_divergence(1.0, 0.90, 0.05);
         assert!(!v.passed);
         assert!((v.detail["divergence"].as_f64().unwrap() - 0.10).abs() < 1e-9);
+        // Strict boundary: sitting exactly on the threshold proves no
+        // headroom, so release-eligible paths halt.
+        assert!(!heldout_divergence(1.0, 0.95, 0.05).passed);
     }
 
     #[test]

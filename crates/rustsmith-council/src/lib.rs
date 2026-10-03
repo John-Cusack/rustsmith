@@ -71,6 +71,17 @@ pub enum Resolution {
 }
 
 impl Resolution {
+    /// Fail-closed merge predicate: only an approving resolution carries a
+    /// merge. Both `Consensus { approved: false }` and
+    /// `ArchitectTiebreak { approved: false, .. }` (any stub Reject among
+    /// the three blind positions, or an Architect reject on tiebreak) must
+    /// block the merge at the call site (`record_review` errors).
+    pub fn approved(&self) -> bool {
+        match self {
+            Resolution::Consensus { approved } => *approved,
+            Resolution::ArchitectTiebreak { approved, .. } => *approved,
+        }
+    }
     pub fn kind(&self) -> &'static str {
         match self {
             Resolution::Consensus { .. } => "consensus",
@@ -114,11 +125,14 @@ impl SeatDriver for StubDriver {
 /// parses `{"stance":"approve"|"reject","reasoning":"..."}` from stdout.
 /// The prompt carries ONLY (question, artifact_ref, proposer reasoning) —
 /// never other seats' positions (blind critique is structural, as with Stub).
-/// `model` is a config-supplied identity string, never hardcoded.
+/// `model` and `provider` are config-supplied identity strings (see
+/// [`model_for_seat`] / [`provider_for_seat`]), never hardcoded; both ride
+/// the prompt so the worker — and audit — sees which provider speaks.
 pub struct WorkerSeatDriver {
     pub seat: Seat,
     pub command: String,
     pub model: String,
+    pub provider: String,
 }
 
 impl SeatDriver for WorkerSeatDriver {
@@ -126,8 +140,8 @@ impl SeatDriver for WorkerSeatDriver {
         use std::io::Write;
         use std::process::Stdio;
         let prompt = format!(
-            "# rustsmith council seat\nseat: {}\nmodel: {}\nquestion: {}\nartifact: {}\nproposer_reasoning: {}\n",
-            seat.as_str(), self.model, proposal.question, proposal.artifact_ref, proposal.reasoning
+            "# rustsmith council seat\nseat: {}\nmodel: {}\nprovider: {}\nquestion: {}\nartifact: {}\nproposer_reasoning: {}\n",
+            seat.as_str(), self.model, self.provider, proposal.question, proposal.artifact_ref, proposal.reasoning
         );
         let mut child = std::process::Command::new("sh");
         child.arg("-c").arg(&self.command);
@@ -182,25 +196,77 @@ pub fn seat_commands_from_env() -> HashMap<Seat, String> {
 /// Model identity for a seat from config only (`config/default.toml`
 /// `[models]`, overridable via `RUSTSMITH_MODELS_CONFIG`). Never hardcoded:
 /// unknown/missing entries yield a `config:` placeholder the probe surfaces.
+/// The provider for the same seat comes from [`provider_for_seat`] (same
+/// `[models]` entry, `provider = "..."` field); reviewers must be seated on
+/// distinct providers (`assign_reviewers` enforces), so both halves are
+/// surfaced by the seat probe and recorded on review decisions — model alone
+/// never identifies the review pair.
 pub fn model_for_seat(seat: Seat) -> String {
+    seat_field(seat, "model")
+}
+/// Provider identity for a seat from config only (same file, table, and
+/// override mechanism as [`model_for_seat`]: the `[models]` entry's
+/// `provider = "..."` field). Never hardcoded: unknown/missing entries yield
+/// a `config:` placeholder the probe surfaces. Surfaced alongside the model
+/// so a duplicated provider across the two review seats is visible in audit
+/// (distinct-provider review is structural).
+pub fn provider_for_seat(seat: Seat) -> String {
+    seat_field(seat, "provider")
+}
+/// Extract `field = "..."` from the seat's `[models]` entry
+/// (`seat = { provider = "...", model = "..." }`). Lines outside `[models]`
+/// are also scanned (legacy flat shape) so older configs keep resolving.
+fn seat_field(seat: Seat, field: &str) -> String {
     let path = std::env::var("RUSTSMITH_MODELS_CONFIG").unwrap_or_else(|_| "config/default.toml".into());
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     let key = seat.as_str();
+    let mut lines: Vec<&str> = Vec::new();
+    let mut in_models = false;
+    let mut saw_table = false;
     for line in text.lines() {
         let t = line.trim();
+        if t.starts_with('[') {
+            saw_table = true;
+            in_models = t == "[models]";
+            continue;
+        }
+        if !saw_table || in_models {
+            lines.push(line);
+        }
+    }
+    for line in lines {
+        let t = line.trim();
         if t.starts_with(key) {
-            if let Some(m) = t.split("model").nth(1) {
-                let q1 = m.find('"').map(|i| i + 1);
-                if let Some(s) = q1 {
-                    if let Some(e) = m[s..].find('"') {
-                        return m[s..s + e].to_string();
-                    }
-                }
+            if let Some(v) = quoted_field(t, field) {
+                return v;
             }
         }
     }
-    format!("config:models.{key}")
+    format!("config:models.{key}.{field}")
 }
+/// First `"..."` value after `field =` on one config line.
+fn quoted_field(line: &str, field: &str) -> Option<String> {
+    let mut search = line;
+    loop {
+        let i = search.find(field)?;
+        let rest = &search[i + field.len()..];
+        // Field name must end at the match (no `models` prefix confusion):
+        // accept only when followed by optional whitespace then `=`.
+        let eq = rest.trim_start();
+        if let Some(stripped) = eq.strip_prefix('=') {
+            let v = stripped.trim_start();
+            if v.starts_with('"') {
+                let inner = &v[1..];
+                if let Some(e) = inner.find('"') {
+                    return Some(inner[..e].to_string());
+                }
+                return None;
+            }
+            return None;
+        }
+        search = rest;
+    }
+ }
 
 pub struct Council {
     drivers: HashMap<Seat, Box<dyn SeatDriver>>,
@@ -413,6 +479,76 @@ mod tests {
         let r1 = b.critique(Seat::Performance, &p, b"art").unwrap();
         let r2 = b.critique(Seat::Performance, &p, b"art").unwrap();
         assert_eq!(r1.reasoning, r2.reasoning);
+    }
+
+    #[test]
+    fn reject_never_approves() {
+        // Fail-closed: any Reject among the blind positions yields a
+        // non-approving resolution, which `record_review` must turn into a
+        // merge-blocking error (never a silent carry).
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Store::open_with_events(&dir.path().join("s.db"), &dir.path().join("e.jsonl")).unwrap();
+        store.create_run("r", "u", "python", "recon").unwrap();
+        let proposal = || Proposal {
+            question: "review u".into(),
+            artifact_ref: "diff".into(),
+            proposer: Seat::Verifier,
+            reasoning: "why".into(),
+        };
+        // All-reject council: consensus rejects.
+        let mut d: HashMap<Seat, Box<dyn SeatDriver>> = HashMap::new();
+        for s in [Seat::Architect, Seat::Verifier, Seat::Performance, Seat::Scope] {
+            d.insert(
+                s,
+                Box::new(StubDriver { stance: Stance::Reject, reasoning: format!("{} rejects", s.as_str()) }),
+            );
+        }
+        let r = Council::new(d)
+            .decide(&store, "r", proposal(), b"diff-bytes", (Seat::Performance, Seat::Scope))
+            .unwrap();
+        assert_eq!(r, Resolution::Consensus { approved: false });
+        assert!(!r.approved());
+        // Split council (proposer + one critic approve, one rejects):
+        // Architect tiebreak with an approving Architect still records, but
+        // a rejecting Architect must not approve either.
+        let mut d: HashMap<Seat, Box<dyn SeatDriver>> = HashMap::new();
+        d.insert(Seat::Verifier, Box::new(StubDriver { stance: Stance::Approve, reasoning: "v ok".into() }));
+        d.insert(Seat::Performance, Box::new(StubDriver { stance: Stance::Approve, reasoning: "p ok".into() }));
+        d.insert(Seat::Scope, Box::new(StubDriver { stance: Stance::Reject, reasoning: "s no".into() }));
+        d.insert(Seat::Architect, Box::new(StubDriver { stance: Stance::Reject, reasoning: "arch no".into() }));
+        let r = Council::new(d)
+            .decide(&store, "r", proposal(), b"diff-bytes", (Seat::Performance, Seat::Scope))
+            .unwrap();
+        assert!(!r.approved(), "rejecting tiebreak must not approve: {r:?}");
+        // Approving resolutions still approve.
+        assert!(Resolution::Consensus { approved: true }.approved());
+    }
+
+    #[test]
+    fn seat_probe_surfaces_model_and_provider() {
+        // Both halves come from config (same `[models]` entry); the probe
+        // prints both so a duplicated provider is auditable.
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("models.toml");
+        std::fs::write(
+            &cfg,
+            "[models]\narchitect = { provider = \"provider-a\", model = \"architect-model\" }\nverifier = { provider = \"provider-b\", model = \"verifier-model\" }\n",
+        )
+        .unwrap();
+        let prev = std::env::var("RUSTSMITH_MODELS_CONFIG").ok();
+        std::env::set_var("RUSTSMITH_MODELS_CONFIG", &cfg);
+        let m = model_for_seat(Seat::Architect);
+        let p = provider_for_seat(Seat::Architect);
+        let mp = provider_for_seat(Seat::Verifier);
+        match prev {
+            Some(v) => std::env::set_var("RUSTSMITH_MODELS_CONFIG", v),
+            None => std::env::remove_var("RUSTSMITH_MODELS_CONFIG"),
+        }
+        assert_eq!(m, "architect-model");
+        assert_eq!(p, "provider-a");
+        assert_eq!(mp, "provider-b");
+        assert_ne!(p, mp, "review seats must surface distinct providers");
     }
 
     #[test]

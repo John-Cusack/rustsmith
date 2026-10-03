@@ -987,8 +987,13 @@ fn copy_filtered(src: &Path, dst: &Path) -> Result<(), String> {
 }
 pub fn round0_report(fork: &Path) -> Vec<String> {
     let mut findings = Vec::new();
-    let src = fork.join("src/lib.rs");
-    let text = std::fs::read_to_string(&src).unwrap_or_default();
+    // Representation debt can hide in either crate of the publishable layout.
+    let mut text = std::fs::read_to_string(fork.join("src/lib.rs")).unwrap_or_default();
+    let core = fork.join("crc-core/src/lib.rs");
+    if core.is_file() {
+        text.push('\n');
+        text.push_str(&std::fs::read_to_string(&core).unwrap_or_default());
+    }
     for (pat, _tier, why) in [
         ("HashMap<String", 3, "fixed-key maps -> structs"),
         ("Rc<RefCell", 3, "index graphs"),
@@ -1385,11 +1390,34 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
             std::fs::write(cand_dir.join(".gitignore"), "target/\n*.so\n*.pyc\n__pycache__/\n*-venv/\n.venv/\n.origparent/\n.orig_src\norig_src\norig_src_staged\n.attribution-revert/\n.attribution.patch\n.merge.patch\n.full-build-tmp/\n").map_err(|e| e.to_string())?;
             git(&cand_dir, &["add", "-A"])?;
             git(&cand_dir, &["commit", "-qm", "round base"])?;
+            // Technique application: unknown names are config errors (fatal);
+            // a KNOWN technique whose anchors miss the tree is not applicable
+            // (recorded, skipped — never fatal, so experimentation is safe).
             let files = match c.technique.as_str() {
-                "slicing-by-8" => crate::candidates::apply_slice_by_8(&cand_dir)?,
-                "unroll-x4" => crate::candidates::apply_unroll(&cand_dir)?,
-                "inline-hint" => crate::candidates::apply_inline_hint(&cand_dir)?,
+                "slicing-by-8" => crate::candidates::apply_slice_by_8(&cand_dir),
+                "unroll-x4" => crate::candidates::apply_unroll(&cand_dir),
+                "inline-hint" => crate::candidates::apply_inline_hint(&cand_dir),
+                "release-lto" => crate::candidates::apply_release_lto(&cand_dir),
                 other => return Err(format!("unknown technique {other}")),
+            };
+            let files = match files {
+                Ok(f) => f,
+                Err(e) => {
+                    let bound_s = c.bound.as_str().to_string();
+                    failed_keys.push((c.hotspot.clone(), c.tier, c.technique.clone(), bound_s.clone()));
+                    store
+                        .record_failed(
+                            run_id, round as i64, &c.hotspot, &bound_s, c.tier as i64,
+                            &c.technique, "not_applicable", None, None,
+                            &serde_json::json!({"error": e}).to_string(), 0,
+                            MODEL_STUB, PROMPT_VERSION, &guidance_version,
+                            &format!("{} via tier {} for {}", c.technique, c.tier, bound_s),
+                            "", "",
+                        )
+                        .map_err(|e| e.to_string())?;
+                    failed_rows.push(serde_json::json!({"technique": c.technique, "outcome": "not_applicable"}));
+                    continue;
+                }
             };
             let _ = files;
             let bound_s = c.bound.as_str().to_string();
@@ -1484,8 +1512,10 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
         for ((c, g, _), (_, keep, lost)) in round_winners.iter().zip(audits.iter()) {
             if *keep {
                 let sha = git(&a.work, &["rev-parse", "HEAD"])?;
+                // Touched files come from the graded patch itself, so winners
+                // spanning the core and binding crates report exactly that.
                 let files_json =
-                    serde_json::to_string(&["src/lib.rs", "src/slice8.rs"]).unwrap();
+                    serde_json::to_string(&rustsmith_release::files_of_patch(&g.patch_text)).unwrap();
                 store
                     .record_optimization(
                         run_id, round as i64, &c.hotspot, &sha, g.vis_gain * 100.0,

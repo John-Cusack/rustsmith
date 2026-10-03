@@ -4,8 +4,14 @@
   "src_layout": true,
   "files": [
     ["Cargo.toml", "Cargo.toml"],
+    ["Cargo.lock", "Cargo.lock"],
     ["pyproject.toml", "pyproject.toml"],
+    ["release.toml", "release.toml"],
+    ["NOTICE", "NOTICE"],
+    ["README.md", "README.md"],
     ["src/lib.rs", "src/lib.rs"],
+    ["crc-core/Cargo.toml", "crc-core/Cargo.toml"],
+    ["crc-core/src/lib.rs", "crc-core/src/lib.rs"],
     ["crc/__init__.py", "crc/__init__.py"]
   ],
   "extra_files": {
