@@ -264,10 +264,36 @@ pub fn cmd_release_prep(args: &[String]) -> Result<(), String> {
     copy_stage(&source, &stage)?;
     // The staged source must carry the same release metadata (drift fails).
     rustsmith_release::validate_tree(&cfg, &stage).map_err(|e| e.to_string())?;
+    // Staged README receipt: measured outcomes land in the staged README
+    // BEFORE anything builds, so the wheel/sdist ship the receipt. The block
+    // is generated (never hand-edited); hashes stay in release-manifest.json.
+    // The optimize report rides alongside the source tree when prep runs off
+    // `--opt`; a fork-only source has no report and receipts the baseline.
+    let readme_path = stage.join("README.md");
+    let readme_text = std::fs::read_to_string(&readme_path)
+        .map_err(|e| format!("{}: staged README missing: {e}", readme_path.display()))?;
+    let report_path = source.join("optimize-report.json");
+    let perf = match std::fs::read_to_string(&report_path) {
+        Ok(t) => {
+            let v: serde_json::Value = serde_json::from_str(&t)
+                .map_err(|e| format!("{}: unparseable optimize report: {e}", report_path.display()))?;
+            rustsmith_release::collect_readme_perf(&v)
+        }
+        Err(_) => rustsmith_release::ReadmePerf { merged: Vec::new() },
+    };
+    let block = rustsmith_release::render_readme_perf(&perf);
+    std::fs::write(&readme_path, rustsmith_release::inject_readme_perf(&readme_text, &block))
+        .map_err(|e| format!("{}: {e}", readme_path.display()))?;
     let dist = out.join("dist");
     std::fs::create_dir_all(&dist).map_err(|e| e.to_string())?;
 
     let mut verify = serde_json::json!({});
+    verify["readme_perf"] = serde_json::json!({
+        "passed": true,
+        "merged_count": perf.merged.len(),
+        "techniques": perf.merged.iter().map(|m| m.technique.clone()).collect::<Vec<_>>(),
+    });
+
     // 1. Rust core tests: the same core Rust consumers use, standalone.
     let core_manifest = stage.join("crc-core/Cargo.toml");
     let core_manifest_arg = if core_manifest.is_file() {

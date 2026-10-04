@@ -72,6 +72,24 @@ assert v['passed'] is True
 print('verification OK')
 EOF
 
+echo "-- staged README receipt (generated block, measured only, no hashes)"
+python3 - "$OUT/stage/README.md" "$OUT/verification.json" <<'EOF'
+import json, re, sys
+readme = open(sys.argv[1]).read()
+v = json.load(open(sys.argv[2]))
+assert '<!-- RUSTSMITH-PERF:BEGIN' in readme and '<!-- RUSTSMITH-PERF:END -->' in readme, readme[-400:]
+assert 'do not hand-edit' in readme
+assert 'No accepted optimizations yet' in readme, readme[-400:]  # no report staged: mirror baseline
+assert v['readme_perf']['passed'] is True and v['readme_perf']['merged_count'] == 0, v['readme_perf']
+assert not re.search(r'[0-9a-f]{40,}', readme), 'hash leaked into staged README'
+print('readme receipt OK')
+EOF
+RMD_PATH="$(tar tzf "$OUT"/dist/*.tar.gz | grep 'README.md$' | head -n 1)"
+test -n "$RMD_PATH" || (echo "FAIL: no README.md in sdist"; exit 1)
+tar xzOf "$OUT"/dist/*.tar.gz "$RMD_PATH" | grep -q 'RUSTSMITH-PERF:BEGIN' \
+  || (echo "FAIL: receipt missing from sdist README"; exit 1)
+echo "sdist receipt OK"
+
 echo "-- sdist carries the core (independent re-check, not just prep's word)"
 tar tzf "$OUT"/dist/*.tar.gz | grep -q 'crc-core/Cargo.toml' || (echo "FAIL: core missing from sdist"; exit 1)
 tar tzf "$OUT"/dist/*.tar.gz | grep -q 'crc/__init__.py' || (echo "FAIL: shim missing from sdist"; exit 1)

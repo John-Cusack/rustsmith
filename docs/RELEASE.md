@@ -70,19 +70,27 @@ rustsmith release-prep --project mirror/crc --fork <fork> [--opt <opt>] \
 
 It stages a clean copy of the final accepted source, then:
 
-1. runs the core's `cargo test` (the same core Rust consumers use);
-2. builds a throwaway downstream crate depending on the core by path with
+1. injects the measured-performance receipt into the staged `README.md`
+   (`collect_readme_perf` over the `--opt` tree's `optimize-report.json`,
+   `render_readme_perf`, `inject_readme_perf` between the
+   `RUSTSMITH-PERF:BEGIN/END` markers; a source with no report receipts
+   the mirror baseline). The block is generated — never hand-edit it —
+   and carries measured outcomes only: artifact hashes live in
+   `release-manifest.json`, never in the README. Recorded in
+   `verification.json` as `readme_perf`;
+2. runs the core's `cargo test` (the same core Rust consumers use);
+3. builds a throwaway downstream crate depending on the core by path with
    no Python anywhere (reusability proof) and runs `cargo package` on the
    core (what crates.io receives);
-3. builds the wheel (`maturin build --release`) and the sdist
+4. builds the wheel (`maturin build --release`) and the sdist
    (`maturin sdist`);
-4. installs the wheel from disk into a fresh venv (`pip install --no-index
+5. installs the wheel from disk into a fresh venv (`pip install --no-index
    --no-deps`) and checks the dist name/version plus every `smoke_exprs`;
-5. unpacks the sdist, asserts it contains everything needed to rebuild
+6. unpacks the sdist, asserts it contains everything needed to rebuild
    (both manifests, `pyproject.toml`, the import shim, `NOTICE`), and
    rebuilds the wheel from the unpacked sdist (proves the core ships
    inside);
-6. retains artifacts (wheel, sdist, `.crate`), `SHA256SUMS`,
+7. retains artifacts (wheel, sdist, `.crate`), `SHA256SUMS`,
    `release-manifest.json` (config snapshot + `source_sha` + artifact
    hashes), `verification.json` (every check above with pass/fail),
    `release-state.json` (per-registry tracking, all `pending`), the
