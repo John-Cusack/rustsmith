@@ -54,6 +54,7 @@ fn run() -> Result<(), String> {
         "release-prep" => release::cmd_release_prep(&args[2..]),
         "release-record" => release::cmd_release_record(&args[2..]),
         "release-status" => release::cmd_release_status(&args[2..]),
+        "release-publish" => release::cmd_release_publish(&args[2..]),
         _ => Err(usage().into()),
     }
 }

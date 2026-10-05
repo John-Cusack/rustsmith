@@ -134,6 +134,48 @@ else
   echo "pending refused OK"
 fi
 
+echo "-- autonomous publish lane (offline paths: plan, gates, no-creds, drift)"
+PUB="cargo run -q -p rustsmith-cli -- release-publish --state $OUT/release-state.json"
+# Dry-run resolves the exact retained files and records nothing.
+env -u TWINE_USERNAME -u TWINE_PASSWORD -u RUSTSMITH_ALLOW_PROD_PUBLISH \
+  $PUB --registry testpypi --dry-run | grep -q '"files":\[".*\.whl",".*\.tar\.gz"\]' \
+  || (echo "FAIL: dry-run plan missing wheel+sdist"; exit 1)
+if $PUB --registry testpypi --dry-run | grep -q '\.crate'; then
+  echo "FAIL: .crate leaked into python upload plan"; exit 1
+fi
+echo "  dry-run plan OK"
+# Prod lane refuses without opt-in, even green.
+# (Capture first: with `pipefail` the refusing exit would mask grep's match.)
+out="$(env -u RUSTSMITH_ALLOW_PROD_PUBLISH $PUB --registry pypi --dry-run 2>&1 || true)"
+if printf '%s\n' "$out" | grep -q 'RUSTSMITH_ALLOW_PROD_PUBLISH'; then
+  echo "  prod gate OK"
+else
+  echo "FAIL: prod lane did not demand opt-in"; printf '%s\n' "$out" | tail -n 3; exit 1
+fi
+# Missing credentials fail naming the variable (nothing uploaded, nothing recorded).
+out="$(env -u TWINE_USERNAME -u TWINE_PASSWORD $PUB --registry testpypi 2>&1 || true)"
+if printf '%s\n' "$out" | grep -q 'TWINE_'; then
+  echo "  missing-creds error OK"
+else
+  echo "FAIL: missing creds not named"; printf '%s\n' "$out" | tail -n 3; exit 1
+fi
+# Drifted bytes refuse before any upload.
+cp -r "$OUT" "$WORK/drift"
+printf 'x' >> "$WORK"/drift/dist/*.whl
+out="$(cargo run -q -p rustsmith-cli -- release-publish --state "$WORK/drift/release-state.json" \
+    --registry testpypi --dry-run 2>&1 || true)"
+if printf '%s\n' "$out" | grep -q 'sha256'; then
+  echo "  drift refusal OK"
+else
+  echo "FAIL: drifted wheel not refused"; printf '%s\n' "$out" | tail -n 3; exit 1
+fi
+# None of the above recorded anything: state still pending.
+if cargo run -q -p rustsmith-cli -- release-status --state "$OUT/release-state.json"; then
+  echo "FAIL: publish dry-runs recorded outcomes"; exit 1
+else
+  echo "  state untouched OK"
+fi
+
 echo "-- invalid metadata / prerequisites (each fails naming its field)"
 bad() { rm -rf "$WORK/bad"; cp -r "$ROOT/mirror/crc" "$WORK/bad"; git -C "$WORK/bad" init -q -b main; git -C "$WORK/bad" config user.email t@t; git -C "$WORK/bad" config user.name t; git -C "$WORK/bad" add -A; git -C "$WORK/bad" commit -qm seed; mkdir -p "$WORK/badrecon"; }
 expect_fail() { # $1=desc $2=needle; project=fork=bad

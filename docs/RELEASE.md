@@ -144,6 +144,38 @@ rustsmith release-status --state <dist>/release-state.json
 - Recording an unknown registry or result is refused (it would corrupt the
   state the workflow and humans share).
 
+## 5b. Autonomous publish (`release-publish`, no browser)
+
+`release-publish` uploads a prepped bundle without human clicks: it reads
+the bundle next to `--state`, enforces the policy gate, uploads the SAME
+retained files by explicit recorded filename, reconciles per-file remote
+hashes, verifies the index serves the release, and records the outcome
+(sticky success). Credentials come from the environment and are never
+logged.
+
+```sh
+rustsmith release-publish --state <dist>/release-state.json --registry testpypi
+rustsmith release-publish --state <dist>/release-state.json --registry testpypi --dry-run  # plan only
+rustsmith release-publish --state <dist>/release-state.json --registry crates-io --stage <dist>/stage
+```
+
+- Policy gate: the prep battery must be green. Production lanes (`pypi`,
+  `crates-io`) additionally need `RUSTSMITH_ALLOW_PROD_PUBLISH=1` plus a
+  TestPyPI success under 24h on the same state (TestPyPI-first,
+  same-SHA256 promotion).
+- Python lanes upload exactly one wheel + one sdist; the `.crate` is
+  excluded by construction. On-disk bytes are re-hashed before upload
+  (drift refuses, never publishes). Missing `TWINE_USERNAME` /
+  `TWINE_PASSWORD` names the variable (nothing uploaded, nothing recorded).
+- After upload, each file's remote SHA-256 is reconciled via the index
+  JSON API, then a fresh venv installs pinned `dist==version` and re-runs
+  the smoke vectors. A twine/cargo transport failure queries the index
+  first (a timeout after upload does NOT mean unpublished; an existing
+  version with matching hashes is an idempotent success).
+- The crates.io lane publishes the core from `--stage` (`cargo publish`,
+  `CARGO_REGISTRY_TOKEN`); first release bootstraps the token lane, OIDC
+  thereafter (see the generated setup instructions).
+
 ## 6. Troubleshooting (invalid metadata / prerequisites)
 
 Every error names the field and the file. Common ones:

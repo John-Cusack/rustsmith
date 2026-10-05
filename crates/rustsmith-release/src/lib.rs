@@ -1090,6 +1090,102 @@ pub fn inject_readme_perf(readme: &str, block: &str) -> String {
     out
 }
 
+/// Explicit upload list for a registry from recorded artifacts (filenames
+/// only; the caller joins them onto `dist/` and re-hashes before upload,
+/// so the SAME retained files ship — never a rebuild).
+///
+/// Python lanes take exactly one wheel plus one sdist. The `.crate` is
+/// never a Python-index candidate: it is excluded by construction, not by
+/// glob. Anything else (missing wheel, doubled sdist) errors.
+pub fn publish_files(artifacts: &[ArtifactRef], registry: &str) -> Result<Vec<String>, String> {
+    match registry {
+        "testpypi" | "pypi" => {
+            let mut wheels = vec![];
+            let mut sdists = vec![];
+            for a in artifacts {
+                if a.file.ends_with(".whl") {
+                    wheels.push(a.file.clone());
+                } else if a.file.ends_with(".tar.gz") {
+                    sdists.push(a.file.clone());
+                }
+            }
+            if wheels.len() != 1 || sdists.len() != 1 {
+                return Err(format!(
+                    "{registry}: need exactly one wheel + one sdist, have wheels={wheels:?} sdists={sdists:?}"
+                ));
+            }
+            Ok(vec![wheels.remove(0), sdists.remove(0)])
+        }
+        other => Err(format!("{other}: no upload file list (known: testpypi, pypi)")),
+    }
+}
+
+/// Policy gate before any upload attempt. `verify_passed` is
+/// `verification.json: passed` (the full prep battery). Production lanes
+/// (`pypi`, `crates-io`) additionally require explicit opt-in
+/// (`prod_allowed`, i.e. `RUSTSMITH_ALLOW_PROD_PUBLISH=1`) plus a fresh
+/// TestPyPI success (under 24h) on the same state — TestPyPI-first,
+/// same-SHA256 promotion, no silent prod.
+pub fn publish_gate(
+    verify_passed: bool,
+    state: &ReleaseState,
+    registry: &str,
+    now: i64,
+    prod_allowed: bool,
+) -> Result<(), String> {
+    if !KNOWN_REGISTRIES.contains(&registry) {
+        return Err(format!("unknown registry {registry:?} (known: {})", KNOWN_REGISTRIES.join(", ")));
+    }
+    if !verify_passed {
+        return Err(format!("{registry}: verification.json did not pass (fix prep first)"));
+    }
+    if registry == "testpypi" {
+        return Ok(());
+    }
+    if !prod_allowed {
+        return Err(format!(
+            "{registry}: production lane needs RUSTSMITH_ALLOW_PROD_PUBLISH=1 (TestPyPI-first policy)"
+        ));
+    }
+    let test = state.registries.get("testpypi").ok_or("state has no testpypi lane")?;
+    if test.status != "success" {
+        return Err(format!("{registry}: no TestPyPI success recorded (TestPyPI-first policy)"));
+    }
+    let fresh = test
+        .attempts
+        .iter()
+        .rev()
+        .find(|a| a.result == "success")
+        .map(|a| now - a.at)
+        .unwrap_or(i64::MAX);
+    if fresh > 86_400 {
+        return Err(format!("{registry}: TestPyPI success is stale ({fresh}s old, need <24h)"));
+    }
+    Ok(())
+}
+
+/// JSON API for per-file remote-hash reconciliation after upload.
+pub fn pypi_json_url(index: &str, dist: &str, version: &str) -> Result<String, String> {
+    match index {
+        "testpypi" => Ok(format!("https://test.pypi.org/pypi/{dist}/{version}/json")),
+        "pypi" => Ok(format!("https://pypi.org/pypi/{dist}/{version}/json")),
+        other => Err(format!("unknown python index {other:?}")),
+    }
+}
+
+/// Sparse-index path for a crates.io version check (`cargo` cache layout:
+/// `1/`, `2/`, `3/<first>/`, else `<first-two>/<second-two>/`).
+pub fn crates_index_path(name: &str) -> String {
+    let n = name.to_lowercase();
+    let ch: Vec<char> = n.chars().collect();
+    match ch.len() {
+        1 => format!("1/{n}"),
+        2 => format!("2/{n}"),
+        3 => format!("3/{}/{n}", ch[0]),
+        _ => format!("{}{}/{}{}/{n}", ch[0], ch[1], ch[2], ch[3]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1404,5 +1500,63 @@ smoke_exprs = ["True"]
         let fresh = inject_readme_perf(stale, &block);
         assert!(!fresh.contains("old"), "stale block kept:\n{fresh}");
         assert_eq!(fresh.matches("RUSTSMITH-PERF:BEGIN").count(), 1, "block duplicated");
+    }
+
+    fn pub_state() -> ReleaseState {
+        let mut s = initial_state("0.1.0", "abc");
+        s.artifacts = vec![
+            ArtifactRef { file: "crc-rust-core-0.1.0.crate".into(), sha256: "c".into(), bytes: 1 },
+            ArtifactRef { file: "crc_rust-0.1.0-cp312-cp312-manylinux.whl".into(), sha256: "w".into(), bytes: 2 },
+            ArtifactRef { file: "crc_rust-0.1.0.tar.gz".into(), sha256: "s".into(), bytes: 3 },
+        ];
+        s
+    }
+
+    #[test]
+    fn publish_files_takes_wheel_plus_sdist_only() {
+        let files = publish_files(&pub_state().artifacts, "testpypi").unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files[0].ends_with(".whl") && files[1].ends_with(".tar.gz"), "{files:?}");
+        assert!(!files.iter().any(|f| f.ends_with(".crate")), "crate excluded: {files:?}");
+        // Doubled sdist refuses (never upload an ambiguous set).
+        let mut arts = pub_state().artifacts;
+        arts.push(ArtifactRef { file: "other-0.1.0.tar.gz".into(), sha256: "x".into(), bytes: 4 });
+        assert!(publish_files(&arts, "pypi").is_err());
+        // Missing wheel refuses.
+        let arts: Vec<ArtifactRef> =
+            pub_state().artifacts.into_iter().filter(|a| !a.file.ends_with(".whl")).collect();
+        assert!(publish_files(&arts, "testpypi").is_err());
+    }
+
+    #[test]
+    fn publish_gate_testpypi_open_prod_gated() {
+        let s = pub_state();
+        // TestPyPI lane needs only a green prep battery.
+        assert!(publish_gate(true, &s, "testpypi", 1_000, false).is_ok());
+        assert!(publish_gate(false, &s, "testpypi", 1_000, false).is_err());
+        // Prod lanes refuse without opt-in, even green.
+        assert!(publish_gate(true, &s, "pypi", 1_000, false).is_err());
+        // Opt-in but no TestPyPI success refuses.
+        assert!(publish_gate(true, &s, "pypi", 1_000, true).is_err());
+        assert!(publish_gate(true, &s, "crates-io", 1_000, true).is_err());
+        // Fresh TestPyPI success opens prod; stale closes it.
+        let mut s = pub_state();
+        s.registries.get_mut("testpypi").unwrap().status = "success".into();
+        s.registries.get_mut("testpypi").unwrap().attempts =
+            vec![Attempt { at: 1_000, result: "success".into(), detail: "t".into() }];
+        assert!(publish_gate(true, &s, "pypi", 1_000 + 3_600, true).is_ok());
+        assert!(publish_gate(true, &s, "crates-io", 1_000 + 3_600, true).is_ok());
+        assert!(publish_gate(true, &s, "pypi", 1_000 + 90_000, true).is_err());
+    }
+
+    #[test]
+    fn index_helpers_shape() {
+        assert_eq!(
+            pypi_json_url("testpypi", "crc-rust", "0.1.0").unwrap(),
+            "https://test.pypi.org/pypi/crc-rust/0.1.0/json"
+        );
+        assert!(pypi_json_url("nope", "x", "1").is_err());
+        assert_eq!(crates_index_path("crc-rust-core"), "cr/c-/crc-rust-core");
+        assert_eq!(crates_index_path("ab"), "2/ab");
     }
 }
