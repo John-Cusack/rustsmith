@@ -16,7 +16,7 @@ use rustsmith_gates as gates;
 use rustsmith_oracle::{execute_all, Oracle};
 use rustsmith_sandbox::Sandbox;
 use rustsmith_store::Store;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -37,6 +37,70 @@ fn ev(store: &Store, run_id: &str, kind: &str, detail: serde_json::Value) {
         kind: kind.into(),
         detail,
     });
+}
+/// S1 scope-skip: frozen `out_of_scope` set from dag.json (absent on
+/// Python/pre-rollout files -> empty, today's behavior).
+pub(crate) fn out_of_scope_set(dag: &serde_json::Value) -> HashSet<String> {
+    dag["out_of_scope"]
+        .as_array()
+        .map(|v| {
+            v.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// S1 scope allowlist from `RUSTSMITH_SCOPE` (comma-separated repo-relative
+/// prefixes). `None` = whole tree (empty/unset, today's behavior).
+pub(crate) fn scope_prefixes() -> Option<Vec<String>> {
+    scope_prefixes_from(&std::env::var("RUSTSMITH_SCOPE").unwrap_or_default())
+}
+
+fn scope_prefixes_from(raw: &str) -> Option<Vec<String>> {
+    let mut out: Vec<String> = raw
+        .split(',')
+        .map(|p| p.trim().trim_matches('/').to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    out.sort();
+    out.dedup();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// True when repo-rel `rel` is inside the allowlist (`None` = whole tree).
+/// Directory-prefix match: `rel == prefix` or `rel` starts with `prefix/`.
+pub(crate) fn in_scope(rel: &str, prefixes: Option<&[String]>) -> bool {
+    match prefixes {
+        None => true,
+        Some(ps) => ps.iter().any(|p| rel == p || rel.starts_with(&format!("{p}/"))),
+    }
+}
+
+/// Skip reason for `id`, if any. `out_of_scope` (frozen vendored/coverage
+/// marks) wins over `outside_scope` (prefix filter) when both apply.
+fn skip_reason(
+    id: &str,
+    out_of_scope: &HashSet<String>,
+    prefixes: Option<&[String]>,
+) -> Option<&'static str> {
+    if out_of_scope.contains(id) {
+        return Some("out_of_scope");
+    }
+    if !in_scope(crate::units::unit_rel(id), prefixes) {
+        return Some("outside_scope");
+    }
+    None
+}
+
+/// Ready-check: `passed` deps port normally; `skipped` deps count as
+/// satisfied (link, don't port). Anything else blocks scheduling.
+fn dep_satisfied(status: &str) -> bool {
+    status == "passed" || status == "skipped"
 }
 
 /// Reviewer assignment: two seats, distinct providers, never the implementer.
@@ -842,6 +906,12 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             );
         }
     }
+    // S1 scope-skip: frozen `out_of_scope` (vendored/coverage marks) plus the
+    // `RUSTSMITH_SCOPE` prefix allowlist (empty/unset = whole tree). Headers
+    // and helpers skip standalone here (link, don't port); header-follower
+    // attachment is a later track (see IMPLEMENTATION_ELMER.md S1).
+    let oos = out_of_scope_set(&dag_json);
+    let scope = scope_prefixes();
     // Scheduler works over this DAG: leaf-first order, ready = deps passed.
     let unit_dag = UnitDag {
         units: order
@@ -945,15 +1015,23 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         Some(build_shared_pristine(&a.fork, &orig_src, store, run_id)?)
     };
 
-    // Scheduler: leaf-first over the DAG; ready = all deps passed.
+    // Scheduler: leaf-first over the DAG; ready = all deps passed or skipped.
     // Parallel cap MAX_PARALLEL bounds independent units (runs serialize here).
     let _ = MAX_PARALLEL;
     for u in &unit_dag.units {
         let id = &u.id;
-        // Ready check.
+        // S1 scope-skip: out_of_scope / outside_scope units record `skipped`
+        // with a reason event and never grade or merge.
+        if let Some(reason) = skip_reason(id, &oos, scope.as_deref()) {
+            store.set_unit_status(id, "skipped").map_err(|e| e.to_string())?;
+            ev(store, run_id, "unit_skip", serde_json::json!({"unit": id, "reason": reason}));
+            continue;
+        }
+        // Ready check: `passed` deps port normally, `skipped` deps count as
+        // satisfied (link, don't port).
         for d in &u.depends_on {
             let st = store.unit_status(d).map_err(|e| e.to_string())?.unwrap_or_default();
-            if st != "passed" {
+            if !dep_satisfied(&st) {
                 return Err(format!("unit {id} scheduled before dep {d} passed (got {st})"));
             }
         }
@@ -1819,6 +1897,71 @@ mod tests {
         ]);
         let err = assign_reviewers(None, &p).unwrap_err();
         assert!(err.contains("distinct providers"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn s1_out_of_scope_set_reads_frozen_list() {
+        let dag = serde_json::json!({"out_of_scope": ["c:contrib/a.c", "fortran:contrib/b.F90"]});
+        let s = out_of_scope_set(&dag);
+        assert!(s.contains("c:contrib/a.c"));
+        assert!(s.contains("fortran:contrib/b.F90"));
+        assert_eq!(s.len(), 2);
+        // Absent on Python/pre-rollout files -> empty (today's behavior).
+        assert!(out_of_scope_set(&serde_json::json!({})).is_empty());
+        assert!(out_of_scope_set(&serde_json::json!({"out_of_scope": []})).is_empty());
+    }
+
+    #[test]
+    fn s1_scope_prefix_allowlist() {
+        // Empty = whole tree.
+        assert_eq!(scope_prefixes_from(""), None);
+        assert_eq!(scope_prefixes_from("  , ,"), None);
+        // Normalized: trimmed, trailing slashes stripped, deduped, sorted.
+        assert_eq!(
+            scope_prefixes_from("matc/, fhutiter,matc"),
+            Some(vec!["fhutiter".to_string(), "matc".to_string()])
+        );
+        let scope = scope_prefixes_from("fhutiter,matc");
+        let s = scope.as_deref();
+        assert!(in_scope("fhutiter/src/a.F90", s));
+        assert!(in_scope("matc", s));
+        assert!(in_scope("matc/src/main.c", s));
+        assert!(!in_scope("fem/src/b.F90", s));
+        // Directory boundary: `matc` never matches `matc_extra/`.
+        assert!(!in_scope("matc_extra/src/a.c", s));
+        // Whole tree matches everything.
+        assert!(in_scope("fem/src/b.F90", None));
+    }
+
+    #[test]
+    fn s1_skip_reasons_with_precedence() {
+        let oos: HashSet<String> = ["c:contrib/a.c".to_string()].into_iter().collect();
+        let scope = scope_prefixes_from("src");
+        let s = scope.as_deref();
+        // Frozen mark wins when both apply.
+        assert_eq!(skip_reason("c:contrib/a.c", &oos, s), Some("out_of_scope"));
+        let oos2: HashSet<String> =
+            ["fortran:src/vendored.F90".to_string()].into_iter().collect();
+        assert_eq!(skip_reason("fortran:src/vendored.F90", &oos2, s), Some("out_of_scope"));
+        // Outside scope, not frozen -> outside_scope.
+        assert_eq!(
+            skip_reason("c:include/h.h", &HashSet::new(), s),
+            Some("outside_scope")
+        );
+        // Inside scope, not frozen -> scheduled (None).
+        assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), s), None);
+        // Whole tree, not frozen -> scheduled.
+        assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), None), None);
+    }
+
+    #[test]
+    fn s1_skipped_deps_satisfy_ready_check() {
+        assert!(dep_satisfied("passed"));
+        assert!(dep_satisfied("skipped"));
+        assert!(!dep_satisfied("running"));
+        assert!(!dep_satisfied("gated"));
+        assert!(!dep_satisfied(""));
+        assert!(!dep_satisfied("failed"));
     }
 
     #[test]
