@@ -1,9 +1,11 @@
 # Elmer FEM → Rust: scale-up strategy + worker guide
 
-Status: the CTest mirror loop is complete and proven on a throwaway
-BIND(C) fixture (`mirror: 1/1 passed divergence=0.0000`, merged port
-live). This document is the execution plan for scaling that loop to
-Elmer itself. Numbers below are measured on this host, not estimated.
+Status: the CTest mirror loop is complete and proven on the committed
+BIND(C) fixture (`tests/fixtures/mini`, `tests/elmer_mini_proof.sh`
+GREEN: `mirror: 1/1 passed divergence=0.0000`, merged port live;
+S1 scope-skip landed). This document is the execution plan for scaling
+that loop to Elmer itself. Numbers below are measured on this host,
+not estimated.
 
 ## 1. Ground truth (measured 2026-09-22)
 
@@ -96,12 +98,30 @@ frozen by the suite (132/0); keep it byte-identical.
    rebuilds archives before configuring.
 6. **Merge-safe tamper** (`CtestRunner::normalize_for_hash`):
    `CMakeLists.txt` hashes test-defining lines only.
+7. **Scheduler scope-skip + pilot subset filter** (`mirror.rs`:
+   `out_of_scope_set`, `scope_prefixes`/`in_scope` from `RUSTSMITH_SCOPE`
+   (empty/unset = whole tree), `skip_reason`, `dep_satisfied`; scheduler
+   records status `skipped` + `unit_skip` event with reason
+   `out_of_scope`/`outside_scope`, no grade, no merge; ready-check treats
+   `skipped` deps as satisfied, link don't port). Headers/helpers skip
+   standalone here; header-follower attachment is a later track.
+   Proof `tests/elmer_mini_proof.sh` GREEN (`mirror: 1/1 passed
+   divergence=0.0000`; `fortran:src/mini_add.F90` passed,
+   `c:include/mini_helper.h` skipped `outside_scope`). Elmer slices on the
+   frozen recon (3025 units, 61 `out_of_scope`; checkout
+   `release-26.2-641-g9f6af2f85`, NOT the `release-26.2.1 @ a19504a` the
+   earlier docs name): `RUSTSMITH_SCOPE=fhutiter` schedules 1
+   (`fortran:fhutiter/src/huti_interfaces.F90`), skips 1601
+   `outside_scope` before the honest halt, 1423 queued behind it, halts
+   `substitute: … exports non-BIND(C) Fortran …` (118 s);
+   `RUSTSMITH_SCOPE=matc` schedules 1 (`c:matc/src/str.h`), skips 2437
+   `outside_scope`, 587 queued, halts `substitute: no built object for
+   'c:matc/src/str.h'` (117 s). Neither halts on scope. Static full-slice
+   expectation (no halt): fhutiter 17 scheduled / 61 `out_of_scope` / 2947
+   `outside_scope`; matc 26 / 61 / 2938. Suite 165/0 (161 + 4 new S1 tests).
 
 ### Open (session-sized; see §7)
 
-7. **Scheduler scope-skip + pilot subset filter** — the only thing standing
-   between recon and an Elmer pilot run (mirror halts on the first helper
-   script today).
 8. **Stdin-capable probes** — `matc` differential is stdin-fed; the
    `{program, args}` shape cannot express it.
 9. **Real workers** — scripts hold `RUSTSMITH_WORKER_CMD`; no model backs
