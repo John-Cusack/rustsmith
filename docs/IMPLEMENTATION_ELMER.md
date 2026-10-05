@@ -229,6 +229,8 @@ Never push. Keep Python-spine output byte-identical (suite pins it).
 
 ### S1 — Scheduler scope-skip + pilot subset filter (unblocks the pilot)
 
+- Session prompt: `prompts/elmer_s1_scope_skip.md` (paste-ready; verified
+  ground truth as of 2026-10-05).
 - Goal: mirror skips unportable units instead of halting on the first
   helper script. Today it dies on `python:umfpack/src/umfpack/deps.py`
   (`no built object`) with 2900+ units still queued behind it.
