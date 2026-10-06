@@ -1,4 +1,5 @@
 mod candidates;
+mod github;
 mod heldout;
 mod mirror;
 mod optimize;
@@ -21,7 +22,7 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 fn usage() -> &'static str {
-    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>\n       rustsmith release-prep --project <mirror/<pkg>> --fork <dir> [--opt <dir>] --recon-out <dir> --out <dir>\n       rustsmith release-record --state <release-state.json> --registry testpypi|pypi|crates-io --result success|failed [--detail <text>]\n       rustsmith release-status --state <release-state.json>"
+    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>\n       rustsmith release-prep --project <mirror/<pkg>> --fork <dir> [--opt <dir>] --recon-out <dir> --out <dir>\n       rustsmith release-record --state <release-state.json> --registry testpypi|pypi|crates-io --result success|failed [--detail <text>]\n       rustsmith release-status --state <release-state.json>\n       rustsmith create-github-repo --fork <dir> --project <mirror/<pkg>> --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes]"
 }
 
 fn main() {
@@ -56,6 +57,7 @@ fn run() -> Result<(), String> {
         "release-record" => release::cmd_release_record(&args[2..]),
         "release-status" => release::cmd_release_status(&args[2..]),
         "release-publish" => release::cmd_release_publish(&args[2..]),
+        "create-github-repo" => github::cmd_create_github_repo(&args[2..]),
         _ => Err(usage().into()),
     }
 }

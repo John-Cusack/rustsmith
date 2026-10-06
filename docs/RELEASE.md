@@ -194,7 +194,36 @@ Every error names the field and the file. Common ones:
 - `` release partial (not complete) `` — not an error in the artifacts:
   publish/record the remaining registries.
 
-## 7. Releasing rustsmith itself
+## 7. Publishing repo creation (`create-github-repo`)
+
+The publishing repo named by `github_repo` is created by an explicit,
+human-triggered subcommand — never automatically during a run:
+
+```
+rustsmith create-github-repo --fork <dir> --project mirror/<pkg> \
+    --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes]
+```
+
+- Public by default; `--private` opts out. The canonical name is
+  `<project>-rust`; when `release.toml` `github_repo` differs, the file is
+  updated to match (owner kept) on the `--yes` path.
+- Without `--yes` the command is a dry run: it prints exactly what will be
+  pushed (repo, visibility, license, commit) and changes nothing.
+- With `--yes` it creates the repo via authenticated `gh`, adds the remote,
+  records the remote in the run store (`github_repos`) plus a
+  `github_repo_created` event, and pushes the fork's `main`.
+- Refused before any side effect: an existing non-empty repo, a `github_repo`
+  owner other than the authenticated `gh` user, any fork remote pointing at
+  the upstream package, a dirty fork tree, and a missing/ambiguous recon
+  license record (the upstream license is read from recon, never guessed).
+- License: MIT unless the upstream license requires otherwise — copyleft
+  GPL/LGPL stays under upstream terms with the upstream LICENSE text. Every
+  pushed repo carries LICENSE plus NOTICE naming the upstream project, URL,
+  and authors (from `release.toml` `upstream_url`/`upstream_authors`).
+- No credentials in argv or committed files: `gh` owns authentication and
+  the push reuses it through an ephemeral git credential-helper override.
+
+## 8. Releasing rustsmith itself
 
 Out of scope for this document: rustsmith itself ships as a Cargo workspace
 binary (`cargo build --release`); it is not published to crates.io or PyPI.

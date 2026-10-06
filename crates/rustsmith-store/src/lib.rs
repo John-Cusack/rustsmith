@@ -42,10 +42,20 @@ pub struct RoundRow {
     pub gain_low: Option<f64>, pub gain_high: Option<f64>,
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RunRow {
-    pub id: String, pub repo_url: String, pub source_lang: String, pub status: String,
-    pub stage: String, pub halt_reason: Option<String>,
+pub struct GithubRepoRow {
+    pub run_id: String,
+    pub repo: String,
+    pub remote: String,
+    pub visibility: String,
+    pub license: String,
+    pub sha: String,
+    pub created_at: i64,
 }
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+ pub struct RunRow {
+     pub id: String, pub repo_url: String, pub source_lang: String, pub status: String,
+     pub stage: String, pub halt_reason: Option<String>,
+ }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GateRow {
     pub unit_id: String, pub gate: String, pub passed: bool, pub detail_json: String,
@@ -199,18 +209,27 @@ CREATE TABLE IF NOT EXISTS rounds (
   gain_high REAL,
   created_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS guidance_revisions (
-  id INTEGER PRIMARY KEY,
-  created_at INTEGER NOT NULL,
-  guidance_version TEXT NOT NULL UNIQUE,
-  change_summary TEXT NOT NULL,
-  evidence_query TEXT NOT NULL,
-  stats_json TEXT NOT NULL,
-  runs_included_json TEXT NOT NULL,
-  decided_by TEXT NOT NULL,
-  prompt_diff TEXT NOT NULL
-);
-"#,
+ CREATE TABLE IF NOT EXISTS guidance_revisions (
+   id INTEGER PRIMARY KEY,
+   created_at INTEGER NOT NULL,
+   guidance_version TEXT NOT NULL UNIQUE,
+   change_summary TEXT NOT NULL,
+   evidence_query TEXT NOT NULL,
+   stats_json TEXT NOT NULL,
+   runs_included_json TEXT NOT NULL,
+   decided_by TEXT NOT NULL,
+   prompt_diff TEXT NOT NULL
+ );
+CREATE TABLE IF NOT EXISTS github_repos (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id),
+  repo TEXT NOT NULL,
+  remote TEXT NOT NULL,
+  visibility TEXT NOT NULL,
+  license TEXT NOT NULL,
+  sha TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+ );
+ "#,
         )?;
         }
         self.migrate_stage2()?;
@@ -549,6 +568,38 @@ CREATE TABLE IF NOT EXISTS guidance_revisions (
         })?;
         Ok(rows.next().transpose()?)
     }
+    /// Record the publishing repo created for a run (`create-github-repo`).
+    /// Upsert: a retry after a half-finished publish replaces the row, never
+    /// duplicates it. `visibility` is "public"|"private", `remote` the push URL.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_github_repo(
+        &self,
+        run_id: &str,
+        repo: &str,
+        remote: &str,
+        visibility: &str,
+        license: &str,
+        sha: &str,
+        created_at: i64,
+    ) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO github_repos (run_id, repo, remote, visibility, license, sha, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(run_id) DO UPDATE SET repo=excluded.repo, remote=excluded.remote, visibility=excluded.visibility, license=excluded.license, sha=excluded.sha, created_at=excluded.created_at",
+            params![run_id, repo, remote, visibility, license, sha, created_at],
+        )?;
+        Ok(())
+    }
+    pub fn get_github_repo(&self, run_id: &str) -> Result<Option<GithubRepoRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT run_id, repo, remote, visibility, license, sha, created_at FROM github_repos WHERE run_id=?1")?;
+        let mut rows = stmt.query_map(params![run_id], |r| {
+            Ok(GithubRepoRow {
+                run_id: r.get(0)?, repo: r.get(1)?, remote: r.get(2)?, visibility: r.get(3)?,
+                license: r.get(4)?, sha: r.get(5)?, created_at: r.get(6)?,
+            })
+        })?;
+        Ok(rows.next().transpose()?)
+    }
     pub fn list_gate_results(&self, run_id: &str) -> Result<Vec<GateRow>, StoreError> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
@@ -762,5 +813,23 @@ mod tests {
         }
         let content = std::fs::read_to_string(&ev).unwrap();
         assert!(content.contains("freeze"));
+    }
+
+    #[test]
+    fn github_repo_record_upserts() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("store.db");
+        let ev = dir.path().join("events.jsonl");
+        let s = Store::open_with_events(&db, &ev).unwrap();
+        s.create_run("r1", "https://example.com/x", "python", "run").unwrap();
+        assert!(s.get_github_repo("r1").unwrap().is_none());
+        s.record_github_repo("r1", "Cap/crc-rust", "https://github.com/Cap/crc-rust.git", "public", "BSD-2-Clause", "abc", 1)
+            .unwrap();
+        // Retry replaces the row (half-finished publish), never duplicates.
+        s.record_github_repo("r1", "Cap/crc-rust", "https://github.com/Cap/crc-rust.git", "public", "BSD-2-Clause", "def", 2)
+            .unwrap();
+        let row = s.get_github_repo("r1").unwrap().unwrap();
+        assert_eq!(row.sha, "def");
+        assert_eq!(row.visibility, "public");
     }
 }
