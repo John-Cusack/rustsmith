@@ -1,8 +1,8 @@
 # Fixture repos (pinned for acceptance scripts)
 #
-# Primary fixture: used for M0/M4/M5/M6 acceptance (oracle, mirror, optimize, harvest).
-# Secondary fixture: used ONLY for the M3 unit-DAG check (crc is single-module,
-# so its DAG is vacuous).
+# Primary fixture: used for M0/M4-M9 acceptance (oracle, mirror, optimize, harvest).
+# Secondary fixture: M3 unit-DAG check (crc is single-module, so its DAG is
+# vacuous); promoted to a second oracle fixture in M7 (m7 item 13, m9 baselines).
 
 [primary]
 name = "crc"
@@ -25,7 +25,7 @@ license = "BSD-2-Clause"
 [secondary]
 name = "strsimpy"
 url = "https://github.com/luozhouyang/python-string-similarity"
-pinned_sha = "115acaa"          # re-pin with full SHA
+pinned_sha = "115acaacf926b41a15664bd34e763d074682bda3"
 license = "MIT"
-purpose = "M3 DAG check only — ~19 modules (levenshtein, jaro_winkler, cosine, ...)"
-note = "Thin per-module unittest files; NOT an oracle fixture."
+purpose = "M3 DAG check + M7 second oracle fixture — ~19 modules (levenshtein, jaro_winkler, cosine, ...)"
+note = "Flat setuptools layout, colocated *_test.py; `pytest -q` -> 18 passed on pristine checkout (verified M7)."

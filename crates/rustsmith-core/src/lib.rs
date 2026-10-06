@@ -42,6 +42,16 @@ pub struct RunOutput {
     pub artifacts: BTreeMap<String, Vec<u8>>,
 }
 
+/// The `$ <argv>` record line every executor prepends to `RunOutput.stdout`.
+/// Always exactly one line: line breaks inside an argument (e.g. a multi-line
+/// `python -c` script) are escaped, so readers that strip the first line get
+/// the command's own output and nothing else. Newline-free argv renders
+/// byte-identically to a plain `join(" ")`.
+pub fn record_line(argv: &[String]) -> String {
+    let joined = argv.join(" ").replace('\r', "\\r").replace('\n', "\\n");
+    format!("$ {joined}\n")
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
@@ -319,12 +329,16 @@ pub struct OracleFile {
     pub path: String,
     pub kind: OracleKind,
 }
-/// Grading container image: base image, extra packages, and tree paths
-/// the container may write (e.g. build trees recording test outputs).
+/// Grading container image: base image, extra system (apt) packages, extra
+/// pip requirements (Python bases, where the interpreter is not Debian's),
+/// and tree paths the container may write (e.g. build trees recording test
+/// outputs).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ImageSpec {
     pub base: String,
     pub packages: Vec<String>,
+    #[serde(default)]
+    pub pip_packages: Vec<String>,
     pub writable: Vec<String>,
 }
 /// A benchmark workload: named snippet run `iters` times per sample.
@@ -366,6 +380,16 @@ pub trait TestRunner: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn record_line_is_one_line() {
+        let plain = vec!["python3".to_string(), "-m".to_string(), "pytest".to_string()];
+        assert_eq!(record_line(&plain), "$ python3 -m pytest\n");
+        let script = vec!["python3".to_string(), "-c".to_string(), "import sys\nprint(1)".to_string()];
+        let line = record_line(&script);
+        assert_eq!(line.matches('\n').count(), 1, "{line:?}");
+        assert!(line.ends_with('\n'));
+    }
 
     fn sample_command() -> TestCommand {
         TestCommand {

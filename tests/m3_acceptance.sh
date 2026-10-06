@@ -42,7 +42,8 @@ python3 - <<EOF
 import json
 r = json.load(open('$WORK/recon-crc/recon.json'))
 mods = r['modules']
-assert '_crc' in mods, mods
+# ADR-010: recon module keys are UnitIds (<lang>:<repo-rel source>, ADR-008 Track F).
+assert 'python:src/crc/_crc.py' in mods, mods
 files = r['tests']['files']
 assert any('test_crc.py' in f for f in files), files
 assert any('test_unstable_digest' in f for f in files), files
@@ -69,7 +70,8 @@ order = d['leaf_first_order']
 pos = {u: i for i, u in enumerate(order)}
 for dep, base in d['edges']:
     assert pos[base] < pos[dep], f"{base} must precede {dep}"
-for base in ['shingle_based', 'string_distance']:
+# ADR-010: DAG units are UnitIds (ADR-008 Track F).
+for base in ['python:strsimpy/shingle_based.py', 'python:strsimpy/string_distance.py']:
     assert base in pos, f"missing base {base}"
     for dep, b in d['edges']:
         if b == base:
@@ -84,7 +86,9 @@ test -f "$WORK/recon-crc/WORKLOAD.md"
 grep -q "wall_time_p50" "$WORK/recon-crc/WORKLOAD.md" || (echo "FAIL: primary metric"; exit 1)
 grep -q -i "distribution" "$WORK/recon-crc/WORKLOAD.md" || (echo "FAIL: distribution"; exit 1)
 grep -q -i "budget" "$WORK/recon-crc/WORKLOAD.md" || (echo "FAIL: budgets"; exit 1)
-python3 -c "import json;m=json.load(open('$WORK/recon-crc/manifest.json'));assert any('bench' in f['path'] for f in m['files']), 'bench missing';print('benchmark freeze OK:', m['benchmark_files'])"
+# ADR-010: manifest v2 (ADR-008) hashes benchmarks in `files`; the separate
+# v1 `benchmark_files` list is gone.
+python3 -c "import json;m=json.load(open('$WORK/recon-crc/manifest.json'));b=[f['path'] for f in m['files'] if 'bench' in f['path']];assert b, 'bench missing';print('benchmark freeze OK:', b)"
 
 echo "-- step 4: held-out suites run on host, absent from containers"
 PYTHONPATH="$WORK/crc/src" python3 -m pytest "$WORK/heldout-crc" -q || (echo "FAIL: heldout tests"; exit 1)
@@ -92,11 +96,25 @@ test -f "$WORK/heldout-crc/heldout_workloads.json"
 if grep -rq "heldout" "$WORK/recon-crc/" 2>/dev/null | grep -v "heldout_workloads\|HELD"; then
   echo "note: recon out mentions heldout (check blindness)"; grep -rq "heldout" "$WORK/recon-crc/" || true
 fi
-if docker run --rm --network=none rustsmith-grading:0.1.0 sh -c "find / -name '*heldout*' 2>/dev/null | grep ." 2>/dev/null; then
-  echo "FAIL: heldout in grading image"; exit 1
-else
-  echo "heldout absent from grading image OK"
+# ADR-010: inspect the image grading actually uses (built + recorded on the
+# grade event by the M0 recon stage), never a stale fixed tag; an image that
+# cannot run is a FAIL, not "nothing found".
+mkdir -p "$WORK/img"
+cargo run -q -p rustsmith-cli -- run --stage recon --repo "$WORK/crc" --run-id m3img --store "$WORK/img/store.db" --heldout "$WORK/heldout-crc" --out "$WORK/img/oracle" --containers "$ROOT/containers" > /dev/null
+IMAGE=$(python3 -c "
+import json
+for l in open('$WORK/img/events.jsonl'):
+    e = json.loads(l)
+    if e.get('kind') == 'grade' and e['detail'].get('image'):
+        print(e['detail']['image']); break
+")
+if [ -z "$IMAGE" ]; then echo "FAIL: grade event records no image"; exit 1; fi
+FOUND=$(docker run --rm --network=none "$IMAGE" sh -c "find / -name '*heldout*' 2>/dev/null; echo __scan_done__") || { echo "FAIL: cannot run grading image $IMAGE"; exit 1; }
+printf '%s\n' "$FOUND" | grep -qx '__scan_done__' || { echo "FAIL: scan of $IMAGE did not complete"; exit 1; }
+if printf '%s\n' "$FOUND" | grep -vx '__scan_done__' | grep -q .; then
+  echo "FAIL: heldout in grading image $IMAGE"; printf '%s\n' "$FOUND"; exit 1
 fi
+echo "heldout absent from grading image $IMAGE OK"
 echo "-- council approved recon (decisions row)"
 python3 -c "import sqlite3;c=sqlite3.connect('$WORK/store.db');r=c.execute(\"SELECT COUNT(*) FROM decisions WHERE run_id IN ('m3crc','m3str')\").fetchone();assert r[0]>=2, r;print('council approvals:',r[0])"
 

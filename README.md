@@ -216,7 +216,7 @@ Status is one of: `open` | `in progress (<branch>)` | `mirrored (oracle N/N, hel
 |---|---|---|---|
 | crc (`mirror/crc`) | Python | mirrored (oracle and heldout counts not yet recorded); release work in progress (`John-Cusack/rewrite-packaging`) | Primary fixture; first core+binding release example |
 | strsimpy (`mirror/strsimpy`) | Python | mirrored (oracle and heldout counts not yet recorded) | Old flat layout; not release-ready until moved to the core+binding split |
-| Elmer FEM (`mirror/Elmer`) | C / C++ / Fortran | in progress (`John-Cusack/rewrite-elmer`) | Session briefs S1–S5 in `docs/IMPLEMENTATION_ELMER.md` on that branch |
+| Elmer FEM (`mirror/Elmer`) | C / C++ / Fortran | S1 scope-skip landed, step-4 verified 2026-10-06 (suite 181/0, `m0`–`m9` + `release_acceptance.sh` green, `tests/elmer_mini_proof.sh` 1/1 divergence=0.0000) | Session briefs S1–S5 in `docs/IMPLEMENTATION_ELMER.md`; S2–S5 not started |
 
 Deliberately excluded: certifi, pytz (data-only bundles); iniconfig (trivial, I/O-bound); typing-inspection (thin typing dispatch, nothing to port); jinja2, jsonschema (mature Rust ports already exist: minijinja, the `jsonschema` crate); pandas (hot paths already Cython; polars covers new builds); beautifulsoup4 (scraper/html5ever cover the capability; remainder is API sugar).
 

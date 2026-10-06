@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(Mini C Fortran)
+enable_testing()
+add_library(mini STATIC src/mini_add.F90)
+add_executable(mini_probe tests/mini_probe.c)
+target_link_libraries(mini_probe PRIVATE mini)
+add_test(NAME mini_add COMMAND mini_probe add 2 3)
+set_tests_properties(mini_add PROPERTIES LABELS "quick")
