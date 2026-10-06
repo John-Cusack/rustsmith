@@ -3,14 +3,31 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "strsimpy"
+name = "strsimpy-rust"
 version = "0.2.1"
 description = "Pure-Rust string similarity library (rustsmith Stage-1 mirror of luozhouyang/python-string-similarity)"
 authors = [{ name = "ZhouYang Luo", email = "zhouyang.luo@gmail.com" }]
+maintainers = [{ name = "strsimpy-rust publishers" }]
 requires-python = ">=3.11,<4.0"
+readme = "README.md"
 license = "MIT"
+keywords = ["string-similarity", "levenshtein", "rust"]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Text Processing",
+]
+
+[project.urls]
+Homepage = "https://github.com/John-Cusack/strsimpy-rust"
+Upstream = "https://github.com/luozhouyang/python-string-similarity"
 
 [tool.maturin]
 module-name = "strsimpy._strsimpy"
 bindings = "pyo3"
 features = ["pyo3/extension-module"]
+# The reusable Rust core ships inside the sdist as a path dependency
+# (verified by `release-prep`: the sdist rebuild test builds the wheel
+# from the unpacked sdist with no network checkout).
+sdist-include = ["strsimpy-core/**/*", "NOTICE", "release.toml"]

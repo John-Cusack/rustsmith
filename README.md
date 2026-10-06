@@ -47,11 +47,11 @@ Limited prototypes (real code, narrow scope):
 
 - Only two packages have repo data (`crates/rustsmith-cli/data/repo-content.json`); unknown packages halt by design. Adding a target means authoring its data entry (probes, workloads, rules, templates).
 - The mirror worker task copies reference-port files from `mirror/<package>/` templates — no model writes code on the default path, and the four council seats approve via stub drivers. Live models are opt-in (`RUSTSMITH_WORKER_CMD`, `RUSTSMITH_SEAT_CMD_*`); tokens are recorded as usage only.
-- The `crc` template ships the milestone-1 layout: reusable core crate (`crc-core`, no Python dependency) plus a thin PyO3 binding that delegates to it; other targets still ship a single extension crate. There is no boundary selection yet (always whole-DAG mirror), no versioned wheel/sdist output, and `suggestions/accelerators/` carries a note, not code.
+- The `crc` and `strsimpy` templates ship the milestone-1 layout: reusable core crate (`crc-core` / `strsimpy-core`, no Python dependency) plus a thin PyO3 binding that delegates to it; other targets still ship a single extension crate. There is no boundary selection yet (always whole-DAG mirror), no versioned wheel/sdist output, and `suggestions/accelerators/` carries a note, not code.
 - Accepted optimizations publish to a canonical revision (`work/opt/deliver/` + `ACCEPTED.json` with merged techniques and per-file hashes; rejected work never enters); the report carries a Delivered-artifact section. The headline end-to-end speedup remains a compounded estimate unless a milestone remeasures it directly.
 - No LLM runs anywhere on the default path: the pipeline is fully deterministic and offline unless the `RUSTSMITH_*_CMD` env wiring is set.
 
-Planned: per-target data packs (charset-normalizer and the rest of the POC board), live worker/council wiring, boundary selection, native packaging (crc core/binding split done; versioned wheels/sdist pending; `pip` binary shim decided; `cargo publish` metadata landed, crates unpublished), shipped accelerators, Cachegrind/`perf` instruments, concurrent runs, flame graphs. Out of scope as before: upstream PR automation, distributed execution, web UI, model hosting.
+Planned: per-target data packs (charset-normalizer and the rest of the POC board), live worker/council wiring, boundary selection, native packaging (crc + strsimpy core/binding splits done; versioned wheels/sdist pending; `pip` binary shim decided; `cargo publish` metadata landed, crates unpublished), shipped accelerators, Cachegrind/`perf` instruments, concurrent runs, flame graphs. Out of scope as before: upstream PR automation, distributed execution, web UI, model hosting.
 
 ## What it does
 
@@ -131,10 +131,10 @@ workflow identity, license, upstream attribution). Full procedure, state
 semantics, and troubleshooting: `docs/RELEASE.md`.
 
 Status: `crc` is the first end-to-end release example (publishable
-core+binding split, `crc-rust-core` + `crc-rust`). `strsimpy` still ships
-the old flat layout and is not release-ready. Planned, not implemented:
-migrating the remaining templates, version-bump automation, signed
-provenance attestations.
+core+binding split, `crc-rust-core` + `crc-rust`); `strsimpy` follows the
+same split (`strsimpy-rust-core` + `strsimpy-rust`, `release-prep`
+verified). Planned, not implemented: migrating the remaining templates,
+version-bump automation, signed provenance attestations.
 
 ## Configuration
 
@@ -215,7 +215,7 @@ Status is one of: `open` | `in progress (<branch>)` | `mirrored (oracle N/N, hel
 | Target | Language | Status | Notes |
 |---|---|---|---|
 | crc (`mirror/crc`) | Python | mirrored (oracle and heldout counts not yet recorded); release work in progress (`John-Cusack/rewrite-packaging`) | Primary fixture; first core+binding release example |
-| strsimpy (`mirror/strsimpy`) | Python | mirrored (oracle and heldout counts not yet recorded) | Old flat layout; not release-ready until moved to the core+binding split |
+| strsimpy (`mirror/strsimpy`) | Python | mirrored (oracle 18/18, heldout 16/16, divergence 0.0000; graded 2026-10-06) | Core+binding split (`strsimpy-rust-core` + `strsimpy-rust`); `release-prep` verified (11/11 checks) |
 | Elmer FEM (`mirror/Elmer`) | C / C++ / Fortran | S1 scope-skip landed, step-4 verified 2026-10-06 (suite 181/0, `m0`–`m9` + `release_acceptance.sh` green, `tests/elmer_mini_proof.sh` 1/1 divergence=0.0000) | Session briefs S1–S5 in `docs/IMPLEMENTATION_ELMER.md`; S2–S5 not started |
 
 Deliberately excluded: certifi, pytz (data-only bundles); iniconfig (trivial, I/O-bound); typing-inspection (thin typing dispatch, nothing to port); jinja2, jsonschema (mature Rust ports already exist: minijinja, the `jsonschema` crate); pandas (hot paths already Cython; polars covers new builds); beautifulsoup4 (scraper/html5ever cover the capability; remainder is API sugar).

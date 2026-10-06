@@ -1,13 +1,19 @@
 [package]
-name = "strsimpy"
+name = "strsimpy-rust"
 version = "0.2.1"
 edition = "2021"
+description = "Pure-Rust string similarity library with Python bindings (rustsmith Stage-1 mirror of luozhouyang/python-string-similarity)"
+license = "MIT"
+repository = "https://github.com/John-Cusack/strsimpy-rust"
+homepage = "https://github.com/luozhouyang/python-string-similarity"
 
 [lib]
 name = "_strsimpy"
 crate-type = ["cdylib"]
 
 [dependencies]
+strsimpy-rust-core = { path = "strsimpy-core", version = "0.2.1" }
 pyo3 = { version = "0.23", features = ["macros"] }
 
 [workspace]
+members = ["strsimpy-core"]

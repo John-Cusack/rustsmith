@@ -1,0 +1,53 @@
+# Release configuration for the `strsimpy` converted project.
+#
+# This file is the single source of truth for publishing the rustsmith output
+# as a reusable Rust core crate (crates.io) plus a Python package calling that
+# same core (PyPI). `rustsmith release-prep --project mirror/strsimpy ...`
+# reads it; every name/version here MUST match the manifests below or prep
+# fails.
+#
+# Copied from `mirror/crc/release.toml` per the ADR-009 deliverable split.
+# Field meanings are documented in `docs/RELEASE.md`.
+
+[release]
+schema = 1
+# Original package identity (matches `template.json` `package` and recon facts).
+project = "strsimpy"
+# Rust core crate published to crates.io (`strsimpy-core/Cargo.toml [package] name`).
+rust_crate = "strsimpy-rust-core"
+# Python distribution published to PyPI (`pyproject.toml [project] name`).
+# MUST differ from `project`: the original name stays with upstream.
+pypi_dist = "strsimpy-rust"
+# Python import name. MUST equal `project`: users swap the install with zero
+# import changes (`pip install strsimpy-rust` still does `import strsimpy`).
+python_import = "strsimpy"
+# Release version. MUST equal `[package] version` in `Cargo.toml`,
+# `strsimpy-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
+version = "0.2.1"
+# Supported Python versions (workflow matrix) and the matching floor.
+requires_python = ">=3.11,<4.0"
+python_versions = ["3.11", "3.12", "3.13"]
+# GitHub runners the release workflow builds and tests on.
+platforms = ["ubuntu-22.04", "macos-14", "windows-2022"]
+
+# Publishing repository and workflow identity (trusted publishing, no tokens).
+# The repo below is the publishing home for the converted project: create it,
+# push the prepared tree, then register the trusted publishers.
+github_repo = "John-Cusack/strsimpy-rust"
+release_workflow = ".github/workflows/release.yml"
+pypi_environment = "pypi"
+testpypi_environment = "testpypi"
+
+# License and upstream attribution.
+license_spdx = "MIT"
+upstream = "luozhouyang/python-string-similarity"
+upstream_url = "https://github.com/luozhouyang/python-string-similarity"
+upstream_license = "MIT"
+upstream_authors = "ZhouYang Luo <zhouyang.luo@gmail.com>"
+
+# Smoke checks run against the installed wheel (Python expressions; each must
+# evaluate truthy). Kept to stdlib-only, deterministic vectors.
+smoke_exprs = [
+  "strsimpy.Levenshtein().distance('kitten', 'sitting') == 3",
+  "strsimpy.Cosine(2).similarity('hello world', 'hello world') == 1.0",
+]

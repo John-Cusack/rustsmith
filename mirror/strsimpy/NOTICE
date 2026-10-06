@@ -1,0 +1,19 @@
+strsimpy-rust: Rust mirror of luozhouyang/python-string-similarity
+============================================================================
+
+This directory holds the rustsmith Stage-1 mirror of
+https://github.com/luozhouyang/python-string-similarity (string similarity
+and distance library).
+
+* Upstream author: ZhouYang Luo <zhouyang.luo@gmail.com>
+* Upstream license: MIT (full text: LICENSE-MIT where vendored; SPDX tag
+  carried in every file header).
+* This port: behavior-identical, same public API (`strsimpy._strsimpy`
+  extension module plus the `strsimpy/__init__.py` re-export shim),
+  published as the `strsimpy-rust` distribution on PyPI (import name
+  unchanged: `import strsimpy`) with reusable core crate
+  `strsimpy-rust-core` on crates.io.
+
+Provenance: every artifact preserves the upstream license header and this
+attribution (provenance gate). See `release.toml` for the publishing
+configuration and `docs/RELEASE.md` for the release procedure.
