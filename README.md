@@ -214,7 +214,7 @@ Status is one of: `open` | `in progress (<branch>)` | `mirrored (oracle N/N, hel
 
 | Target | Language | Status | Notes |
 |---|---|---|---|
-| crc (`mirror/crc`) | Python | mirrored (oracle and heldout counts not yet recorded); release work in progress (`John-Cusack/rewrite-packaging`) | Primary fixture; first core+binding release example |
+| crc (`mirror/crc`) | Python | mirrored (oracle 80/80, heldout 11/11, divergence 0.0000; graded 2026-10-06); release work in progress (`John-Cusack/rewrite-packaging`) | Primary fixture; first core+binding release example |
 | strsimpy (`mirror/strsimpy`) | Python | mirrored (oracle 18/18, heldout 16/16, divergence 0.0000; graded 2026-10-06) | Core+binding split (`strsimpy-rust-core` + `strsimpy-rust`); `release-prep` verified (11/11 checks) |
 | Elmer FEM (`mirror/Elmer`) | C / C++ / Fortran | S1 scope-skip landed, step-4 verified 2026-10-06 (suite 181/0, `m0`–`m9` + `release_acceptance.sh` green, `tests/elmer_mini_proof.sh` 1/1 divergence=0.0000) | Session briefs S1–S5 in `docs/IMPLEMENTATION_ELMER.md`; S2–S5 not started |
 
