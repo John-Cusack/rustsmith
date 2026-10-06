@@ -1,0 +1,15 @@
+[package]
+name = "charset-normalizer-core"
+version = "3.5.1"
+edition = "2021"
+description = "Pure-Rust charset detection core (rustsmith Stage-1 mirror of Ousret/charset_normalizer); no Python dependency"
+license = "MIT"
+repository = "https://github.com/John-Cusack/charset-normalizer-rust"
+homepage = "https://github.com/Ousret/charset_normalizer"
+
+[lib]
+name = "charset_normalizer_core"
+crate-type = ["rlib"]
+
+[dependencies]
+regex = "1"
