@@ -5,9 +5,8 @@ like `crc-rust`) — not about releasing rustsmith itself. For that
 distinction, see `README.md` ("Releasing").
 
 Status: **implemented** for Python-spine projects whose template ships the
-publishable layout (`mirror/crc` is the first end-to-end example).
-`mirror/strsimpy` still ships the old flat layout and is **not**
-release-ready (planned: migrate it to the same split).
+publishable layout (`mirror/crc` was the first end-to-end example;
+`mirror/strsimpy` ships the same core+binding split).
 
 ## What a release is
 

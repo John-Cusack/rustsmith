@@ -4,8 +4,14 @@
   "src_layout": false,
   "files": [
     ["Cargo.toml", "Cargo.toml"],
+    ["Cargo.lock", "Cargo.lock"],
     ["pyproject.toml", "pyproject.toml"],
+    ["release.toml", "release.toml"],
+    ["NOTICE", "NOTICE"],
+    ["README.md", "README.md"],
     ["src/lib.rs", "src/lib.rs"],
+    ["strsimpy-core/Cargo.toml", "strsimpy-core/Cargo.toml"],
+    ["strsimpy-core/src/lib.rs", "strsimpy-core/src/lib.rs"],
     ["strsimpy/__init__.py", "strsimpy/__init__.py"]
   ],
   "extra_files": {},
