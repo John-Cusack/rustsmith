@@ -1,0 +1,21 @@
+packaging-rust: Rust mirror of pypa/packaging
+=============================================
+
+This directory holds the rustsmith Stage-1 mirror of
+https://github.com/pypa/packaging (Python packaging utilities: PEP 440
+versions, PEP 508 markers/requirements, platform tags, metadata).
+
+* Upstream authors: Donald Stufft and individual contributors
+* Upstream license: Apache-2.0 OR BSD-2-Clause (dual licensed; see the
+  upstream LICENSE file. This port carries no vendored license text
+  beyond the SPDX tags in each file header).
+* This port: behavior-identical, same public API (`packaging._packaging`
+  extension module plus thin `packaging/*.py` shims), published as the
+  `packaging-rust` distribution on PyPI (import name unchanged:
+  `import packaging`) with reusable core crate `packaging-rust-core` on
+  crates.io. Snapshot of upstream 26.4.dev0 at port time (crate/dist
+  version 26.4.0, semver form).
+
+Provenance: every artifact preserves the upstream license attribution
+(provenance gate). See `release.toml` for the publishing configuration
+and `docs/RELEASE.md` for the release procedure.
