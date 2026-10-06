@@ -48,6 +48,7 @@ pub struct Report {
     pub tokens: TokenSpend,
     pub suggestions: Vec<ReportSuggestion>,
     pub negative_results: Vec<NegativeResult>,
+    pub delivered: Option<DeliveredArtifact>,
     pub stop: String,
     pub floor: f64,
     pub guidance_version: String,
@@ -84,9 +85,29 @@ pub struct TokenSpend {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NegativeResult {
-    pub technique: String,
-    pub outcome: String,
-    pub gate: String,
+    technique: String,
+    outcome: String,
+    gate: String,
+}
+
+/// One file of the canonical accepted revision (`deliver/` + ACCEPTED.json).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeliveredFile {
+    pub path: String,
+    pub sha256: String,
+}
+
+/// Canonical accepted revision: the exact tree that building, grading,
+/// benchmarking, and packaging must use. Absent for runs that predate the
+/// publish step (legacy optimize-report.json has no `accepted` key).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeliveredArtifact {
+    pub base_fork_sha: String,
+    pub work_sha: String,
+    pub merged: Vec<String>,
+    pub merged_count: usize,
+    pub rejected_excluded: usize,
+    pub files: Vec<DeliveredFile>,
 }
 
 /// One unit + its scheduler status + dependency list (existing store rows).
@@ -120,6 +141,7 @@ pub fn render(
     stop: &str,
     attribution: &str,
     license: &str,
+    delivered: Option<DeliveredArtifact>,
 ) -> Result<Report, ReportError> {
     let run = store
         .get_run(run_id)
@@ -221,6 +243,7 @@ pub fn render(
                 gate: f.gate.clone().unwrap_or_default(),
             })
             .collect(),
+        delivered,
         stop: stop.into(),
         floor,
         guidance_version,
@@ -304,11 +327,27 @@ pub fn emit_md(r: &Report) -> String {
     s.push_str(&format!(
         "\n## Spend\ntokens: {} | cache hit rate: {}\n",
         r.tokens.spent,
-        r.tokens.cache_hit_rate.map(|v| num(v)).unwrap_or_else(|| "n/a".into()),
+        r.tokens.cache_hit_rate.map(num).unwrap_or_else(|| "n/a".into()),
     ));
     s.push_str("\n## Negative results\n");
     for n in &r.negative_results {
         s.push_str(&format!("- {}: {} at {}\n", n.technique, n.outcome, n.gate));
+    }
+    match &r.delivered {
+        Some(d) => {
+            s.push_str(&format!(
+                "\n## Delivered artifact\ncanonical revision: base={} work={} merged={} rejected_excluded={} files={}\n",
+                d.base_fork_sha,
+                d.work_sha,
+                d.merged.join(","),
+                d.rejected_excluded,
+                d.files.len(),
+            ));
+            for f in &d.files {
+                s.push_str(&format!("- {} sha256:{}\n", f.path, f.sha256));
+            }
+        }
+        None => s.push_str("\n## Delivered artifact\nabsent (run predates the publish step)\n"),
     }
     s.push_str(&format!("\nAttribution: {} ({})\n", r.attribution, r.license));
     s
@@ -372,13 +411,26 @@ pub fn emit_html(r: &Report) -> String {
     s.push_str(&format!(
         "<h2>Spend</h2><p>tokens: {} | cache hit rate: {}</p>",
         r.tokens.spent,
-        r.tokens.cache_hit_rate.map(|v| num(v)).unwrap_or_else(|| "n/a".into()),
+        r.tokens.cache_hit_rate.map(num).unwrap_or_else(|| "n/a".into()),
     ));
     s.push_str("<h2>Negative results</h2><ul>");
     for n in &r.negative_results {
         s.push_str(&format!("<li>{}: {} at {}</li>", n.technique, n.outcome, n.gate));
     }
     s.push_str("</ul>");
+    match &r.delivered {
+        Some(d) => {
+            s.push_str(&format!(
+                "<h2>Delivered artifact</h2><p>canonical revision: base={} work={} merged={} rejected_excluded={} files={}</p><ul>",
+                d.base_fork_sha, d.work_sha, d.merged.join(","), d.rejected_excluded, d.files.len(),
+            ));
+            for f in &d.files {
+                s.push_str(&format!("<li>{} sha256:{}</li>", f.path, f.sha256));
+            }
+            s.push_str("</ul>");
+        }
+        None => s.push_str("<h2>Delivered artifact</h2><p>absent (run predates the publish step)</p>"),
+    }
     s.push_str(&format!("<p>Attribution: {} ({})</p></body></html>", r.attribution, r.license));
     s
 }
@@ -413,7 +465,11 @@ mod tests {
                 technique: "slicing-by-8".into(), class: "language_independent".into(),
                 reasoning: "r".into(), expected_gain: 0.5, review_burden: 150.0, patch_file: None,
             }],
-            negative_results: vec![], stop: "s".into(), floor: 0.0042, guidance_version: "g".into(),
+            negative_results: vec![], delivered: Some(DeliveredArtifact {
+                base_fork_sha: "base123".into(), work_sha: "work456".into(),
+                merged: vec!["slicing-by-8".into()], merged_count: 1, rejected_excluded: 2,
+                files: vec![DeliveredFile { path: "crc-core/src/lib.rs".into(), sha256: "abc123".into() }],
+            }), stop: "s".into(), floor: 0.0042, guidance_version: "g".into(),
             attribution: "Nicoretti/crc".into(), license: "SPDX-License-Identifier: BSD-2-Clause".into(),
         };
         let (md, js, html) = (emit_md(&r), emit_json(&r), emit_html(&r));
@@ -431,6 +487,15 @@ mod tests {
         assert!((v["floor"].as_f64().unwrap() - 0.0042).abs() < 1e-12);
         assert!((v["suggestions"][0]["expected_gain"].as_f64().unwrap() - 0.5).abs() < 1e-12);
         assert!((v["rounds"][0]["gain"].as_f64().unwrap() - 0.5521).abs() < 1e-12);
+        // Delivered revision rides all three emitters.
+        for t in [&md, &html] {
+            assert!(t.contains("Delivered artifact"), "delivered section");
+            assert!(t.contains("base123"), "base sha");
+            assert!(t.contains("abc123"), "file hash");
+        }
+        assert_eq!(v["delivered"]["merged"], serde_json::json!(["slicing-by-8"]));
+        assert_eq!(v["delivered"]["files"][0]["sha256"], serde_json::json!("abc123"));
+        assert_eq!(v["delivered"]["rejected_excluded"], serde_json::json!(2));
     }
 
     #[test]

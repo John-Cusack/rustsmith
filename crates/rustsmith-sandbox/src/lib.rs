@@ -266,7 +266,7 @@ fn docker_grading_run(
             exit_code: code,
             stdout: format!(
                 "$ {}\n{}",
-                requested_argv(cmd).join(" "),
+                requested_argv(cmd).join(" ").replace('\n', " "),
                 String::from_utf8_lossy(&out.stdout)
             ),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -427,7 +427,8 @@ fn execute_one(
     // The `$` invocation line is recorded here (absolute program) because
     // `grade(&[RunOutput])` never sees the commands; the runner parses what
     // follows and appends stderr itself.
-    let mut stdout = format!("$ {}\n", argv.join(" "));
+    // Single-line record (see oracle): multi-line `-c` scripts flatten here.
+    let mut stdout = format!("$ {}\n", argv.join(" ").replace('\n', " "));
     stdout.push_str(&String::from_utf8_lossy(&so));
     Ok(RunOutput {
         exit_code,
@@ -641,7 +642,7 @@ impl Sandbox {
             .args(["worktree", "add", "-b", &branch, wt.as_str()])
             .current_dir(repo)
             .output()
-            .map_err(|e| SandboxError::Io(e))?;
+            .map_err(SandboxError::Io)?;
         if !out.status.success() {
             return Err(SandboxError::Docker(format!("git worktree add failed: {}", String::from_utf8_lossy(&out.stderr))));
         }
@@ -676,7 +677,7 @@ impl BuildLease {
     pub fn acquire(run_dir: &Path, timeout: std::time::Duration) -> Result<Self, SandboxError> {
         std::fs::create_dir_all(run_dir)?;
         let path = run_dir.join(".build.lock");
-        let file = std::fs::OpenOptions::new().create(true).write(true).open(&path)?;
+        let file = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(&path)?;
         let start = std::time::Instant::now();
         loop {
             match try_lock(&file) {
@@ -1035,5 +1036,34 @@ mod polyglot_regression_tests {
             Some(b"<ok/>".as_slice())
         );
         assert!(!run.artifacts.contains_key("tree.txt"));
+    }
+    #[test]
+    fn executor_record_line_stays_single_line_with_multiline_argv() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        let build = dir.path().join("build");
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::create_dir_all(&build).unwrap();
+        let cmd = TestCommand {
+            program: "sh".to_string(),
+            args: vec!["-c".to_string(), "echo one\necho two".to_string()],
+            cwd: Cwd::Tree,
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+        };
+        let run = execute_one(&cmd, &tree, &build).unwrap();
+        assert_eq!(run.exit_code, 0);
+        // Mirror of the oracle contract: one transcript line, body intact.
+        assert_eq!(
+            run.stdout.lines().filter(|l| l.starts_with("$ ")).count(),
+            1,
+            "record must be single-line, got {:?}",
+            run.stdout
+        );
+        let body = run.stdout.lines().skip(1).collect::<Vec<_>>().join("\n");
+        assert_eq!(body, "one\ntwo");
     }
 }

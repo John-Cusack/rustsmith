@@ -72,6 +72,24 @@ assert v['passed'] is True
 print('verification OK')
 EOF
 
+echo "-- staged README receipt (generated block, measured only, no hashes)"
+python3 - "$OUT/stage/README.md" "$OUT/verification.json" <<'EOF'
+import json, re, sys
+readme = open(sys.argv[1]).read()
+v = json.load(open(sys.argv[2]))
+assert '<!-- RUSTSMITH-PERF:BEGIN' in readme and '<!-- RUSTSMITH-PERF:END -->' in readme, readme[-400:]
+assert 'do not hand-edit' in readme
+assert 'No accepted optimizations yet' in readme, readme[-400:]  # no report staged: mirror baseline
+assert v['readme_perf']['passed'] is True and v['readme_perf']['merged_count'] == 0, v['readme_perf']
+assert not re.search(r'[0-9a-f]{40,}', readme), 'hash leaked into staged README'
+print('readme receipt OK')
+EOF
+RMD_PATH="$(tar tzf "$OUT"/dist/*.tar.gz | grep 'README.md$' | head -n 1)"
+test -n "$RMD_PATH" || (echo "FAIL: no README.md in sdist"; exit 1)
+tar xzOf "$OUT"/dist/*.tar.gz "$RMD_PATH" | grep -q 'RUSTSMITH-PERF:BEGIN' \
+  || (echo "FAIL: receipt missing from sdist README"; exit 1)
+echo "sdist receipt OK"
+
 echo "-- sdist carries the core (independent re-check, not just prep's word)"
 tar tzf "$OUT"/dist/*.tar.gz | grep -q 'crc-core/Cargo.toml' || (echo "FAIL: core missing from sdist"; exit 1)
 tar tzf "$OUT"/dist/*.tar.gz | grep -q 'crc/__init__.py' || (echo "FAIL: shim missing from sdist"; exit 1)
@@ -114,6 +132,48 @@ if cargo run -q -p rustsmith-cli -- release-status --state "$OUT/release-state.j
   echo "FAIL: pending state reported complete"; exit 1
 else
   echo "pending refused OK"
+fi
+
+echo "-- autonomous publish lane (offline paths: plan, gates, no-creds, drift)"
+PUB="cargo run -q -p rustsmith-cli -- release-publish --state $OUT/release-state.json"
+# Dry-run resolves the exact retained files and records nothing.
+env -u TWINE_USERNAME -u TWINE_PASSWORD -u RUSTSMITH_ALLOW_PROD_PUBLISH \
+  $PUB --registry testpypi --dry-run | grep -q '"files":\[".*\.whl",".*\.tar\.gz"\]' \
+  || (echo "FAIL: dry-run plan missing wheel+sdist"; exit 1)
+if $PUB --registry testpypi --dry-run | grep -q '\.crate'; then
+  echo "FAIL: .crate leaked into python upload plan"; exit 1
+fi
+echo "  dry-run plan OK"
+# Prod lane refuses without opt-in, even green.
+# (Capture first: with `pipefail` the refusing exit would mask grep's match.)
+out="$(env -u RUSTSMITH_ALLOW_PROD_PUBLISH $PUB --registry pypi --dry-run 2>&1 || true)"
+if printf '%s\n' "$out" | grep -q 'RUSTSMITH_ALLOW_PROD_PUBLISH'; then
+  echo "  prod gate OK"
+else
+  echo "FAIL: prod lane did not demand opt-in"; printf '%s\n' "$out" | tail -n 3; exit 1
+fi
+# Missing credentials fail naming the variable (nothing uploaded, nothing recorded).
+out="$(env -u TWINE_USERNAME -u TWINE_PASSWORD $PUB --registry testpypi 2>&1 || true)"
+if printf '%s\n' "$out" | grep -q 'TWINE_'; then
+  echo "  missing-creds error OK"
+else
+  echo "FAIL: missing creds not named"; printf '%s\n' "$out" | tail -n 3; exit 1
+fi
+# Drifted bytes refuse before any upload.
+cp -r "$OUT" "$WORK/drift"
+printf 'x' >> "$WORK"/drift/dist/*.whl
+out="$(cargo run -q -p rustsmith-cli -- release-publish --state "$WORK/drift/release-state.json" \
+    --registry testpypi --dry-run 2>&1 || true)"
+if printf '%s\n' "$out" | grep -q 'sha256'; then
+  echo "  drift refusal OK"
+else
+  echo "FAIL: drifted wheel not refused"; printf '%s\n' "$out" | tail -n 3; exit 1
+fi
+# None of the above recorded anything: state still pending.
+if cargo run -q -p rustsmith-cli -- release-status --state "$OUT/release-state.json"; then
+  echo "FAIL: publish dry-runs recorded outcomes"; exit 1
+else
+  echo "  state untouched OK"
 fi
 
 echo "-- invalid metadata / prerequisites (each fails naming its field)"

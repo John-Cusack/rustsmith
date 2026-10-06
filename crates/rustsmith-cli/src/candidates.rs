@@ -258,8 +258,8 @@ pub fn apply_inline_hint(work: &Path) -> Result<Vec<String>, String> {
     let mut lib = std::fs::read_to_string(&lib_path).map_err(|e| e.to_string())?;
     replace_once(
         &mut lib,
-        "fn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
-        "#[inline(always)]\nfn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
+        "pub fn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
+        "#[inline(always)]\npub fn process_byte_table(mut reg: u64, cfg: &Config, table: &[u64; 256], byte: u8) -> u64 {",
     )?;
     std::fs::write(&lib_path, &lib).map_err(|e| e.to_string())?;
     Ok(vec![core_touched(work)])
@@ -539,6 +539,24 @@ mod tests {
         assert!(out.contains("opt-level = 3"), "existing key lost:\n{out}");
         assert!(out.contains("lto = true"), "lto missing:\n{out}");
         assert_eq!(out.matches("lto = true").count(), 1, "duplicated:\n{out}");
+    }
+
+    #[test]
+    fn inline_hint_attribute_sits_before_pub_fn() {
+        // Regression: the core ships `pub fn process_byte_table`, so a bare
+        // `fn ...` needle matches mid-identifier and the attribute lands
+        // between `pub` and `fn` (`pub #[inline(always)] fn ...`), which
+        // does not compile. The patched shape must carry the attribute
+        // before the full `pub fn` item.
+        let dir = tempfile::tempdir().unwrap();
+        copy_template_files(&template_under_test(), dir.path());
+        apply_inline_hint(dir.path()).unwrap();
+        let lib = std::fs::read_to_string(core_lib(dir.path())).unwrap();
+        assert!(
+            lib.contains("#[inline(always)]\npub fn process_byte_table("),
+            "attribute misplaced:\n{lib}"
+        );
+        assert!(!lib.contains("pub #[inline"), "broken item:\n{lib}");
     }
 
     #[test]

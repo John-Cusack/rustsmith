@@ -1,7 +1,10 @@
 [package]
 name = "rustsmith-core"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Shared spec types for the rustsmith porting harness"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }

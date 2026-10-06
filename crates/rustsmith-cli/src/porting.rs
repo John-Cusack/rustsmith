@@ -93,6 +93,7 @@ pub fn rules_to_facts(rules: &[PortingRule]) -> serde_json::Value {
 
 /// Parse rules back out of a `facts.json` value (stages read facts, never
 /// generators).
+#[allow(dead_code)]
 pub fn rules_from_facts(facts: &serde_json::Value) -> Result<Vec<PortingRule>, String> {
     let rules = facts["rules"]["porting_rules"]
         .as_array()

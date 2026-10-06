@@ -1,6 +1,6 @@
 # rustsmith
 
-Autonomous rewrite-in-Rust orchestrator. Point it at repos in any language, get back complete Rust mirrors plus backportable suggestions — with no human in the loop during the run.
+Trustworthy migration of existing software to verified, production-ready Rust — measured speedups, honest no-gain reports, artifacts you can install.
 
 ## Why this exists
 
@@ -14,27 +14,66 @@ The obstacle is that rewriting legacy code in Rust is slow, manual, and risky, a
 
 `rustsmith` exists to make the fast path trustworthy. It splits the system in two: agents do the porting and optimizing, and a deterministic gate system written in plain Rust with no LLM involvement decides what passes. No agent can override a gate, and the agent that changes an implementation can never influence how that change is graded.
 
+## Product vision
+
+`rustsmith` turns existing software into verified, production-ready Rust implementations that reduce execution time and compute cost. Gains matter twice: during development, when agents repeatedly run tests and benchmarks, and after deployment, when production systems run the resulting code.
+
+For a Python source project, the preferred destination is a **reusable Rust core crate with Python bindings that preserve the supported Python interface**. The Rust crate should also be usable directly by Rust projects where practical. A project may migrate component by component, with a complete Rust implementation as a possible eventual outcome. The choice of boundary follows the software's architecture and measured workloads — never a fixed whole-repo assumption.
+
+`rustsmith`'s value is the migration process, not the language: discover behavior and performance characteristics, choose useful boundaries, generate implementations and bindings, verify compatibility independently of whoever made the change, benchmark representative workloads, and produce artifacts developers can install and maintain. Rust is a means to improve measured outcomes; a rewrite alone is never assumed to be faster.
+
+Success means supported behavior is preserved, representative workloads improve in time or cost, and the result is deployable and maintainable. Regressions and cases where Rust brings no gain are reported honestly — a `no_gain` verdict is a valid output, not a failure to hide.
+
+## Intended outputs
+
+For each source project, a run should produce:
+
+1. A **reusable Rust core crate** (`rlib`) with a public API covering the migrated components.
+2. **Python bindings** (PyO3/maturin) preserving the supported Python interface, so existing callers keep working.
+3. **Native packaging**: versioned wheels (and sdist) installable via `pip`; the Rust crate published for direct Rust use where practical.
+4. A **verification + benchmark record**: independent compatibility checks, representative-workload measurements before/after, and honest regression/no-gain notes.
+5. A **suggestions report** of changes worth contributing back upstream (patches where the win is language-independent, native accelerators with pure fallbacks where it is module-local).
+
+## Current state (what runs today)
+
+Implemented and exercised end to end on the two pinned fixtures (`crc`, `strsimpy`):
+
+- Deterministic recon: behavior freeze, held-out suite generation, `PORTING.md` rulebook, leaf-first unit DAG, frozen `WORKLOAD.md` contract.
+- Mirror loop with real grading: per-unit builds in isolated venvs, oracle + held-out + differential gates, merge on pass, whole-repo grade on the fork before finishing.
+- Optimize loop with real measurement: interleaved parent/candidate sampling, 9-gate suite per candidate, wall-clock confirmation of merged rounds.
+- Harvest/report: per-row classification, `RUSTSMITH_REPORT.md`/JSON/HTML from one struct, backport patches for language-independent wins, `negative_results` for losers.
+
+Limited prototypes (real code, narrow scope):
+
+- Only two packages have repo data (`crates/rustsmith-cli/data/repo-content.json`); unknown packages halt by design. Adding a target means authoring its data entry (probes, workloads, rules, templates).
+- The mirror worker task copies reference-port files from `mirror/<package>/` templates — no model writes code on the default path, and the four council seats approve via stub drivers. Live models are opt-in (`RUSTSMITH_WORKER_CMD`, `RUSTSMITH_SEAT_CMD_*`); tokens are recorded as usage only.
+- The `crc` template ships the milestone-1 layout: reusable core crate (`crc-core`, no Python dependency) plus a thin PyO3 binding that delegates to it; other targets still ship a single extension crate. There is no boundary selection yet (always whole-DAG mirror), no versioned wheel/sdist output, and `suggestions/accelerators/` carries a note, not code.
+- Accepted optimizations publish to a canonical revision (`work/opt/deliver/` + `ACCEPTED.json` with merged techniques and per-file hashes; rejected work never enters); the report carries a Delivered-artifact section. The headline end-to-end speedup remains a compounded estimate unless a milestone remeasures it directly.
+- No LLM runs anywhere on the default path: the pipeline is fully deterministic and offline unless the `RUSTSMITH_*_CMD` env wiring is set.
+
+Planned: per-target data packs (charset-normalizer and the rest of the POC board), live worker/council wiring, boundary selection, native packaging (crc core/binding split done; versioned wheels/sdist pending; `pip` binary shim decided; `cargo publish` metadata landed, crates unpublished), shipped accelerators, Cachegrind/`perf` instruments, concurrent runs, flame graphs. Out of scope as before: upstream PR automation, distributed execution, web UI, model hosting.
+
 ## What it does
 
 Given a list of source repositories, without human intervention during the run, `rustsmith` produces for each one:
 
-1. **A fork repo containing a complete Rust mirror** of the original — passing the original's test suite, then optimized in bounded rounds.
-2. **A suggestions report** of changes discovered during optimization that could be contributed back to the original project (ranked by expected gain / review burden).
+1. A fork repo with the ported tree plus `RUSTSMITH_REPORT.md`/JSON/HTML and a `suggestions/` directory (backport patches, accelerator notes, ranked follow-ups).
+2. Measured evidence: frozen oracle results, held-out divergence, per-candidate gate verdicts, and workload before/after numbers — including `no_gain` where Rust didn't help.
 
-Workers do the porting. A 4-seat council (Architect, Verifier, Performance, Scope) plans the work and makes the decisions that would normally escalate to a human. Deterministic gates decide what passes.
+Workers do the porting (template-driven on the default offline path; live models opt in via env). A 4-seat council (Architect, Verifier, Performance, Scope) plans and reviews; deterministic gates decide what passes.
 
 ## How it works
 
-**The oracle is the definition of correctness.** At run start, `rustsmith-oracle` freezes the original test suite, its config/fixtures, and the exact invocation into `oracle/manifest.json` (SHA-256 per file, stored on the host). Workers get a read-only mount for advisory self-testing. The only run that counts is the **graded run**: the control plane verifies manifest hashes (any mismatch = tamper event), copies the artifact into a fresh ephemeral grading container with no network, and runs the frozen oracle plus a host-only held-out suite no agent ever sees. Pass bar for mirror: 100% oracle parity, test count/skip list identical to baseline, `visible − heldout` divergence under threshold (default 5pp).
+**The oracle is the definition of correctness.** At run start, `rustsmith-oracle` freezes the original test suite, its config/fixtures, and the exact invocation into `oracle/manifest.json` (SHA-256 per file, stored on the host). Workers get a read-only mount for advisory self-testing. The run that counts is the **graded run**: the control plane verifies manifest hashes (any mismatch = tamper event) and runs the frozen oracle plus a host-only held-out suite no agent ever sees — in isolated venvs on the host for mirror/optimize units (the ephemeral no-network container path serves the legacy recon skeleton). Pass bar for mirror: 100% oracle parity, test count/skip list identical to baseline, `visible − heldout` divergence under threshold (default 5pp).
 
-**Gates are pure Rust, no LLM, no network.** `rustsmith-gates` enforces `oracle_integrity`, `oracle_parity`, `heldout_divergence`, `differential`, `unsafe_budget` (FFI-only + `// SAFETY:`, under budget), `miri`, `clippy -D warnings`, plus optimizer gates (`workload_divergence`, `causal_attribution`, `benchmark`, widened `no_regression`, `optimization_scope`). Gate failure fails the unit and feeds detail back to the worker — never fatal on its own. `gates` and `oracle` must not depend on `agent`/`council` (CI dep-check).
+**Gates are pure Rust, no LLM, no network.** `rustsmith-gates` enforces `oracle_integrity`, `oracle_parity`, `heldout_divergence`, `differential`, plus optimizer gates (`workload_divergence`, `causal_attribution`, `benchmark`, widened `no_regression`, `optimization_scope`) and `provenance` on report writes. `unsafe_budget`, `miri`, and `clippy` exist as pure gate functions but are not wired into run grading yet. Gate failure fails the unit and feeds detail back to the worker — never fatal on its own. `gates` and `oracle` must not depend on `agent`/`council` (CI dep-check).
 
 **Stages:**
 
 - **Stage 0 — Recon.** Deterministic analysis (language/build detection, module + call graph, test baseline, dependency classify `port|bind|keep`, license record, profiling, held-out suite generation), then the Architect writes `PORTING.md` (few-hundred concrete type/error/naming/ownership rules) and a leaf-first unit DAG. Also freezes `WORKLOAD.md` (the performance contract: one primary metric, input distribution, resource budgets) and the benchmark oracle. Council reviews before proceeding.
-- **Stage 1 — Mirror.** Behavior-identical Rust, same module boundaries. No redesign. Workers take units in dependency order (parallel up to `max_parallel_workers`), graded on completion, merged on pass. Adversarial review: implementer never reviews its own diff; two reviewers on different providers see only the diff.
-- **Stage 2 — Optimize.** Rounds, not an open loop, so it terminates. Round 0 (Architect-owned, serialized) fixes cross-cutting representation debt (`HashMap<String,V>` → structs, per-call `String`/`Vec` → borrows, `Rc<RefCell>` → arenas, AoS → SoA, `Box<dyn>` → enums). Then per round: deterministic profile (Cachegrind primary, wall-clock confirmation on quiesced host) → bound classification (compute, bandwidth, latency, branch, frontend, allocation, syscall_io, contention, work_volume) → ceiling arithmetic `share × (1 − 1/cap)` → dispatch only above `min_candidate_ceiling_pct`, ranked by `ceiling/cost` → proposal-before-code review → parallel implement → full gating (incl. workload-divergence and revert-attribution) → merge winners. Losers go to `failed_optimizations` (in-run memory + report negative-results section). Zero merged optimizations is a valid, honest outcome.
-- **Stage 3 — Harvest.** Every accepted optimization is classified: `language_independent` (patch in the original language + proof), `module_local` (optional native accelerator with pure fallback, e.g. PyO3 for Python), `port_only` (needs the full port). Emits `RUSTSMITH_REPORT.md` + HTML + JSON (must agree), `suggestions/{patches/,accelerators/}`.
+- **Stage 1 — Mirror.** Behavior-identical Rust, same module boundaries. No redesign. Workers take units in dependency order (parallel up to `max_parallel_workers`), graded on completion, merged on pass. Adversarial review: implementer never reviews its own diff; two reviewers on different providers see only the diff. Default worker task materializes reference-port files from `mirror/<package>/` templates (no model writes code); model-authored ports are the production swap, wired via `RUSTSMITH_WORKER_CMD`.
+- **Stage 2 — Optimize.** Rounds, not an open loop, so it terminates. Round 0 (Architect-owned, serialized) fixes cross-cutting representation debt (`HashMap<String,V>` → structs, per-call `String`/`Vec` → borrows, `Rc<RefCell>` → arenas, AoS → SoA, `Box<dyn>` → enums). Then per round: deterministic profile (process-CPU median per ADR-003 — Cachegrind/`perf` unavailable in this environment; wall-clock confirmation of merged rounds) → bound classification (compute, bandwidth, latency, branch, frontend, allocation, syscall_io, contention, work_volume) → ceiling arithmetic `share × (1 − 1/cap)` → dispatch only above `min_candidate_ceiling_pct`, ranked by `ceiling/cost` → proposal-before-code review → parallel implement → full gating (incl. workload-divergence and revert-attribution) → merge winners. Candidates come from deterministic source transforms (every number measured and gated; dispatched LLM workers are the production swap, not the default). Losers go to `failed_opt…
+- **Stage 3 — Harvest.** Every accepted optimization is classified: `language_independent` (patch in the original language + proof), `module_local` (optional native accelerator with pure fallback, e.g. PyO3 for Python), `port_only` (needs the full port). Emits `RUSTSMITH_REPORT.md` + HTML + JSON (must agree), `suggestions/{patches/,accelerators/}`. Accelerator files are currently a stub: a README note ships when no module-local template exists; backport patches are real for language-independent wins.
 
 Every run leaves an audit trail: SQLite `store.db` (`runs, units, gate_results, decisions, optimizations, failed_optimizations, rounds, guidance_revisions`) plus append-only `events.jsonl` sufficient to reconstruct the run.
 
@@ -145,7 +184,7 @@ First adapter: Python. The adapter trait (`rustsmith-adapters`: `BuildInfo` / `C
 
 | Language | Status | Scope |
 |---|---|---|
-| Python | Supported | First adapter; pure-Python + PyO3/maturin bridges |
+| Python | Prototype (crc/strsimpy fixtures) | Template-provided PyO3/maturin extension; worker task copies reference-port files, no model porting on default path |
 | C++ | Planned (pinned repo) | CMake/CTest + GTest/Catch2; payoff is safety/maintainability, not speed |
 | Fortran | Planned (pinned repo) | CMake/CTest + pFUnit; F90+ first, F77 `COMMON`-block code later |
 | TypeScript / JavaScript (Node.js) | Candidate | Backend/CLI/tooling only — browser-DOM rendering stays in JS (Rust would need a separate WASM path, not a rustsmith mirror) |

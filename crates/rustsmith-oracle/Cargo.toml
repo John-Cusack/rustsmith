@@ -1,10 +1,13 @@
 [package]
 name = "rustsmith-oracle"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Frozen-test oracle: hashing, host execution, freeze/verify/grade"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-rustsmith-core = { path = "../rustsmith-core" }
+rustsmith-core = { version = "0.1.0", path = "../rustsmith-core" }
 thiserror = { workspace = true }
 camino = { workspace = true }
 sha2 = { workspace = true }

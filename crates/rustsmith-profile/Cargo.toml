@@ -1,7 +1,10 @@
 [package]
 name = "rustsmith-profile"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Workload profiles and budgets for the rustsmith optimize stage"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 thiserror = { workspace = true }

@@ -1,10 +1,13 @@
 [package]
 name = "rustsmith-agent"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Autonomous worker agent used by the rustsmith pipeline"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-rustsmith-core = { path = "../rustsmith-core" }
+rustsmith-core = { version = "0.1.0", path = "../rustsmith-core" }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 camino = { version = "1", features = ["serde1"] }
