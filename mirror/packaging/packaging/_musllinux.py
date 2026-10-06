@@ -6,8 +6,10 @@ both of which the suite touches directly.
 """
 
 from __future__ import annotations
+
 import functools
 import subprocess  # noqa: F401  (re-exported for the suite's test doubles)
+import sys  # noqa: F401  (re-exported for the suite's test doubles)
 from typing import NamedTuple
 from packaging._packaging import (
     musllinux_get_version_uncached as _rust_get_musl_version,

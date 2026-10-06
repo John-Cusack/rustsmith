@@ -12,7 +12,7 @@ use std::ffi::CString;
 
 use packaging_core::version::{self, LocalSeg, NumString, ParsedVersion};
 use pyo3::conversion::IntoPyObjectExt;
-use pyo3::exceptions::{PyDeprecationWarning, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyDeprecationWarning, PySystemError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyList, PyTuple, PyType};
 
@@ -985,6 +985,33 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(musllinux_parse_version, m)?)?;
     m.add_function(wrap_pyfunction!(musllinux_get_version_uncached, m)?)?;
     m.add_function(wrap_pyfunction!(musllinux_platform_tags, m)?)?;
+    m.add_class::<Tag>()?;
+    m.add("UnsortedTagsError", m.py().get_type::<UnsortedTagsError>())?;
+    m.add("InvalidTag", m.py().get_type::<InvalidTag>())?;
+    m.add("TooManyTagsError", m.py().get_type::<TooManyTagsError>())?;
+    m.add_function(wrap_pyfunction!(tags_parse_tag, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_get_config_var, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_cpython_abis, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_cpython_tags, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_generic_abi, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_generic_tags, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_pure_python_tags, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_compatible_tags, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_mac_arch, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_mac_platforms, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_ios_platforms, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_android_platforms, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_linux_platforms, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_emscripten_platforms, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_generic_platforms, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_platform_tags, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_version_nodot, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_mac_binary_formats, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_interpreter_name, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_interpreter_version, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_interpreter_abi, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_sys_tags, m)?)?;
+    m.add_function(wrap_pyfunction!(tags_create_selector, m)?)?;
     // Tracebacks name the public module, not the extension.
     m.py()
         .get_type::<InvalidVersion>()
@@ -992,6 +1019,15 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.py()
         .get_type::<ELFInvalid>()
         .setattr("__module__", "packaging._elffile")?;
+    m.py()
+        .get_type::<UnsortedTagsError>()
+        .setattr("__module__", "packaging.tags")?;
+    m.py()
+        .get_type::<InvalidTag>()
+        .setattr("__module__", "packaging.tags")?;
+    m.py()
+        .get_type::<TooManyTagsError>()
+        .setattr("__module__", "packaging.tags")?;
     // Pattern matching (`__match_args__ == ("_str",)`, mirroring the original).
     m.getattr("Version")?
         .setattr("__match_args__", ("_str",))?;
@@ -1583,4 +1619,1354 @@ fn musllinux_platform_tags(py: Python, archs: Vec<String>) -> PyResult<Bound<PyA
         }
     }
     str_iter(py, out)
+}
+// ---------------------------------------------------------------------------
+// Wheel tags (`packaging.tags`).
+//
+// Same mockability contract as the platform modules: every interpreter
+// fact comes from live Python objects (`sys`, `sysconfig`, `platform`,
+// `importlib.machinery`) and every intra-module helper resolves through the
+// `packaging.tags` module attribute, so the suite's `monkeypatch` doubles
+// apply exactly as with the original.
+// ---------------------------------------------------------------------------
+
+pyo3::create_exception!(_packaging, UnsortedTagsError, PyValueError);
+pyo3::create_exception!(_packaging, InvalidTag, PyValueError);
+pyo3::create_exception!(_packaging, TooManyTagsError, PyValueError);
+
+/// Lowercase via real `str.lower` (exact for exotic Unicode).
+fn py_lower(py: Python, s: &str) -> PyResult<String> {
+    py.import("builtins")?
+        .getattr("str")?
+        .call1((s,))?
+        .call_method0("lower")?
+        .extract()
+}
+
+/// Build a `Tag` from raw components (lowercased, hash precomputed).
+fn make_tag(py: Python, interpreter: &str, abi: &str, platform: &str) -> PyResult<Py<Tag>> {
+    let i = py_lower(py, interpreter)?;
+    let a = py_lower(py, abi)?;
+    let p = py_lower(py, platform)?;
+    let hash: isize = PyTuple::new(py, [&i, &a, &p])?.hash()?;
+    Ok(Py::new(py, Tag { interpreter: i, abi: a, platform: p, hash })?)
+}
+
+/// `packaging.tags.Tag`: an immutable interpreter/abi/platform triple.
+#[pyclass(name = "Tag", module = "packaging.tags", subclass)]
+#[derive(Clone)]
+struct Tag {
+    interpreter: String,
+    abi: String,
+    platform: String,
+    hash: isize,
+}
+
+#[pymethods]
+impl Tag {
+    #[new]
+    #[pyo3(signature = (*args, **kwargs))]
+    fn new(
+        py: Python,
+        args: &Bound<PyTuple>,
+        kwargs: Option<Bound<PyDict>>,
+    ) -> PyResult<Self> {
+        let get = |i: usize, k: &str| -> PyResult<Bound<PyAny>> {
+            if i < args.len() {
+                return Ok(args.get_item(i)?);
+            }
+            match kwargs.as_ref().and_then(|d| d.get_item(k).ok().flatten()) {
+                Some(v) => Ok(v),
+                None => Err(PyTypeError::new_err(format!(
+                    "Tag expected 3 arguments, got {}",
+                    args.len()
+                ))),
+            }
+        };
+        if args.len() == 0 && kwargs.is_none() {
+            // `Tag.__new__(Tag)` (no-arg, used by unpickling): blank
+            // instance; `__setstate__` fills it in.
+            return Ok(Tag {
+                interpreter: String::new(),
+                abi: String::new(),
+                platform: String::new(),
+                hash: 0,
+            });
+        }
+        let i: String = get(0, "interpreter")?.extract()?;
+        let a: String = get(1, "abi")?.extract()?;
+        let p: String = get(2, "platform")?.extract()?;
+        if args.len() > 3 {
+            return Err(PyTypeError::new_err(format!(
+                "Tag expected 3 arguments, got {}",
+                args.len()
+            )));
+        }
+        let li = py_lower(py, &i)?;
+        let la = py_lower(py, &a)?;
+        let lp = py_lower(py, &p)?;
+        let hash: isize = PyTuple::new(py, [&li, &la, &lp])?.hash()?;
+        Ok(Tag { interpreter: li, abi: la, platform: lp, hash })
+    }
+
+    #[getter]
+    fn interpreter(&self) -> &str {
+        &self.interpreter
+    }
+
+    #[getter]
+    fn abi(&self) -> &str {
+        &self.abi
+    }
+
+    #[getter]
+    fn platform(&self) -> &str {
+        &self.platform
+    }
+
+    // The original stores `Tag` in `__slots__` (`_interpreter`, `_abi`,
+    // `_platform`, `_hash`); the suite reads `_hash` directly.
+    #[getter]
+    fn _hash(&self) -> isize {
+        self.hash
+    }
+
+    fn __str__(&self) -> String {
+        format!("{}-{}-{}", self.interpreter, self.abi, self.platform)
+    }
+
+    fn __repr__(slf: &Bound<Self>) -> PyResult<String> {
+        let id: usize = slf
+            .py()
+            .import("builtins")?
+            .getattr("id")?
+            .call1((slf.clone(),))?
+            .extract()?;
+        Ok(format!("<{} @ {id}>", slf.borrow().__str__()))
+    }
+
+    fn __hash__(&self) -> isize {
+        self.hash
+    }
+
+    fn __eq__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        let Ok(o) = other.extract::<PyRef<Self>>() else {
+            return py.NotImplemented().into_py_any(py);
+        };
+        let this = slf.borrow();
+        Ok((this.hash == o.hash
+            && this.platform == o.platform
+            && this.abi == o.abi
+            && this.interpreter == o.interpreter)
+            .into_py_any(py)?)
+    }
+
+    fn __ne__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        let Ok(o) = other.extract::<PyRef<Self>>() else {
+            return py.NotImplemented().into_py_any(py);
+        };
+        let this = slf.borrow();
+        Ok((this.hash != o.hash
+            || this.platform != o.platform
+            || this.abi != o.abi
+            || this.interpreter != o.interpreter)
+            .into_py_any(py)?)
+    }
+
+    fn __getstate__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
+        let py = slf.py();
+        let this = slf.borrow();
+        PyTuple::new(
+            py,
+            [
+                this.interpreter.clone().into_pyobject(py)?.into_any(),
+                this.abi.clone().into_pyobject(py)?.into_any(),
+                this.platform.clone().into_pyobject(py)?.into_any(),
+            ],
+        )
+    }
+
+    fn __setstate__(slf: &Bound<Self>, state: Bound<PyAny>) -> PyResult<()> {
+        let py = slf.py();
+        let bad = || {
+            PyTypeError::new_err(format!(
+                "Cannot restore Tag from {}",
+                state.repr().map(|r| r.to_string()).unwrap_or_default()
+            ))
+        };
+        if let Ok(t) = state.downcast::<PyTuple>() {
+            if t.len() == 3
+                && t.get_item(0)?.is_instance_of::<pyo3::types::PyString>()
+                && t.get_item(1)?.is_instance_of::<pyo3::types::PyString>()
+                && t.get_item(2)?.is_instance_of::<pyo3::types::PyString>()
+            {
+                let i: String = t.get_item(0)?.extract()?;
+                let a: String = t.get_item(1)?.extract()?;
+                let p: String = t.get_item(2)?.extract()?;
+                let hash: isize = PyTuple::new(py, [&i, &a, &p])?.hash()?;
+                let mut this = slf.borrow_mut();
+                this.interpreter = i;
+                this.abi = a;
+                this.platform = p;
+                this.hash = hash;
+                return Ok(());
+            }
+            if t.len() == 2 {
+                if let Ok(slots) = t.get_item(1)?.downcast_into::<PyDict>() {
+                    let req = |k: &str| -> PyResult<String> {
+                        slots
+                            .get_item(k)?
+                            .ok_or_else(bad)
+                            .and_then(|v| v.extract().map_err(|_| bad()))
+                    };
+                    let i = py_lower(py, &req("_interpreter").map_err(|_| bad())?)?;
+                    let a = py_lower(py, &req("_abi").map_err(|_| bad())?)?;
+                    let p = py_lower(py, &req("_platform").map_err(|_| bad())?)?;
+                    let hash: isize = PyTuple::new(py, [&i, &a, &p])?.hash()?;
+                    let mut this = slf.borrow_mut();
+                    this.interpreter = i;
+                    this.abi = a;
+                    this.platform = p;
+                    this.hash = hash;
+                    return Ok(());
+                }
+            }
+        }
+        Err(bad())
+    }
+}
+
+/// `tags` module attribute resolved live (suite doubles).
+fn tags_attr<'py>(py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyAny>> {
+    mod_attr(py, "packaging.tags", name)
+}
+
+/// `sys.version_info[:2]` as ints.
+fn running_py_version(py: Python) -> PyResult<Vec<i64>> {
+    let vi = py.import("sys")?.getattr("version_info")?;
+    vi.get_item(0)?;
+    let pair = vi.call_method1("__getitem__", (pyo3::types::PySlice::new(py, 0, 2, 1),))?;
+    pair.try_iter()?.map(|r| r.unwrap().extract()).collect()
+}
+
+/// Sequence of Python ints (version tuples/lists).
+fn int_seq(obj: &Bound<PyAny>) -> PyResult<Vec<i64>> {
+    obj.try_iter()?.map(|r| r.unwrap().extract()).collect()
+}
+
+/// `Tag` list as a live iterator.
+fn tag_iter(py: Python, tags: Vec<Py<Tag>>) -> PyResult<Bound<PyAny>> {
+    let list = PyList::new(py, tags)?;
+    Ok(list.call_method0("__iter__")?)
+}
+
+/// `parse_tag(tag, *, validate_order=False, limit=None)`.
+#[pyfunction]
+#[pyo3(name = "tags_parse_tag", signature = (tag, *, validate_order=false, limit=None))]
+fn tags_parse_tag<'py>(
+    py: Python<'py>,
+    tag: String,
+    validate_order: bool,
+    limit: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if let Some(lim) = &limit {
+        if lim.lt(0)? {
+            return Err(PyValueError::new_err("limit must be non-negative"));
+        }
+    }
+    let tag_repr = py
+        .import("builtins")?
+        .getattr("repr")?
+        .call1((tag.clone(),))?
+        .to_string();
+    let mut component_parts: Vec<Vec<String>> = Vec::new();
+    for component in tag.split('-') {
+        component_parts.push(component.split('.').map(str::to_string).collect());
+    }
+    for parts in &component_parts {
+        if parts.iter().any(|p| p.is_empty()) {
+            let component = parts.join(".");
+            let comp_repr: String = py
+                .import("builtins")?
+                .getattr("repr")?
+                .call1((component,))?
+                .to_string();
+            return Err(InvalidTag::new_err(format!(
+                "Tag {tag_repr} has an empty component: {comp_repr}"
+            )));
+        }
+        if validate_order {
+            let mut sorted = parts.clone();
+            sorted.sort();
+            if *parts != sorted {
+                let component = parts.join(".");
+                let comp_repr: String = py
+                    .import("builtins")?
+                    .getattr("repr")?
+                    .call1((component,))?
+                    .to_string();
+                return Err(UnsortedTagsError::new_err(format!(
+                    "Tag component {comp_repr} is not in sorted order per PEP 425"
+                )));
+            }
+        }
+    }
+    let tag_count: usize = component_parts.iter().map(Vec::len).product();
+    if let Some(lim) = &limit {
+        let count_obj: Bound<PyAny> = tag_count.into_pyobject(py)?.into_any();
+        if count_obj.gt(lim)? {
+            let lim_str: String = lim.str()?.to_string();
+            return Err(TooManyTagsError::new_err(format!(
+                "Compressed tag set would generate {tag_count} tags, exceeding limit {lim_str}"
+            )));
+        }
+    }
+    if component_parts.len() != 3 {
+        let cause = if component_parts.len() < 3 {
+            format!(
+                "not enough values to unpack (expected 3, got {})",
+                component_parts.len()
+            )
+        } else {
+            "too many values to unpack (expected 3)".to_string()
+        };
+        let err = InvalidTag::new_err(format!(
+            "Tag {tag_repr} must have exactly three components"
+        ));
+        err.set_cause(
+            py,
+            Some(PyValueError::new_err(cause)),
+        );
+        return Err(err);
+    }
+    let (interpreters, abis, platforms) =
+        (&component_parts[0], &component_parts[1], &component_parts[2]);
+    for interpreter in interpreters {
+        let is_ident: bool = py
+            .import("builtins")?
+            .getattr("str")?
+            .call1((interpreter.clone(),))?
+            .call_method0("isidentifier")?
+            .extract()?;
+        if !is_ident {
+            let interp_repr: String = py
+                .import("builtins")?
+                .getattr("repr")?
+                .call1((interpreter.clone(),))?
+                .to_string();
+            return Err(InvalidTag::new_err(format!(
+                "Tag {tag_repr} has an invalid interpreter: {interp_repr}"
+            )));
+        }
+    }
+    let mut tags = Vec::new();
+    for interpreter in interpreters {
+        for abi in abis {
+            for platform in platforms {
+                tags.push(make_tag(py, interpreter, abi, platform)?);
+            }
+        }
+    }
+    Ok(pyo3::types::PyFrozenSet::new(py, tags)?.into_any())
+}
+
+/// `_get_config_var(name, warn=False)`.
+#[pyfunction]
+#[pyo3(name = "tags_get_config_var", signature = (name, warn=false))]
+fn tags_get_config_var(py: Python, name: String, warn: bool) -> PyResult<Bound<PyAny>> {
+    let value: Bound<PyAny> = py
+        .import("sysconfig")?
+        .getattr("get_config_var")?
+        .call1((name.clone(),))?;
+    if value.is_none() && warn {
+        tags_attr(py, "logger")?.call_method(
+            "debug",
+            (
+                "Config variable '%s' is unset, Python ABI tag may be incorrect",
+                name,
+            ),
+            None,
+        )?;
+    }
+    Ok(value)
+}
+
+/// `_normalize_string`: `.`, `-`, ` ` become `_`.
+fn normalize_string(s: &str) -> String {
+    s.replace(['.', '-', ' '], "_")
+}
+
+/// Tuple comparison of an int version list against a 2-element bound,
+/// with real Python tuple semantics (lexicographic; a shorter prefix sorts
+/// smaller). All in-tree bounds are 2-element.
+fn ver_ge(ver: &[i64], major: i64, minor: i64) -> bool {
+    if ver.is_empty() {
+        return false;
+    }
+    if ver[0] != major {
+        return ver[0] > major;
+    }
+    if ver.len() < 2 {
+        return false;
+    }
+    ver[1] >= minor
+}
+
+fn ver_lt(ver: &[i64], major: i64, minor: i64) -> bool {
+    if ver.is_empty() {
+        return true;
+    }
+    if ver[0] != major {
+        return ver[0] < major;
+    }
+    if ver.len() < 2 {
+        return true;
+    }
+    ver[1] < minor
+}
+
+/// `_is_threaded_cpython(abis)` via the real `re` module.
+fn is_threaded_cpython(py: Python, abis: &[Bound<PyAny>]) -> PyResult<bool> {
+    if abis.is_empty() {
+        return Ok(false);
+    }
+    let first: String = abis[0].str()?.to_string();
+    let m: Option<Bound<PyAny>> = py
+        .import("re")?
+        .getattr("match")?
+        .call1((r"cp\d+(.*)", first))?
+        .extract()?;
+    let Some(m) = m else { return Ok(false) };
+    let flags: String = m.call_method1("group", (1,))?.extract()?;
+    Ok(flags.contains('t'))
+}
+
+/// `_cpython_abis(py_version, warn=False)`.
+#[pyfunction]
+#[pyo3(name = "tags_cpython_abis", signature = (py_version, warn=false))]
+fn tags_cpython_abis<'py>(
+    py: Python<'py>,
+    py_version: Bound<'py, PyAny>,
+    warn: bool,
+) -> PyResult<Bound<'py, PyAny>> {
+    let ver: Vec<i64> = int_seq(&py_version)?;
+    // `_version_nodot(py_version[:2])`: only the first two components.
+    let first2: Vec<i64> = ver.iter().take(2).copied().collect();
+    let version: String = first2
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join("");
+    let (mut threading, mut debug, mut pymalloc, mut ucs4) = ("", "", "", "");
+    let with_debug: Bound<PyAny> =
+        tags_attr(py, "_get_config_var")?.call1(("Py_DEBUG", warn))?;
+    let has_refcount: bool = py.import("sys")?.hasattr("gettotalrefcount")?;
+    let ext_suffixes: Bound<PyAny> = tags_attr(py, "EXTENSION_SUFFIXES")?;
+    let has_ext: bool = ext_suffixes.contains("_d.pyd")?;
+    if with_debug.is_truthy()?
+        || (with_debug.is_none() && (has_refcount || has_ext))
+    {
+        debug = "d";
+    }
+    let ge_3_13 = ver_ge(&ver, 3, 13);
+    if ge_3_13 {
+        let gil_disabled: Bound<PyAny> =
+            tags_attr(py, "_get_config_var")?.call1(("Py_GIL_DISABLED", warn))?;
+        if gil_disabled.is_truthy()? {
+            threading = "t";
+        }
+    }
+    if ver_lt(&ver, 3, 8) {
+        let with_pymalloc: Bound<PyAny> =
+            tags_attr(py, "_get_config_var")?.call1(("WITH_PYMALLOC", warn))?;
+        if with_pymalloc.is_truthy()? || with_pymalloc.is_none() {
+            pymalloc = "m";
+        }
+        if ver_lt(&ver, 3, 3) {
+            let unicode_size: Bound<PyAny> =
+                tags_attr(py, "_get_config_var")?.call1(("Py_UNICODE_SIZE", warn))?;
+            let maxunicode: Bound<PyAny> = py.import("sys")?.getattr("maxunicode")?;
+            let is_4: bool = unicode_size.eq(4)?;
+            let none_and_wide: bool =
+                unicode_size.is_none() && maxunicode.eq(0x10FFFF)?;
+            if is_4 || none_and_wide {
+                ucs4 = "u";
+            }
+        }
+    }
+    let mut out = vec![format!("cp{version}{threading}{debug}{pymalloc}{ucs4}")];
+    if ver_ge(&ver, 3, 8) && !debug.is_empty() {
+        out.push(format!("cp{version}{threading}"));
+    }
+    str_iter(py, out)
+}
+
+/// `cpython_tags(python_version=None, abis=None, platforms=None, *, warn=False)`.
+#[pyfunction]
+#[pyo3(
+    name = "tags_cpython_tags",
+    signature = (python_version=None, abis=None, platforms=None, *, warn=false)
+)]
+fn tags_cpython_tags<'py>(
+    py: Python<'py>,
+    python_version: Option<Bound<'py, PyAny>>,
+    abis: Option<Bound<'py, PyAny>>,
+    platforms: Option<Bound<'py, PyAny>>,
+    warn: bool,
+) -> PyResult<Bound<'py, PyAny>> {
+    let pv: Bound<PyAny> = match python_version {
+        Some(v) if !v.is_none() && v.is_truthy()? => v,
+        _ => {
+            let vi = running_py_version(py)?;
+            PyList::new(py, vi)?.into_any()
+        }
+    };
+    // `interpreter = f"cp{_version_nodot(python_version[:2])}"`.
+    let interpreter = {
+        let ver = int_seq(&pv)?;
+        ver.iter()
+            .take(2)
+            .map(i64::to_string)
+            .collect::<Vec<_>>()
+            .join("")
+    };
+    let interpreter = format!("cp{interpreter}");
+    let abis_list: Vec<Bound<PyAny>> = match abis {
+        Some(a) if !a.is_none() => a.try_iter()?.map(|r| r.unwrap()).collect(),
+        _ => {
+            let ver = int_seq(&pv)?;
+            if ver.len() > 1 {
+                tags_attr(py, "_cpython_abis")?
+                    .call1((pv.clone(), warn))?
+                    .try_iter()?
+                    .map(|r| r.unwrap())
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }
+    };
+    let threading = is_threaded_cpython(py, &abis_list)?;
+    let mut abis_owned = abis_list;
+    let explicit: Vec<String> = if threading {
+        vec!["abi3".into(), "abi3t".into(), "none".into()]
+    } else {
+        vec!["abi3".into(), "none".into()]
+    };
+    for e in &explicit {
+        if let Some(pos) = abis_owned
+            .iter()
+            .position(|a| a.str().map(|s| s.to_string()).unwrap_or_default() == *e)
+        {
+            abis_owned.remove(pos);
+        }
+    }
+    let platforms_list: Vec<Bound<PyAny>> = match platforms {
+        Some(p) if !p.is_none() => p.try_iter()?.map(|r| r.unwrap()).collect(),
+        _ => tags_attr(py, "platform_tags")?
+            .call0()?
+            .try_iter()?
+            .map(|r| r.unwrap())
+            .collect(),
+    };
+    let mut out = Vec::new();
+    for abi in &abis_owned {
+        let abi_s: String = abi.str()?.to_string();
+        for platform in &platforms_list {
+            let p_s: String = platform.str()?.to_string();
+            out.push(make_tag(py, &interpreter, &abi_s, &p_s)?);
+        }
+    }
+    let ver = int_seq(&pv)?;
+    let major = *ver.first().unwrap_or(&0);
+    let use_abi3 = ver.len() > 1 && (major, ver[1]) >= (3, 2) && !threading;
+    let use_abi3t = ver.len() > 1 && (major, ver[1]) >= (3, 2) && threading;
+    if use_abi3 {
+        for platform in &platforms_list {
+            let p_s: String = platform.str()?.to_string();
+            out.push(make_tag(py, &interpreter, "abi3", &p_s)?);
+        }
+    }
+    if use_abi3t {
+        for platform in &platforms_list {
+            let p_s: String = platform.str()?.to_string();
+            out.push(make_tag(py, &interpreter, "abi3t", &p_s)?);
+        }
+    }
+    for platform in &platforms_list {
+        let p_s: String = platform.str()?.to_string();
+        out.push(make_tag(py, &interpreter, "none", &p_s)?);
+    }
+    if use_abi3 || use_abi3t {
+        let minor = ver[1];
+        for m in (2..minor).rev() {
+            let interp = format!("cp{major}{m}");
+            for platform in &platforms_list {
+                let p_s: String = platform.str()?.to_string();
+                if use_abi3 {
+                    out.push(make_tag(py, &interp, "abi3", &p_s)?);
+                }
+                if use_abi3t {
+                    out.push(make_tag(py, &interp, "abi3t", &p_s)?);
+                }
+            }
+        }
+    }
+    tag_iter(py, out)
+}
+
+/// `_generic_abi()`.
+#[pyfunction]
+#[pyo3(name = "tags_generic_abi")]
+fn tags_generic_abi(py: Python) -> PyResult<Bound<PyAny>> {
+    let ext_suffix: Bound<PyAny> =
+        tags_attr(py, "_get_config_var")?.call1(("EXT_SUFFIX", true))?;
+    let is_str = ext_suffix.is_instance_of::<pyo3::types::PyString>();
+    let starts_dot: bool = ext_suffix
+        .getattr("startswith")
+        .and_then(|f| f.call1((".",)))
+        .and_then(|v| v.extract())
+        .unwrap_or(false);
+    if !is_str || !starts_dot {
+        return Err(PySystemError::new_err(
+            "invalid sysconfig.get_config_var('EXT_SUFFIX')",
+        ));
+    }
+    let suffix: String = ext_suffix.extract()?;
+    let parts: Vec<&str> = suffix.split('.').collect();
+    if parts.len() < 3 {
+        let vi = running_py_version(py)?;
+        let ver = PyList::new(py, vi)?.into_any();
+        return tags_attr(py, "_cpython_abis")?.call1((ver,))?.extract();
+    }
+    let soabi = parts[1];
+    let abi = if let Some(rest) = soabi.strip_prefix("cpython") {
+        let cparts: Vec<&str> = rest.split('-').collect();
+        if cparts.len() < 2 || cparts[1].is_empty() {
+            return Err(PySystemError::new_err(
+                "invalid sysconfig.get_config_var('EXT_SUFFIX')",
+            ));
+        }
+        format!("cp{}", cparts[1])
+    } else if soabi.starts_with("cp") {
+        soabi.split('-').next().unwrap().to_string()
+    } else if soabi.starts_with("pypy") {
+        soabi.split('-').take(2).collect::<Vec<_>>().join("-")
+    } else if soabi.starts_with("graalpy") {
+        soabi.split('-').take(3).collect::<Vec<_>>().join("-")
+    } else if !soabi.is_empty() {
+        soabi.to_string()
+    } else {
+        return str_iter(py, Vec::new());
+    };
+    str_iter(py, vec![normalize_string(&abi)])
+}
+
+/// `generic_tags(interpreter=None, abis=None, platforms=None, *, warn=False)`.
+#[pyfunction]
+#[pyo3(
+    name = "tags_generic_tags",
+    signature = (interpreter=None, abis=None, platforms=None, *, warn=false)
+)]
+fn tags_generic_tags<'py>(
+    py: Python<'py>,
+    interpreter: Option<Bound<'py, PyAny>>,
+    abis: Option<Bound<'py, PyAny>>,
+    platforms: Option<Bound<'py, PyAny>>,
+    warn: bool,
+) -> PyResult<Bound<'py, PyAny>> {
+    let interp: String = match interpreter {
+        Some(v) if !v.is_none() && v.is_truthy()? => v.str()?.to_string(),
+        _ => {
+            let name: String =
+                tags_attr(py, "interpreter_name")?.call0()?.extract()?;
+            let version: String = {
+                let d = PyDict::new(py);
+                d.set_item("warn", warn)?;
+                tags_attr(py, "interpreter_version")?
+                    .call((), Some(&d))?
+                    .extract()?
+            };
+            format!("{name}{version}")
+        }
+    };
+    let abis_list: Vec<String> = match abis {
+        Some(a) if !a.is_none() => a
+            .try_iter()?
+            .map(|r| r.unwrap().str().map(|s| s.to_string()))
+            .collect::<PyResult<_>>()?,
+        _ => tags_attr(py, "_generic_abi")?
+            .call0()?
+            .try_iter()?
+            .map(|r| r.unwrap().str().map(|s| s.to_string()))
+            .collect::<PyResult<_>>()?,
+    };
+    let mut abis_owned = abis_list;
+    let platforms_list: Vec<String> = match platforms {
+        Some(p) if !p.is_none() => p
+            .try_iter()?
+            .map(|r| r.unwrap().str().map(|s| s.to_string()))
+            .collect::<PyResult<_>>()?,
+        _ => tags_attr(py, "platform_tags")?
+            .call0()?
+            .try_iter()?
+            .map(|r| r.unwrap().str().map(|s| s.to_string()))
+            .collect::<PyResult<_>>()?,
+    };
+    if !abis_owned.iter().any(|a| a == "none") {
+        abis_owned.push("none".to_string());
+    }
+    let mut out = Vec::new();
+    for abi in &abis_owned {
+        for platform in &platforms_list {
+            out.push(make_tag(py, &interp, abi, platform)?);
+        }
+    }
+    tag_iter(py, out)
+}
+
+/// `_py_interpreter_range(py_version)`.
+fn py_interpreter_range(ver: &[i64]) -> Vec<String> {
+    let nodot: String = ver.iter().map(i64::to_string).collect::<Vec<_>>().join("");
+    let mut out = Vec::new();
+    if ver.len() > 1 {
+        out.push(format!("py{nodot}"));
+    }
+    out.push(format!("py{}", ver[0]));
+    if ver.len() > 1 {
+        for minor in (0..ver[1]).rev() {
+            out.push(format!("py{}{minor}", ver[0]));
+        }
+    }
+    out
+}
+
+/// `pure_python_tags(python_version=None)`.
+#[pyfunction]
+#[pyo3(name = "tags_pure_python_tags", signature = (python_version=None,))]
+fn tags_pure_python_tags<'py>(
+    py: Python<'py>,
+    python_version: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let ver: Vec<i64> = match python_version {
+        None => running_py_version(py)?,
+        Some(v) if v.is_none() => running_py_version(py)?,
+        Some(v) => {
+            let seq: Vec<i64> = int_seq(&v).map_err(|_| {
+                PyValueError::new_err("python_version must contain at least one item")
+            })?;
+            if seq.is_empty() {
+                return Err(PyValueError::new_err(
+                    "python_version must contain at least one item",
+                ));
+            }
+            seq
+        }
+    };
+    let mut out = Vec::new();
+    for version in py_interpreter_range(&ver) {
+        out.push(make_tag(py, &version, "none", "any")?);
+    }
+    tag_iter(py, out)
+}
+
+/// `compatible_tags(python_version=None, interpreter=None, platforms=None)`.
+#[pyfunction]
+#[pyo3(
+    name = "tags_compatible_tags",
+    signature = (python_version=None, interpreter=None, platforms=None)
+)]
+fn tags_compatible_tags<'py>(
+    py: Python<'py>,
+    python_version: Option<Bound<'py, PyAny>>,
+    interpreter: Option<Bound<'py, PyAny>>,
+    platforms: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let pv: Bound<'py, PyAny> = match python_version {
+        Some(v) if !v.is_none() && v.is_truthy()? => v,
+        _ => {
+            let vi = running_py_version(py)?;
+            PyList::new(py, vi)?.into_any()
+        }
+    };
+    let platforms_list: Vec<String> = match platforms {
+        Some(p) if !p.is_none() => p
+            .try_iter()?
+            .map(|r| r.unwrap().str().map(|s| s.to_string()))
+            .collect::<PyResult<_>>()?,
+        _ => tags_attr(py, "platform_tags")?
+            .call0()?
+            .try_iter()?
+            .map(|r| r.unwrap().str().map(|s| s.to_string()))
+            .collect::<PyResult<_>>()?,
+    };
+    let ver = int_seq(&pv)?;
+    let mut out = Vec::new();
+    for version in py_interpreter_range(&ver) {
+        for platform in &platforms_list {
+            out.push(make_tag(py, &version, "none", platform)?);
+        }
+    }
+    if let Some(interp) = interpreter {
+        if !interp.is_none() {
+            let s: String = interp.str()?.to_string();
+            out.push(make_tag(py, &s, "none", "any")?);
+        }
+    }
+    let rest: Vec<Py<Tag>> = tags_attr(py, "pure_python_tags")?
+        .call1((pv,))?
+        .try_iter()?
+        .map(|r| r.unwrap().extract())
+        .collect::<PyResult<_>>()?;
+    out.extend(rest);
+    tag_iter(py, out)
+}
+
+/// `_mac_arch(arch, is_32bit=None)`.
+#[pyfunction]
+#[pyo3(name = "tags_mac_arch", signature = (arch, is_32bit=None))]
+fn tags_mac_arch(
+    py: Python,
+    arch: String,
+    is_32bit: Option<Bound<PyAny>>,
+) -> PyResult<String> {
+    // Truthiness (not strict bool): mirrors `if not is_32bit`.
+    let is32: bool = match is_32bit {
+        Some(v) if !v.is_none() => v.is_truthy()?,
+        _ => tags_attr(py, "_32_BIT_INTERPRETER")?.is_truthy()?,
+    };
+    if !is32 {
+        return Ok(arch);
+    }
+    if arch.starts_with("ppc") {
+        return Ok("ppc".to_string());
+    }
+    Ok("i386".to_string())
+}
+
+/// `_mac_binary_formats(version, cpu_arch)`.
+fn mac_binary_formats(version: (i64, i64), cpu_arch: &str) -> Vec<String> {
+    let mut formats = vec![cpu_arch.to_string()];
+    if cpu_arch == "x86_64" {
+        if version < (10, 4) {
+            return Vec::new();
+        }
+        formats.extend(["intel", "fat64", "fat3"].iter().map(|s| s.to_string()));
+    } else if cpu_arch == "i386" {
+        if version < (10, 4) {
+            return Vec::new();
+        }
+        formats.extend(["intel", "fat3", "fat"].iter().map(|s| s.to_string()));
+    } else if cpu_arch == "ppc64" {
+        if version > (10, 5) || version < (10, 4) {
+            return Vec::new();
+        }
+        formats.push("fat64".to_string());
+    } else if cpu_arch == "ppc" {
+        if version > (10, 6) {
+            return Vec::new();
+        }
+        formats.extend(["fat3", "fat"].iter().map(|s| s.to_string()));
+    }
+    if matches!(cpu_arch, "arm64" | "x86_64") {
+        formats.push("universal2".to_string());
+    }
+    if matches!(cpu_arch, "x86_64" | "i386" | "ppc64" | "ppc" | "intel") {
+        formats.push("universal".to_string());
+    }
+    formats
+}
+
+/// `_version_nodot(version)`: digits concatenated (suite-visible helper).
+#[pyfunction]
+#[pyo3(name = "tags_version_nodot")]
+fn tags_version_nodot(version: Bound<PyAny>) -> PyResult<String> {
+    let mut out = String::new();
+    for item in version.try_iter()?.map(|r| r.unwrap()) {
+        out.push_str(&item.str()?.to_string());
+    }
+    Ok(out)
+}
+
+/// `_mac_binary_formats(version, cpu_arch)` (suite-visible helper).
+#[pyfunction]
+#[pyo3(name = "tags_mac_binary_formats")]
+fn tags_mac_binary_formats(version: Bound<PyAny>, cpu_arch: String) -> PyResult<Vec<String>> {
+    Ok(mac_binary_formats(
+        (version.get_item(0)?.extract()?, version.get_item(1)?.extract()?),
+        &cpu_arch,
+    ))
+}
+
+/// `mac_platforms(version=None, arch=None)`.
+#[pyfunction]
+#[pyo3(name = "tags_mac_platforms", signature = (version=None, arch=None))]
+fn tags_mac_platforms<'py>(
+    py: Python<'py>,
+    version: Option<Bound<'py, PyAny>>,
+    arch: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let (mut ver, mut arch_s): (Option<(i64, i64)>, Option<String>) = (None, None);
+    if let Some(v) = &version {
+        if !v.is_none() {
+            ver = Some((v.get_item(0)?.extract()?, v.get_item(1)?.extract()?));
+        }
+    }
+    if let Some(a) = &arch {
+        if !a.is_none() {
+            arch_s = Some(a.str()?.to_string());
+        }
+    }
+    if ver.is_none() || arch_s.is_none() {
+        let mac_ver: Bound<PyAny> = py.import("platform")?.getattr("mac_ver")?.call0()?;
+        let version_str: String = mac_ver.get_item(0)?.extract()?;
+        let cpu_arch: String = mac_ver.get_item(2)?.extract()?;
+        if ver.is_none() {
+            let parts: Vec<&str> = version_str.split('.').collect();
+            let int = py.import("builtins")?.getattr("int")?;
+            let major: i64 = int.call1((parts.first().unwrap_or(&"0"),))?.extract()?;
+            let minor: i64 = int.call1((parts.get(1).unwrap_or(&"0"),))?.extract()?;
+            let mut v = (major, minor);
+            if v == (10, 16) {
+                let executable: String =
+                    py.import("sys")?.getattr("executable")?.extract()?;
+                let subprocess = py.import("subprocess")?;
+                let env = PyDict::new(py);
+                env.set_item("SYSTEM_VERSION_COMPAT", "0")?;
+                let kwargs = PyDict::new(py);
+                kwargs.set_item("check", true)?;
+                kwargs.set_item("env", env)?;
+                kwargs.set_item("stdout", subprocess.getattr("PIPE")?)?;
+                kwargs.set_item("text", true)?;
+                let out: Bound<PyAny> = subprocess
+                    .getattr("run")?
+                    .call(
+                        ((executable, "-sS", "-c", "import platform; print(platform.mac_ver()[0])"),),
+                        Some(&kwargs),
+                    )?
+                    .getattr("stdout")?;
+                let out_s: String = out.extract()?;
+                let parts: Vec<&str> = out_s.split('.').collect();
+                let major: i64 =
+                    int.call1((parts.first().unwrap_or(&"0"),))?.extract()?;
+                let minor: i64 =
+                    int.call1((parts.get(1).unwrap_or(&"0"),))?.extract()?;
+                v = (major, minor);
+            }
+            ver = Some(v);
+        }
+        if arch_s.is_none() {
+            arch_s = Some(
+                tags_attr(py, "_mac_arch")?
+                    .call1((cpu_arch,))?
+                    .extract()?,
+            );
+        }
+    }
+    let version = ver.unwrap();
+    let arch = arch_s.unwrap();
+    let mut out = Vec::new();
+    if (10, 0) <= version && version < (11, 0) {
+        for minor_version in (0..=version.1).rev() {
+            for binary_format in mac_binary_formats((10, minor_version), &arch) {
+                out.push(format!("macosx_10_{minor_version}_{binary_format}"));
+            }
+        }
+    }
+    if version >= (11, 0) {
+        for major_version in (11..=version.0).rev() {
+            for binary_format in mac_binary_formats((major_version, 0), &arch) {
+                out.push(format!(
+                    "macosx_{major_version}_0_{binary_format}"
+                ));
+            }
+        }
+        if arch == "x86_64" {
+            for minor_version in (4..=16).rev() {
+                for binary_format in mac_binary_formats((10, minor_version), &arch) {
+                    out.push(format!("macosx_10_{minor_version}_{binary_format}"));
+                }
+            }
+        } else {
+            for minor_version in (4..=16).rev() {
+                out.push(format!("macosx_10_{minor_version}_universal2"));
+            }
+        }
+    }
+    str_iter(py, out)
+}
+
+/// `ios_platforms(version=None, multiarch=None)`.
+#[pyfunction]
+#[pyo3(name = "tags_ios_platforms", signature = (version=None, multiarch=None))]
+fn tags_ios_platforms<'py>(
+    py: Python<'py>,
+    version: Option<Bound<'py, PyAny>>,
+    multiarch: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let ver: (i64, i64) = match version {
+        Some(v) if !v.is_none() => (v.get_item(0)?.extract()?, v.get_item(1)?.extract()?),
+        _ => {
+            let ios_ver: Bound<PyAny> =
+                py.import("platform")?.getattr("ios_ver")?.call0()?;
+            let release: String = ios_ver.get_item(1)?.extract()?;
+            let parts: Vec<&str> = release.split('.').collect();
+            let int = py.import("builtins")?.getattr("int")?;
+            (
+                int.call1((parts.first().unwrap_or(&"0"),))?.extract()?,
+                int.call1((parts.get(1).unwrap_or(&"0"),))?.extract()?,
+            )
+        }
+    };
+    let mut multi: String = match multiarch {
+        Some(m) if !m.is_none() => m.str()?.to_string(),
+        _ => py
+            .import("sys")?
+            .getattr("implementation")?
+            .getattr("_multiarch")?
+            .str()?
+            .to_string(),
+    };
+    multi = multi.replace('-', "_");
+    if ver.0 < 12 {
+        return str_iter(py, Vec::new());
+    }
+    let mut out = vec![format!("ios_{}_{}_{multi}", ver.0, ver.1)];
+    for minor in (0..ver.1).rev() {
+        out.push(format!("ios_{}_{minor}_{multi}", ver.0));
+    }
+    for major in ((12)..ver.0).rev() {
+        for minor in (0..=9).rev() {
+            out.push(format!("ios_{major}_{minor}_{multi}"));
+        }
+    }
+    str_iter(py, out)
+}
+
+/// `android_platforms(api_level=None, abi=None)`.
+#[pyfunction]
+#[pyo3(name = "tags_android_platforms", signature = (api_level=None, abi=None))]
+fn tags_android_platforms<'py>(
+    py: Python<'py>,
+    api_level: Option<Bound<'py, PyAny>>,
+    abi: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let system: String = py.import("platform")?.getattr("system")?.call0()?.extract()?;
+    if system != "Android" && (api_level.is_none() || abi.is_none()) {
+        return Err(PyTypeError::new_err(
+            "on non-Android platforms, the api_level and abi arguments are required",
+        ));
+    }
+    let level: i64 = match api_level {
+        Some(v) if !v.is_none() => v.extract()?,
+        _ => py
+            .import("platform")?
+            .getattr("android_ver")?
+            .call0()?
+            .getattr("api_level")?
+            .extract()?,
+    };
+    let abi_s: String = match abi {
+        Some(v) if !v.is_none() => v.str()?.to_string(),
+        _ => py
+            .import("sysconfig")?
+            .getattr("get_platform")?
+            .call0()?
+            .str()?
+            .to_string()
+            .split('-')
+            .last()
+            .unwrap_or("")
+            .to_string(),
+    };
+    let abi_s = normalize_string(&abi_s);
+    let mut out = Vec::new();
+    for v in (16..=level).rev() {
+        out.push(format!("android_{v}_{abi_s}"));
+    }
+    str_iter(py, out)
+}
+
+/// `_linux_platforms(is_32bit=None)`.
+#[pyfunction]
+#[pyo3(name = "tags_linux_platforms", signature = (is_32bit=None,))]
+fn tags_linux_platforms<'py>(py: Python<'py>, is_32bit: Option<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyAny>> {
+    let is32: bool = match is_32bit {
+        Some(v) if !v.is_none() => v.is_truthy()?,
+        _ => tags_attr(py, "_32_BIT_INTERPRETER")?.is_truthy()?,
+    };
+    let platform_str: String = py
+        .import("sysconfig")?
+        .getattr("get_platform")?
+        .call0()?
+        .str()?
+        .to_string();
+    let mut linux = normalize_string(&platform_str);
+    if !linux.starts_with("linux_") {
+        return str_iter(py, vec![linux]);
+    }
+    if is32 {
+        if linux == "linux_x86_64" {
+            linux = "linux_i686".to_string();
+        } else if linux == "linux_aarch64" {
+            linux = "linux_armv8l".to_string();
+        }
+    }
+    // Original: `_, arch = linux.split("_", 1)` — maxsplit=1 keeps the rest.
+    let arch_full = linux.splitn(2, '_').nth(1).unwrap_or("").to_string();
+    let archs: Vec<String> = if arch_full == "armv8l" {
+        vec!["armv8l".into(), "armv7l".into()]
+    } else {
+        vec![arch_full.clone()]
+    };
+    let mut out = Vec::new();
+    for a in &archs {
+        out.push(format!("linux_{a}"));
+    }
+    let many: Vec<String> = py
+        .import("packaging._manylinux")?
+        .getattr("platform_tags")?
+        .call1((PyList::new(py, archs.clone())?,))?
+        .try_iter()?
+        .map(|r| r.unwrap().str().map(|s| s.to_string()))
+        .collect::<PyResult<_>>()?;
+    out.extend(many);
+    let musl: Vec<String> = py
+        .import("packaging._musllinux")?
+        .getattr("platform_tags")?
+        .call1((PyList::new(py, archs)?,))?
+        .try_iter()?
+        .map(|r| r.unwrap().str().map(|s| s.to_string()))
+        .collect::<PyResult<_>>()?;
+    out.extend(musl);
+    str_iter(py, out)
+}
+
+/// `_emscripten_platforms()`.
+#[pyfunction]
+#[pyo3(name = "tags_emscripten_platforms")]
+fn tags_emscripten_platforms(py: Python) -> PyResult<Bound<PyAny>> {
+    let ver: Bound<PyAny> = py
+        .import("sysconfig")?
+        .getattr("get_config_var")?
+        .call1(("PYEMSCRIPTEN_PLATFORM_VERSION",))?;
+    let mut out = Vec::new();
+    if ver.is_truthy()? {
+        let s: String = ver.str()?.to_string();
+        out.push(format!("pyemscripten_{s}_wasm32"));
+    }
+    let rest: Vec<String> = tags_attr(py, "_generic_platforms")?
+        .call0()?
+        .try_iter()?
+        .map(|r| r.unwrap().str().map(|s| s.to_string()))
+        .collect::<PyResult<_>>()?;
+    out.extend(rest);
+    str_iter(py, out)
+}
+
+/// `_generic_platforms()`.
+#[pyfunction]
+#[pyo3(name = "tags_generic_platforms")]
+fn tags_generic_platforms(py: Python) -> PyResult<Bound<PyAny>> {
+    let platform_str: String = py
+        .import("sysconfig")?
+        .getattr("get_platform")?
+        .call0()?
+        .str()?
+        .to_string();
+    str_iter(py, vec![normalize_string(&platform_str)])
+}
+
+/// `platform_tags()`: dispatch on `platform.system()`, returning the inner
+/// iterator directly (matching the original `return mac_platforms()` shape).
+#[pyfunction]
+#[pyo3(name = "tags_platform_tags")]
+fn tags_platform_tags(py: Python) -> PyResult<Bound<PyAny>> {
+    let system: String = py.import("platform")?.getattr("system")?.call0()?.extract()?;
+    let name = match system.as_str() {
+        "Darwin" => "mac_platforms",
+        "iOS" => "ios_platforms",
+        "Android" => "android_platforms",
+        "Linux" => "_linux_platforms",
+        "Emscripten" => "_emscripten_platforms",
+        _ => "_generic_platforms",
+    };
+    tags_attr(py, name)?.call0()
+}
+
+/// `interpreter_name()`.
+#[pyfunction]
+#[pyo3(name = "tags_interpreter_name")]
+fn tags_interpreter_name(py: Python) -> PyResult<String> {
+    let name: String = py
+        .import("sys")?
+        .getattr("implementation")?
+        .getattr("name")?
+        .extract()?;
+    Ok(match name.as_str() {
+        "python" => "py".to_string(),
+        "cpython" => "cp".to_string(),
+        "pypy" => "pp".to_string(),
+        "ironpython" => "ip".to_string(),
+        "jython" => "jy".to_string(),
+        _ => name,
+    })
+}
+
+/// `interpreter_version(*, warn=False)`.
+#[pyfunction]
+#[pyo3(name = "tags_interpreter_version", signature = (*, warn=false))]
+fn tags_interpreter_version(py: Python, warn: bool) -> PyResult<String> {
+    let version: Bound<PyAny> =
+        tags_attr(py, "_get_config_var")?.call1(("py_version_nodot", warn))?;
+    if version.is_truthy()? {
+        return version.str().map(|s| s.to_string());
+    }
+    let vi = running_py_version(py)?;
+    Ok(vi.iter().map(i64::to_string).collect::<Vec<_>>().join(""))
+}
+
+/// `interpreter_abi()`.
+#[pyfunction]
+#[pyo3(name = "tags_interpreter_abi")]
+fn tags_interpreter_abi(py: Python) -> PyResult<String> {
+    let name: String = tags_attr(py, "interpreter_name")?.call0()?.extract()?;
+    if name == "cp" {
+        let vi = running_py_version(py)?;
+        let ver = PyList::new(py, vi)?.into_any();
+        let mut it = tags_attr(py, "_cpython_abis")?
+            .call1((ver,))?
+            .try_iter()?;
+        let first: Bound<PyAny> = it.next().unwrap()?;
+        return first.extract();
+    }
+    let mut it = tags_attr(py, "_generic_abi")?
+        .call0()?
+        .try_iter()?;
+    let first: Bound<PyAny> = it.next().unwrap()?;
+    first.extract()
+}
+
+/// `sys_tags(*, warn=False)`.
+#[pyfunction]
+#[pyo3(name = "tags_sys_tags", signature = (*, warn=false))]
+fn tags_sys_tags(py: Python, warn: bool) -> PyResult<Bound<PyAny>> {
+    let interp_name: String = tags_attr(py, "interpreter_name")?.call0()?.extract()?;
+    // Keyword calls throughout: the suite replaces these with
+    // keyword-only doubles (e.g. `MockGenericTags.__call__(self, *, warn)`).
+    let warn_kw = {
+        let d = PyDict::new(py);
+        d.set_item("warn", warn)?;
+        d
+    };
+    let mut out: Vec<Py<Tag>> = tags_attr(
+        py,
+        if interp_name == "cp" {
+            "cpython_tags"
+        } else {
+            "generic_tags"
+        },
+    )?
+    .call((), Some(&warn_kw))?
+    .try_iter()?
+    .map(|r| r.unwrap().extract())
+    .collect::<PyResult<_>>()?;
+    let interp: Option<String> = if interp_name == "pp" {
+        Some("pp3".to_string())
+    } else if interp_name == "cp" {
+        let version: String = tags_attr(py, "interpreter_version")?
+            .call((), Some(&warn_kw))?
+            .extract()?;
+        Some(format!("cp{version}"))
+    } else {
+        None
+    };
+    let interp_kw = {
+        let d = PyDict::new(py);
+        match interp {
+            Some(s) => {
+                d.set_item("interpreter", s)?;
+            }
+            None => {
+                d.set_item("interpreter", py.None())?;
+            }
+        }
+        d
+    };
+    let rest: Vec<Py<Tag>> = tags_attr(py, "compatible_tags")?
+        .call((), Some(&interp_kw))?
+        .try_iter()?
+        .map(|r| r.unwrap().extract())
+        .collect::<PyResult<_>>()?;
+    out.extend(rest);
+    tag_iter(py, out)
+}
+
+/// `create_compatible_tags_selector(tags)`.
+#[pyfunction]
+#[pyo3(name = "tags_create_selector")]
+fn tags_create_selector(_py: Python, tags: Bound<PyAny>) -> PyResult<Selector> {
+    let mut ranks: Vec<((String, String, String), usize)> = Vec::new();
+    for (rank, tag) in tags.try_iter()?.map(|r| r.unwrap()).enumerate() {
+        let key = (
+            tag.getattr("interpreter")?.str()?.to_string(),
+            tag.getattr("abi")?.str()?.to_string(),
+            tag.getattr("platform")?.str()?.to_string(),
+        );
+        if !ranks.iter().any(|(k, _)| k == &key) {
+            ranks.push((key, rank));
+        }
+    }
+    Ok(Selector { ranks })
+}
+
+/// Ranking callable returned by `create_compatible_tags_selector`.
+#[pyclass(name = "Selector", module = "packaging.tags")]
+struct Selector {
+    ranks: Vec<((String, String, String), usize)>,
+}
+
+#[pymethods]
+impl Selector {
+    fn __call__<'py>(&self, py: Python<'py>, tagged: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let mut ranked: Vec<(Bound<'py, PyAny>, usize)> = Vec::new();
+        for item in tagged.try_iter()?.map(|r| r.unwrap()) {
+            let pair: (Bound<'py, PyAny>, Bound<'py, PyAny>) = (
+                item.get_item(0)?,
+                item.get_item(1)?,
+            );
+            let mut best: Option<usize> = None;
+            for tag in pair.1.try_iter()?.map(|r| r.unwrap()) {
+                let key = (
+                    tag.getattr("interpreter")
+                        .and_then(|v| v.str().map(|s| s.to_string()))
+                        .unwrap_or_default(),
+                    tag.getattr("abi")
+                        .and_then(|v| v.str().map(|s| s.to_string()))
+                        .unwrap_or_default(),
+                    tag.getattr("platform")
+                        .and_then(|v| v.str().map(|s| s.to_string()))
+                        .unwrap_or_default(),
+                );
+                if let Some((_, rank)) = ranks_lookup(&self.ranks, &key) {
+                    best = Some(best.map_or(*rank, |b: usize| b.min(*rank)));
+                }
+            }
+            if let Some(rank) = best {
+                ranked.push((pair.0, rank));
+            }
+        }
+        ranked.sort_by_key(|(_, rank)| *rank);
+        let things: Vec<Bound<PyAny>> = ranked.into_iter().map(|(t, _)| t).collect();
+        Ok(PyList::new(py, things)?.call_method0("__iter__")?)
+    }
+}
+
+fn ranks_lookup<'a>(
+    ranks: &'a [((String, String, String), usize)],
+    key: &(String, String, String),
+) -> Option<&'a ((String, String, String), usize)> {
+    ranks.iter().find(|(k, _)| k == key)
 }
