@@ -1012,6 +1012,14 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tags_interpreter_abi, m)?)?;
     m.add_function(wrap_pyfunction!(tags_sys_tags, m)?)?;
     m.add_function(wrap_pyfunction!(tags_create_selector, m)?)?;
+    m.add("InvalidName", m.py().get_type::<InvalidName>())?;
+    m.add("InvalidWheelFilename", m.py().get_type::<InvalidWheelFilename>())?;
+    m.add("InvalidSdistFilename", m.py().get_type::<InvalidSdistFilename>())?;
+    m.add_function(wrap_pyfunction!(utils_canonicalize_name, m)?)?;
+    m.add_function(wrap_pyfunction!(utils_is_normalized_name, m)?)?;
+    m.add_function(wrap_pyfunction!(utils_canonicalize_version, m)?)?;
+    m.add_function(wrap_pyfunction!(utils_parse_wheel_filename, m)?)?;
+    m.add_function(wrap_pyfunction!(utils_parse_sdist_filename, m)?)?;
     // Tracebacks name the public module, not the extension.
     m.py()
         .get_type::<InvalidVersion>()
@@ -1028,6 +1036,15 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.py()
         .get_type::<TooManyTagsError>()
         .setattr("__module__", "packaging.tags")?;
+    m.py()
+        .get_type::<InvalidName>()
+        .setattr("__module__", "packaging.utils")?;
+    m.py()
+        .get_type::<InvalidWheelFilename>()
+        .setattr("__module__", "packaging.utils")?;
+    m.py()
+        .get_type::<InvalidSdistFilename>()
+        .setattr("__module__", "packaging.utils")?;
     // Pattern matching (`__match_args__ == ("_str",)`, mirroring the original).
     m.getattr("Version")?
         .setattr("__match_args__", ("_str",))?;
@@ -2969,4 +2986,310 @@ fn ranks_lookup<'a>(
     key: &(String, String, String),
 ) -> Option<&'a ((String, String, String), usize)> {
     ranks.iter().find(|(k, _)| k == key)
+}
+// ---------------------------------------------------------------------------
+// Name/version/filename utilities (`packaging.utils`).
+// ---------------------------------------------------------------------------
+
+pyo3::create_exception!(_packaging, InvalidName, PyValueError);
+pyo3::create_exception!(_packaging, InvalidWheelFilename, PyValueError);
+pyo3::create_exception!(_packaging, InvalidSdistFilename, PyValueError);
+
+/// `str` repr for `... {name!r}` messages.
+fn py_repr(_py: Python, obj: &Bound<PyAny>) -> String {
+    obj.repr()
+        .map(|r| r.to_string())
+        .unwrap_or_else(|_| "<repr failed>".to_string())
+}
+
+/// Fullmatch of `[a-z0-9]|[a-z0-9][a-z0-9._-]*[a-z0-9]` under
+/// `re.IGNORECASE | re.ASCII` (the `_validate_regex` for names).
+fn name_valid(name: &str) -> bool {
+    let b = name.as_bytes();
+    let alnum = |c: u8| c.is_ascii_alphanumeric();
+    if b.is_empty() {
+        return false;
+    }
+    if b.len() == 1 {
+        return alnum(b[0]);
+    }
+    if !alnum(b[0]) || !alnum(b[b.len() - 1]) {
+        return false;
+    }
+    b.iter()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
+}
+
+/// Fullmatch of `[a-z0-9]+(?:-[a-z0-9]+)*` under `re.ASCII` (normalized
+/// names): lowercase ASCII letters and digits only (no `IGNORECASE`).
+fn name_normalized(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let lower = |c: u8| c.is_ascii_digit() || c.is_ascii_lowercase();
+    name.split('-')
+        .all(|part| !part.is_empty() && part.bytes().all(lower))
+}
+
+/// `canonicalize_name(name, *, validate=False)`.
+#[pyfunction]
+#[pyo3(name = "utils_canonicalize_name", signature = (name, *, validate=false))]
+fn utils_canonicalize_name(
+    py: Python,
+    name: Bound<PyAny>,
+    validate: bool,
+) -> PyResult<String> {
+    if validate {
+        // `re.fullmatch` raises `TypeError` on non-strings, before matching.
+        let s: String = name.extract().map_err(|_| {
+            PyTypeError::new_err("expected string or bytes-like object")
+        })?;
+        if !name_valid(&s) {
+            return Err(InvalidName::new_err(format!(
+                "name is invalid: {}",
+                py_repr(py, &name)
+            )));
+        }
+    }
+    // `.lower()` through Python for exact Unicode semantics
+    // (`AttributeError` on non-strings propagates, as in the original).
+    let lowered: String = name.call_method0("lower")?.extract()?;
+    let mut value = lowered.replace('_', "-").replace('.', "-");
+    while value.contains("--") {
+        value = value.replace("--", "-");
+    }
+    Ok(value)
+}
+
+/// `is_normalized_name(name)`.
+#[pyfunction]
+#[pyo3(name = "utils_is_normalized_name")]
+fn utils_is_normalized_name(name: String) -> bool {
+    name_normalized(&name)
+}
+
+/// `canonicalize_version(version, *, strip_trailing_zero=True)`.
+#[pyfunction]
+#[pyo3(name = "utils_canonicalize_version", signature = (version, *, strip_trailing_zero=true))]
+fn utils_canonicalize_version(
+    py: Python,
+    version: Bound<PyAny>,
+    strip_trailing_zero: bool,
+) -> PyResult<String> {
+    if version.is_instance_of::<pyo3::types::PyString>() {
+        let s: String = version.extract()?;
+        match Version::parse_new(py, &version) {
+            Ok(_) => {}
+            Err(e) if e.is_instance_of::<InvalidVersion>(py) => return Ok(s),
+            Err(e) => return Err(e),
+        }
+        let inner = Version::parse_new(py, &version)?;
+        return version_to_str(py, &inner, strip_trailing_zero);
+    }
+    // A `Version` (or a foreign object: `_TrimmedRelease(obj)` reraises).
+    if strip_trailing_zero {
+        let trimmed_cls = py
+            .import("packaging.version")?
+            .getattr("_TrimmedRelease")?;
+        let t = trimmed_cls.call1((version,))?;
+        return Ok(t.str()?.to_string());
+    }
+    Ok(version.str()?.to_string())
+}
+
+/// `str()` of a parsed version, honoring `strip_trailing_zero` via the
+/// `_TrimmedRelease` release override.
+fn version_to_str(_py: Python, inner: &ParsedVersion, strip: bool) -> PyResult<String> {
+    if !strip {
+        return Ok(version::display(inner));
+    }
+    let trimmed = version::trim_release_leave_one(&inner.release);
+    Ok(version::display_with_release(inner, &trimmed))
+}
+/// `parse_wheel_filename(filename, *, validate_order=False)`.
+#[pyfunction]
+#[pyo3(name = "utils_parse_wheel_filename", signature = (filename, *, validate_order=false))]
+fn utils_parse_wheel_filename<'py>(
+    py: Python<'py>,
+    filename: Bound<'py, PyAny>,
+    validate_order: bool,
+) -> PyResult<Bound<'py, PyTuple>> {
+    let bad_ext = || {
+        InvalidWheelFilename::new_err(format!(
+            "Invalid wheel filename (extension must be '.whl'): {}",
+            py_repr(py, &filename)
+        ))
+    };
+    // `.endswith` through Python: `AttributeError` on non-strings
+    // propagates, as in the original.
+    let ends: bool = filename.call_method1("endswith", (".whl",))?.extract()?;
+    if !ends {
+        return Err(bad_ext());
+    }
+    let name_str: String = filename.extract()?;
+    let stem = &name_str[..name_str.len() - 4];
+    // `filename` in later messages is the stem (reassigned in the original).
+    let stem_repr = py_repr(py, &pyo3::types::PyString::new(py, stem).into_any());
+    let dashes = stem.chars().filter(|c| *c == '-').count();
+    if dashes != 4 && dashes != 5 {
+        return Err(InvalidWheelFilename::new_err(format!(
+            "Invalid wheel filename (wrong number of parts): {stem_repr}"
+        )));
+    }
+    // `filename.split("-", dashes - 2)`: at most `dashes - 1` parts; the
+    // name keeps any extra dashes.
+    let parts: Vec<&str> = stem.splitn(dashes - 1, '-').collect();
+    let name_part = parts[0];
+    if name_part.contains("__") || !wheel_name_ok(py, name_part)? {
+        return Err(InvalidWheelFilename::new_err(format!(
+            "Invalid project name: {stem_repr}"
+        )));
+    }
+    let name: String = utils_canonicalize_name(py, pyo3::types::PyString::new(py, name_part).into_any(), false)?;
+    let version = match Version::parse_new(py, &pyo3::types::PyString::new(py, parts[1]).into_any()) {
+        Ok(inner) => Py::new(py, Version { inner })?.into_bound(py).into_any(),
+        Err(e) => {
+            let err = InvalidWheelFilename::new_err(format!(
+                "Invalid wheel filename (invalid version): {stem_repr}"
+            ));
+            err.set_cause(py, Some(e));
+            return Err(err);
+        }
+    };
+    let build: Bound<PyAny> = if dashes == 5 {
+        let build_part = parts[2];
+        match parse_build_tag(build_part) {
+            Some((num, rest)) => {
+                let n: Bound<PyAny> = py.import("builtins")?.getattr("int")?.call1((num,))?;
+                PyTuple::new(py, [n, pyo3::types::PyString::new(py, rest).into_any()])?.into_any()
+            }
+            None => {
+                return Err(InvalidWheelFilename::new_err(format!(
+                    "Invalid build number: {build_part} in {stem_repr}"
+                )))
+            }
+        }
+    } else {
+        PyTuple::new(py, Vec::<Bound<PyAny>>::new())?.into_any()
+    };
+    let tag_str = parts[parts.len() - 1];
+    let tag_kwargs = PyDict::new(py);
+    tag_kwargs.set_item("validate_order", validate_order)?;
+    let tags = match mod_attr(py, "packaging.utils", "parse_tag")?.call(
+        (tag_str,),
+        Some(&tag_kwargs),
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            if e.is_instance_of::<UnsortedTagsError>(py) {
+                let err = InvalidWheelFilename::new_err(format!(
+                    "Invalid wheel filename (compressed tag set components must be in sorted order per PEP 425): {stem_repr}"
+                ));
+                err.set_cause(py, None);
+                return Err(err);
+            }
+            if e.is_instance_of::<InvalidTag>(py) {
+                let err = InvalidWheelFilename::new_err(format!(
+                    "Invalid wheel filename (invalid tag component): {stem_repr}"
+                ));
+                err.set_cause(py, None);
+                return Err(err);
+            }
+            return Err(e);
+        }
+    };
+    PyTuple::new(
+        py,
+        [
+            pyo3::types::PyString::new(py, &name).into_any(),
+            version,
+            build,
+            tags,
+        ],
+    )
+}
+
+/// `r"^[\w._]+\Z"` under `re.UNICODE`, via the real `re` module (exact
+/// Unicode word semantics), plus the non-empty requirement.
+fn wheel_name_ok(py: Python, name: &str) -> PyResult<bool> {
+    if name.is_empty() {
+        return Ok(false);
+    }
+    let m: Option<Bound<PyAny>> = py
+        .import("re")?
+        .getattr("match")?
+        .call1((r"^[\w._]+\Z", name))?
+        .extract()?;
+    Ok(m.is_some())
+}
+
+/// `(\d+)(.*)\Z` under `re.ASCII`: leading ASCII digits plus the rest, where
+/// `.` never matches `\n` and `\Z` anchors at the absolute end.
+fn parse_build_tag(part: &str) -> Option<(&str, &str)> {
+    let idx = part.bytes().take_while(|b| b.is_ascii_digit()).count();
+    if idx == 0 {
+        return None;
+    }
+    let (num, rest) = part.split_at(idx);
+    if rest.contains('\n') {
+        return None;
+    }
+    Some((num, rest))
+}
+
+/// `parse_sdist_filename(filename)`.
+#[pyfunction]
+#[pyo3(name = "utils_parse_sdist_filename")]
+fn utils_parse_sdist_filename<'py>(py: Python<'py>, filename: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyTuple>> {
+    let filename_repr = py_repr(py, &filename);
+    // `.endswith` through Python: `AttributeError` on non-strings
+    // propagates, as in the original.
+    let is_tar: bool = filename.call_method1("endswith", (".tar.gz",))?.extract()?;
+    let is_zip: bool = filename.call_method1("endswith", (".zip",))?.extract()?;
+    let filename: String = filename.extract()?;
+    let stem = if is_tar {
+        &filename[..filename.len() - ".tar.gz".len()]
+    } else if is_zip {
+        &filename[..filename.len() - ".zip".len()]
+    } else {
+        return Err(InvalidSdistFilename::new_err(format!(
+            "Invalid sdist filename (extension must be '.tar.gz' or '.zip'): {filename_repr}"
+        )));
+    };
+    // `rpartition("-")`: split on the last dash.
+    let (name_part, version_part) = match stem.rsplit_once('-') {
+        Some((n, v)) => (n, v),
+        None => {
+            return Err(InvalidSdistFilename::new_err(format!(
+                "Invalid sdist filename: {filename_repr}"
+            )))
+        }
+    };
+    if name_part.is_empty() {
+        return Err(InvalidSdistFilename::new_err(format!(
+            "Invalid sdist filename (empty project name): {filename_repr}"
+        )));
+    }
+    let name: String = utils_canonicalize_name(
+        py,
+        pyo3::types::PyString::new(py, name_part).into_any(),
+        false,
+    )?;
+    let version = match Version::parse_new(py, &pyo3::types::PyString::new(py, version_part).into_any()) {
+        Ok(inner) => Py::new(py, Version { inner })?.into_bound(py).into_any(),
+        Err(e) => {
+            let err = InvalidSdistFilename::new_err(format!(
+                "Invalid sdist filename (invalid version): {filename_repr}"
+            ));
+            err.set_cause(py, Some(e));
+            return Err(err);
+        }
+    };
+    PyTuple::new(
+        py,
+        [
+            pyo3::types::PyString::new(py, &name).into_any(),
+            version,
+        ],
+    )
 }
