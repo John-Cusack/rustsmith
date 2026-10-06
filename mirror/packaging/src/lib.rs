@@ -14,8 +14,7 @@ use packaging_core::version::{self, LocalSeg, NumString, ParsedVersion};
 use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::{PyDeprecationWarning, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyInt, PyTuple, PyType};
-pyo3::create_exception!(_packaging, InvalidVersion, PyValueError);
+use pyo3::types::{PyDict, PyInt, PyList, PyTuple, PyType};
 
 /// `sys.get_int_max_str_digits()`: `None` when the attribute is missing
 /// (old Pythons have no limit) or the limit is 0 (disabled).
@@ -972,6 +971,20 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.add("ELFInvalid", m.py().get_type::<ELFInvalid>())?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_pre_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_confstr, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_ctypes, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_version_string, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_parse_glibc_version, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_get_glibc_version_uncached, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_get_module_uncached, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_is_armhf, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_is_i686, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_have_compatible_abi, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_is_compatible, m)?)?;
+    m.add_function(wrap_pyfunction!(manylinux_platform_tags, m)?)?;
+    m.add_function(wrap_pyfunction!(musllinux_parse_version, m)?)?;
+    m.add_function(wrap_pyfunction!(musllinux_get_version_uncached, m)?)?;
+    m.add_function(wrap_pyfunction!(musllinux_platform_tags, m)?)?;
     // Tracebacks name the public module, not the extension.
     m.py()
         .get_type::<InvalidVersion>()
@@ -987,6 +1000,8 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
 // ---------------------------------------------------------------------------
 // ELF files (`packaging._elffile`).
 // ---------------------------------------------------------------------------
+
+pyo3::create_exception!(_packaging, InvalidVersion, PyValueError);
 
 pyo3::create_exception!(_packaging, ELFInvalid, PyValueError);
 
@@ -1131,4 +1146,441 @@ impl ELFFile {
         }
         Ok(None)
     }
+}
+// ---------------------------------------------------------------------------
+// Platform detection (`packaging._manylinux`, `packaging._musllinux`).
+//
+// Every environment read goes through live Python objects (`os.confstr`,
+// `ctypes.CDLL`, `subprocess.run`, `sys`, `__import__`) and every
+// intra-module helper through the module attribute, so the suite's
+// `monkeypatch` doubles keep working exactly as with the original.
+// ---------------------------------------------------------------------------
+
+/// Module attribute (resolved live so test doubles apply).
+fn mod_attr<'py>(py: Python<'py>, module: &str, name: &str) -> PyResult<Bound<'py, PyAny>> {
+    py.import(module)?.getattr(name)
+}
+
+/// Does `err` match one of the named `builtins` exception classes?
+fn err_matches(py: Python, err: &PyErr, names: &[&str]) -> bool {
+    let Ok(builtins) = py.import("builtins") else {
+        return false;
+    };
+    names.iter().any(|n| {
+        builtins
+            .getattr(*n)
+            .map(|cls| err.is_instance(py, &cls))
+            .unwrap_or(false)
+    })
+}
+
+/// `warnings.warn(msg, RuntimeWarning, stacklevel=2)` via the real module.
+fn warn_runtime(py: Python, msg: &str) -> PyResult<()> {
+    let warnings = py.import("warnings")?;
+    let category = py.import("builtins")?.getattr("RuntimeWarning")?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("stacklevel", 2)?;
+    warnings.getattr("warn")?.call((msg, category), Some(&kwargs))?;
+    Ok(())
+}
+
+/// Construct a `packaging._manylinux._GLibCVersion(major, minor)`.
+fn glibc_version(py: Python, major: i64, minor: i64) -> PyResult<Bound<PyAny>> {
+    mod_attr(py, "packaging._manylinux", "_GLibCVersion")?.call1((major, minor))
+}
+
+/// Construct a `packaging._musllinux._MuslVersion(major, minor)`.
+fn musl_version(py: Python, major: i64, minor: i64) -> PyResult<Bound<PyAny>> {
+    mod_attr(py, "packaging._musllinux", "_MuslVersion")?.call1((major, minor))
+}
+
+/// Eager list as a live iterator (every `*_tags` generator returns an
+/// iterator; laziness of the env reads is not observable to the suite).
+fn str_iter(py: Python, items: Vec<String>) -> PyResult<Bound<PyAny>> {
+    Ok(PyList::new(py, items)?.call_method0("__iter__")?)
+}
+
+/// `os.confstr("CS_GNU_LIBC_VERSION")` split to the version part, or `None`.
+/// Mirrors `_glibc_version_string_confstr` including the exact caught
+/// exceptions and the strict two-part `rsplit()` unpack.
+#[pyfunction]
+#[pyo3(name = "manylinux_confstr")]
+fn manylinux_confstr(py: Python) -> PyResult<Option<String>> {
+    let os = py.import("os")?;
+    let confstr = match os.getattr("confstr") {
+        Ok(f) => f,
+        Err(e) if err_matches(py, &e, &["AttributeError"]) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let raw = match confstr.call1(("CS_GNU_LIBC_VERSION",)) {
+        Ok(v) => v,
+        Err(e) if err_matches(py, &e, &["AssertionError", "AttributeError", "OSError", "ValueError"]) => {
+            return Ok(None)
+        }
+        Err(e) => return Err(e),
+    };
+    if raw.is_none() {
+        return Ok(None);
+    }
+    let s: String = match raw.extract() {
+        Ok(s) => s,
+        Err(e) if err_matches(py, &e, &["AttributeError"]) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let parts: Vec<String> = py
+        .import("builtins")?
+        .getattr("str")?
+        .call1((s.clone(),))?
+        .getattr("rsplit")?
+        .call0()?
+        .extract()?;
+    if parts.len() != 2 {
+        return Ok(None);
+    }
+    Ok(Some(parts[1].clone()))
+}
+
+/// `gnu_get_libc_version` via `ctypes.CDLL(None)`, or `None`.
+/// Mirrors `_glibc_version_string_ctypes` including the exact caught
+/// exceptions (`OSError` on `dlopen`, `AttributeError` on the symbol).
+#[pyfunction]
+#[pyo3(name = "manylinux_ctypes")]
+fn manylinux_ctypes(py: Python) -> PyResult<Option<Bound<PyAny>>> {
+    let ctypes = match py.import("ctypes") {
+        Ok(m) => m,
+        Err(e) if err_matches(py, &e, &["ImportError"]) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let process = match ctypes.getattr("CDLL")?.call1((py.None(),)) {
+        Ok(p) => p,
+        Err(e) if err_matches(py, &e, &["OSError"]) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let func = match process.getattr("gnu_get_libc_version") {
+        Ok(f) => f,
+        Err(e) if err_matches(py, &e, &["AttributeError"]) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    func.setattr("restype", ctypes.getattr("c_char_p")?)?;
+    let version = func.call0()?;
+    if version.is_instance_of::<pyo3::types::PyBytes>() {
+        let decoded: Bound<PyAny> = version.call_method1("decode", ("ascii",))?;
+        return Ok(Some(decoded));
+    }
+    Ok(Some(version))
+}
+
+/// `_glibc_version_string`: `confstr() or ctypes()` on raw values.
+#[pyfunction]
+#[pyo3(name = "manylinux_version_string")]
+fn manylinux_version_string(py: Python) -> PyResult<Bound<PyAny>> {
+    let a = mod_attr(py, "packaging._manylinux", "_glibc_version_string_confstr")?.call0()?;
+    if a.is_truthy()? {
+        return Ok(a);
+    }
+    mod_attr(py, "packaging._manylinux", "_glibc_version_string_ctypes")?.call0()
+}
+
+/// `_parse_glibc_version`, returning a `_GLibCVersion`. Emits the original
+/// `RuntimeWarning` and `(-1, -1)` when the string has no leading
+/// `major.minor`.
+#[pyfunction]
+#[pyo3(name = "manylinux_parse_glibc_version")]
+fn manylinux_parse_glibc_version(py: Python, version_str: String) -> PyResult<Bound<PyAny>> {
+    match packaging_core::platform::parse_glibc_version(&version_str) {
+        Some((major, minor)) => glibc_version(py, major, minor),
+        None => {
+            warn_runtime(
+                py,
+                &format!(
+                    "Expected glibc version with 2 components major.minor, got: {version_str}"
+                ),
+            )?;
+            glibc_version(py, -1, -1)
+        }
+    }
+}
+
+/// Uncached `_get_glibc_version` (the shim wraps it in `lru_cache`).
+#[pyfunction]
+#[pyo3(name = "manylinux_get_glibc_version_uncached")]
+fn manylinux_get_glibc_version_uncached(py: Python) -> PyResult<Bound<PyAny>> {
+    let s = mod_attr(py, "packaging._manylinux", "_glibc_version_string")?.call0()?;
+    if s.is_none() {
+        return glibc_version(py, -1, -1);
+    }
+    let text: String = s.extract()?;
+    mod_attr(py, "packaging._manylinux", "_parse_glibc_version")?.call1((text,))
+}
+
+/// Uncached `_get_manylinux_module` (the shim wraps it in `lru_cache`).
+/// `__import__("_manylinux")`, `None` on `ImportError`.
+#[pyfunction]
+#[pyo3(name = "manylinux_get_module_uncached")]
+fn manylinux_get_module_uncached(py: Python) -> PyResult<Option<Bound<PyAny>>> {
+    let import = mod_attr(py, "builtins", "__import__").or_else(|_| py.import("builtins")?.getattr("__import__"))?;
+    match import.call1(("_manylinux",)) {
+        Ok(m) => Ok(Some(m)),
+        Err(e) if err_matches(py, &e, &["ImportError"]) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Run `f` with the `_parse_elf(executable)` context manager entered,
+/// always exiting it, mirroring the `with` statement.
+fn with_parse_elf<T>(
+    py: Python,
+    executable: &str,
+    f: impl FnOnce(Option<Bound<PyAny>>) -> PyResult<T>,
+) -> PyResult<T> {
+    let cm = mod_attr(py, "packaging._manylinux", "_parse_elf")?.call1((executable,))?;
+    let entered = cm.call_method0("__enter__")?;
+    let none = py.None();
+    let result = f(if entered.is_none() {
+        None
+    } else {
+        Some(entered)
+    });
+    let exit_result = cm.call_method1("__exit__", (&none, &none, &none));
+    match result {
+        Ok(v) => {
+            exit_result?;
+            Ok(v)
+        }
+        Err(e) => {
+            let _ = exit_result;
+            Err(e)
+        }
+    }
+}
+
+fn elf_int(f: &Bound<PyAny>, name: &str) -> PyResult<u32> {
+    f.getattr(name)?.extract()
+}
+
+/// `_is_linux_armhf`: 32-bit LE ARM with the v5 hard-float ABI flags.
+#[pyfunction]
+#[pyo3(name = "manylinux_is_armhf")]
+fn manylinux_is_armhf(py: Python, executable: String) -> PyResult<bool> {
+    with_parse_elf(py, &executable, |f| {
+        let Some(f) = f else { return Ok(false) };
+        Ok(elf_int(&f, "capacity")? == 1
+            && elf_int(&f, "encoding")? == 1
+            && elf_int(&f, "machine")? == 40
+            && elf_int(&f, "flags")? & 0xFF000000 == 0x05000000
+            && elf_int(&f, "flags")? & 0x00000400 == 0x00000400)
+    })
+}
+
+/// `_is_linux_i686`: 32-bit LE i386.
+#[pyfunction]
+#[pyo3(name = "manylinux_is_i686")]
+fn manylinux_is_i686(py: Python, executable: String) -> PyResult<bool> {
+    with_parse_elf(py, &executable, |f| {
+        let Some(f) = f else { return Ok(false) };
+        Ok(elf_int(&f, "capacity")? == 1
+            && elf_int(&f, "encoding")? == 1
+            && elf_int(&f, "machine")? == 3)
+    })
+}
+
+/// `_have_compatible_abi`: armv7l/i686 probe the executable, otherwise the
+/// architecture allowlist.
+#[pyfunction]
+#[pyo3(name = "manylinux_have_compatible_abi")]
+fn manylinux_have_compatible_abi(
+    py: Python,
+    executable: String,
+    archs: Vec<String>,
+) -> PyResult<bool> {
+    if archs.iter().any(|a| a == "armv7l") {
+        return mod_attr(py, "packaging._manylinux", "_is_linux_armhf")?.call1((executable,))?.extract();
+    }
+    if archs.iter().any(|a| a == "i686") {
+        return mod_attr(py, "packaging._manylinux", "_is_linux_i686")?.call1((executable,))?.extract();
+    }
+    Ok(archs.iter().any(|a| {
+        matches!(
+            a.as_str(),
+            "x86_64" | "aarch64" | "ppc64" | "ppc64le" | "s390x" | "loongarch64" | "riscv64"
+        )
+    }))
+}
+
+/// `_is_compatible(arch, version)`: glibc floor plus the `_manylinux`
+/// extension module's compatibility probes. Both helpers resolve through
+/// the module so doubles apply.
+#[pyfunction]
+#[pyo3(name = "manylinux_is_compatible")]
+fn manylinux_is_compatible(
+    py: Python,
+    arch: String,
+    version: Bound<PyAny>,
+) -> PyResult<bool> {
+    let sys_glibc =
+        mod_attr(py, "packaging._manylinux", "_get_glibc_version")?.call0()?;
+    if sys_glibc.lt(&version)? {
+        return Ok(false);
+    }
+    let module =
+        mod_attr(py, "packaging._manylinux", "_get_manylinux_module")?.call0()?;
+    if module.is_none() {
+        return Ok(true);
+    }
+    if module.hasattr("manylinux_compatible")? {
+        let result = module.getattr("manylinux_compatible")?.call1((
+            version.get_item(0)?,
+            version.get_item(1)?,
+            arch,
+        ))?;
+        if result.is_none() {
+            return Ok(true);
+        }
+        return result.extract();
+    }
+    for (major, minor, attr) in [
+        (2i64, 5i64, "manylinux1_compatible"),
+        (2, 12, "manylinux2010_compatible"),
+        (2, 17, "manylinux2014_compatible"),
+    ] {
+        if version.eq(glibc_version(py, major, minor)?)? && module.hasattr(attr)? {
+            return module.getattr(attr)?.extract();
+        }
+    }
+    Ok(true)
+}
+
+/// `platform_tags(archs)`: the canonical manylinux tag list. Returns a live
+/// iterator of strings.
+#[pyfunction]
+#[pyo3(name = "manylinux_platform_tags")]
+fn manylinux_platform_tags(py: Python, archs: Vec<String>) -> PyResult<Bound<PyAny>> {
+    let executable: String = py.import("sys")?.getattr("executable")?.extract()?;
+    let abi_ok: bool = mod_attr(py, "packaging._manylinux", "_have_compatible_abi")?
+        .call1((executable, archs.clone()))?
+        .extract()?;
+    if !abi_ok {
+        return str_iter(py, Vec::new());
+    }
+    let too_old = if archs.iter().any(|a| a == "x86_64" || a == "i686") {
+        (2i64, 4i64)
+    } else {
+        (2, 16)
+    };
+    let current =
+        mod_attr(py, "packaging._manylinux", "_get_glibc_version")?.call0()?;
+    let cur_major: i64 = current.get_item(0)?.extract()?;
+    let cur_minor: i64 = current.get_item(1)?.extract()?;
+    let last_minor = mod_attr(py, "packaging._manylinux", "_LAST_GLIBC_MINOR")?;
+    let mut glibc_max_list = vec![(cur_major, cur_minor)];
+    for major in (2..cur_major).rev() {
+        let minor: i64 = last_minor.get_item(major)?.extract()?;
+        glibc_max_list.push((major, minor));
+    }
+    let is_compatible = mod_attr(py, "packaging._manylinux", "_is_compatible")?;
+    let legacy_map = mod_attr(py, "packaging._manylinux", "_LEGACY_MANYLINUX_MAP")?;
+    let mut out = Vec::new();
+    for arch in &archs {
+        for (gmajor, gmax_minor) in &glibc_max_list {
+            let min_minor = if *gmajor == too_old.0 { too_old.1 } else { -1 };
+            let mut minor = *gmax_minor;
+            while minor > min_minor {
+                let v = glibc_version(py, *gmajor, minor)?;
+                let ok: bool = is_compatible.call1((arch, v.clone()))?.extract()?;
+                if ok {
+                    out.push(format!("manylinux_{gmajor}_{minor}_{arch}"));
+                    let legacy: Bound<PyAny> =
+                        legacy_map.call_method1("get", (v,))?;
+                    if !legacy.is_none() {
+                        let name: String = legacy.extract()?;
+                        out.push(format!("{name}_{arch}"));
+                    }
+                }
+                minor -= 1;
+            }
+        }
+    }
+    str_iter(py, out)
+}
+
+/// `_parse_musl_version`, returning a `_MuslVersion` or `None`.
+#[pyfunction]
+#[pyo3(name = "musllinux_parse_version")]
+fn musllinux_parse_version(py: Python, output: String) -> PyResult<Option<Bound<PyAny>>> {
+    match packaging_core::platform::parse_musl_version(&output) {
+        Some((major, minor)) => Ok(Some(musl_version(py, major, minor)?)),
+        None => Ok(None),
+    }
+}
+
+/// Uncached `_get_musl_version` (the shim wraps it in `lru_cache`): read the
+/// executable's `PT_INTERP` via `ELFFile`, run the loader, parse stderr.
+#[pyfunction]
+#[pyo3(name = "musllinux_get_version_uncached")]
+fn musllinux_get_version_uncached(
+    py: Python,
+    executable: String,
+) -> PyResult<Option<Bound<PyAny>>> {
+    let open = py.import("builtins")?.getattr("open")?;
+    let file = match open.call1((executable.clone(), "rb")) {
+        Ok(f) => f,
+        Err(e)
+            if err_matches(py, &e, &["OSError", "TypeError", "ValueError"]) =>
+        {
+            return Ok(None)
+        }
+        Err(e) => return Err(e),
+    };
+    let interp: Option<String> = (|| {
+        let elf_cls = mod_attr(py, "packaging._elffile", "ELFFile")?;
+        let elf = match elf_cls.call1((file.clone(),)) {
+            Ok(e) => e,
+            Err(e)
+                if err_matches(py, &e, &["OSError", "TypeError", "ValueError"]) =>
+            {
+                return Ok(None)
+            }
+            Err(e) => return Err(e),
+        };
+        elf.getattr("interpreter")?.extract()
+    })()?;
+    let _ = file.call_method0("close");
+    let Some(ld) = interp else { return Ok(None) };
+    if !ld.contains("musl") {
+        return Ok(None);
+    }
+    let subprocess = py.import("subprocess")?;
+    let stderr_val = subprocess.getattr("PIPE")?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("check", false)?;
+    kwargs.set_item("stderr", stderr_val)?;
+    kwargs.set_item("text", true)?;
+    let proc = subprocess
+        .getattr("run")?
+        .call((vec![ld],), Some(&kwargs))?;
+    let output: String = proc.getattr("stderr")?.extract()?;
+    mod_attr(py, "packaging._musllinux", "_parse_musl_version")?.call1((output,))?.extract()
+}
+
+/// `platform_tags(archs)`: musllinux tags from the running loader.
+#[pyfunction]
+#[pyo3(name = "musllinux_platform_tags")]
+fn musllinux_platform_tags(py: Python, archs: Vec<String>) -> PyResult<Bound<PyAny>> {
+    let executable: String = py.import("sys")?.getattr("executable")?.extract()?;
+    let sys_musl: Option<Bound<PyAny>> =
+        mod_attr(py, "packaging._musllinux", "_get_musl_version")?
+            .call1((executable,))?
+            .extract()?;
+    let Some(musl) = sys_musl else {
+        return str_iter(py, Vec::new());
+    };
+    let major: i64 = musl.get_item(0)?.extract()?;
+    let minor: i64 = musl.get_item(1)?.extract()?;
+    let mut out = Vec::new();
+    for arch in &archs {
+        for m in (0..=minor).rev() {
+            out.push(format!("musllinux_{major}_{m}_{arch}"));
+        }
+    }
+    str_iter(py, out)
 }
