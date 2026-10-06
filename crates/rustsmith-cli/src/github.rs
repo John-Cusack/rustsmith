@@ -343,6 +343,17 @@ pub(crate) trait Host {
     fn current_user(&self) -> Result<String, String>;
     /// Existing repo size in KiB, or `None` when the repo does not exist.
     fn repo_size(&self, owner: &str, repo: &str) -> Result<Option<i64>, String>;
+    /// Existing repo visibility (`"public"`/`"private"` as reported by the
+    /// host), or `None` when the repo does not exist or the host cannot
+    /// tell. Only the `--update` path reads it; the default is unknown.
+    fn repo_visibility(&self, _owner: &str, _repo: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+    /// SHA of the existing repo's `main` head, or `None` when absent. Only
+    /// the `--update` path reads it; the default is unknown.
+    fn repo_main_sha(&self, _owner: &str, _repo: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
     fn create_repo(&self, owner: &str, repo: &str, private: bool) -> Result<(), String>;
     fn push_main(&self, fork: &Path, remote: &str) -> Result<(), String>;
 }
@@ -374,6 +385,25 @@ impl Host for GhHost {
                 .parse::<i64>()
                 .map(Some)
                 .map_err(|e| format!("gh api {path}: bad .size: {e}")),
+            Err(e) if e.contains("404") => Ok(None),
+            Err(e) => Err(format!("gh api {path}: {e}")),
+        }
+    }
+    fn repo_visibility(&self, owner: &str, repo: &str) -> Result<Option<String>, String> {
+        let path = format!("repos/{owner}/{repo}");
+        match run_prog(Path::new("."), "gh", &["api", &path, "--jq", ".visibility"], &[]) {
+            Ok(out) => parse_json_string(&out).map(Some).map_err(|e| format!("gh api {path}: {e}")),
+            Err(e) if e.contains("404") => Ok(None),
+            Err(e) => Err(format!("gh api {path}: {e}")),
+        }
+    }
+    fn repo_main_sha(&self, owner: &str, repo: &str) -> Result<Option<String>, String> {
+        let path = format!("repos/{owner}/{repo}/branches/main");
+        match run_prog(Path::new("."), "gh", &["api", &path, "--jq", ".commit.sha"], &[]) {
+            Ok(out) => {
+                let s = parse_json_string(&out).map_err(|e| format!("gh api {path}: {e}"))?;
+                Ok(if s.trim().is_empty() { None } else { Some(s) })
+            }
             Err(e) if e.contains("404") => Ok(None),
             Err(e) => Err(format!("gh api {path}: {e}")),
         }
@@ -412,6 +442,9 @@ pub(crate) struct Plan {
     pub github_repo_was: String,
     pub needs_release_toml_fix: bool,
     pub repo_existed: bool,
+    /// `--update` push onto a non-empty repo: the remote `main` head the
+    /// fork descends from (fast-forward base). `None` on every other path.
+    pub base_sha: Option<String>,
 }
 
 pub(crate) fn plan(
@@ -420,6 +453,7 @@ pub(crate) fn plan(
     fork: &Path,
     recon_out: &Path,
     private: bool,
+    update: bool,
 ) -> Result<Plan, String> {
     if !project.is_dir() {
         return Err(format!("{}: no such project dir", project.display()));
@@ -468,15 +502,50 @@ pub(crate) fn plan(
     check_notice(fork, &cfg.upstream, &cfg.upstream_url, &cfg.upstream_authors, &license, &cfg.upstream_license)?;
     let remotes = fork_remotes(fork)?;
     check_no_upstream_remote(&remotes, &cfg.upstream, &cfg.upstream_url, &full)?;
-    // Existing repos: empty ones are ours to fill (or retry); non-empty is
-    // refused — pushing onto someone's history is never automatic.
-    let repo_existed = match host.repo_size(&owner, &repo)? {
-        None => false,
-        Some(size) if size <= 0 => true,
+    // Existing repos: empty ones are ours to fill (or retry). A non-empty
+    // repo is refused unless `--update` is given, and then only for a
+    // fast-forward: the remote `main` head must already be an ancestor of
+    // the fork's `main`, and the repo visibility must match the requested
+    // one. Pushing onto someone's history is never automatic, and history
+    // is never rewritten (the push itself is plain `git push`, which the
+    // server refuses when it is not a fast-forward).
+    let (repo_existed, base_sha) = match host.repo_size(&owner, &repo)? {
+        None => (false, None),
+        Some(size) if size <= 0 => (true, None),
         Some(size) => {
-            return Err(format!(
-                "github.com/{full} already exists and is non-empty (size {size} KiB); refusing to push onto it"
-            ));
+            if !update {
+                return Err(format!(
+                    "github.com/{full} already exists and is non-empty (size {size} KiB); refusing to push onto it (re-run with --update for a fast-forward-only push)"
+                ));
+            }
+            let want_vis = if private { "private" } else { "public" };
+            match host.repo_visibility(&owner, &repo)? {
+                Some(v) if v.eq_ignore_ascii_case(want_vis) => {}
+                Some(v) => {
+                    return Err(format!(
+                        "github.com/{full} is {v} (asked {want_vis}); refusing to push a {want_vis} release tree onto it"
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "github.com/{full}: visibility unknown; refusing to update it"
+                    ));
+                }
+            }
+            let base = match host.repo_main_sha(&owner, &repo)? {
+                Some(s) if !s.trim().is_empty() => s,
+                _ => {
+                    return Err(format!(
+                        "github.com/{full}: remote `main` head unknown; refusing to update it"
+                    ));
+                }
+            };
+            if run_prog(fork, "git", &["merge-base", "--is-ancestor", &base, &sha], &[]).is_err() {
+                return Err(format!(
+                    "github.com/{full}: remote `main` ({base}) is not an ancestor of the fork's `main` ({sha}); refusing a non-fast-forward push (clone the repo and apply the prepared tree on top, then re-run with --update)"
+                ));
+            }
+            (true, Some(base))
         }
     };
     Ok(Plan {
@@ -492,6 +561,7 @@ pub(crate) fn plan(
         github_repo_was: cfg.github_repo.clone(),
         needs_release_toml_fix: needs_fix,
         repo_existed,
+        base_sha,
     })
 }
 
@@ -510,7 +580,9 @@ pub(crate) fn preview(p: &Plan) -> String {
     } else {
         s.push_str("  release.toml: already matches\n");
     }
-    if p.repo_existed {
+    if let Some(base) = &p.base_sha {
+        s.push_str(&format!("  existing repo: non-empty at {base} (fast-forward to {}, will push)\n", p.sha));
+    } else if p.repo_existed {
         s.push_str("  existing repo: exists and is empty (will push)\n");
     } else {
         s.push_str("  existing repo: not found (will create)\n");
@@ -557,6 +629,7 @@ pub(crate) fn cmd_with_host(host: &dyn Host, args: &[String]) -> Result<(), Stri
     let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
     let private = has_flag(args, "--private");
     let yes = has_flag(args, "--yes");
+    let update = has_flag(args, "--update");
     // The run must exist before anything else: the remote is recorded
     // against it, and a typo'd id must fail in preview, not after a push.
     if !store_path.is_file() {
@@ -566,7 +639,7 @@ pub(crate) fn cmd_with_host(host: &dyn Host, args: &[String]) -> Result<(), Stri
     if store.get_run(&run_id).map_err(|e| e.to_string())?.is_none() {
         return Err(format!("unknown --run-id {run_id:?} in {}", store_path.display()));
     }
-    let p = plan(host, &project, &fork, &recon_out, private)?;
+    let p = plan(host, &project, &fork, &recon_out, private, update)?;
     if !yes {
         print!("{}", preview(&p));
         return Ok(());
@@ -640,6 +713,10 @@ mod tests {
         user: String,
         /// owner/repo -> size; absent = 404.
         repos: std::cell::RefCell<std::collections::BTreeMap<String, i64>>,
+        /// owner/repo -> visibility; absent = unknown.
+        visibility: std::cell::RefCell<std::collections::BTreeMap<String, String>>,
+        /// owner/repo -> main head SHA; absent = unknown.
+        main_sha: std::cell::RefCell<std::collections::BTreeMap<String, String>>,
         created: std::cell::RefCell<Vec<(String, String, bool)>>,
         pushed: std::cell::RefCell<Vec<(PathBuf, String)>>,
     }
@@ -648,9 +725,17 @@ mod tests {
             Self {
                 user: user.into(),
                 repos: Default::default(),
+                visibility: Default::default(),
+                main_sha: Default::default(),
                 created: Default::default(),
                 pushed: Default::default(),
             }
+        }
+        /// Register an existing non-empty repo the host reports.
+        fn set_remote(&self, full: &str, size: i64, vis: &str, sha: &str) {
+            self.repos.borrow_mut().insert(full.into(), size);
+            self.visibility.borrow_mut().insert(full.into(), vis.into());
+            self.main_sha.borrow_mut().insert(full.into(), sha.into());
         }
     }
     impl Host for FakeHost {
@@ -659,6 +744,12 @@ mod tests {
         }
         fn repo_size(&self, owner: &str, repo: &str) -> Result<Option<i64>, String> {
             Ok(self.repos.borrow().get(&format!("{owner}/{repo}")).copied())
+        }
+        fn repo_visibility(&self, owner: &str, repo: &str) -> Result<Option<String>, String> {
+            Ok(self.visibility.borrow().get(&format!("{owner}/{repo}")).cloned())
+        }
+        fn repo_main_sha(&self, owner: &str, repo: &str) -> Result<Option<String>, String> {
+            Ok(self.main_sha.borrow().get(&format!("{owner}/{repo}")).cloned())
         }
         fn create_repo(&self, owner: &str, repo: &str, private: bool) -> Result<(), String> {
             self.created.borrow_mut().push((owner.into(), repo.into(), private));
@@ -948,5 +1039,78 @@ mod tests {
         assert_eq!(host.pushed.borrow().len(), 1);
         let s = rustsmith_store::Store::open(&f.dir.join("store.db")).unwrap();
         assert_eq!(s.get_github_repo("r1").unwrap().unwrap().visibility, "private");
+    }
+    /// Fork with two commits; returns (dir, base_sha) where base is the
+    /// first commit (a valid fast-forward base for the second).
+    fn fork_two_commits(f: &Fixture) -> (PathBuf, String) {
+        let fork = f.fork();
+        let base = run_prog(&fork, "git", &["rev-parse", "main"], &[]).unwrap();
+        std::fs::write(fork.join("extra.txt"), "second commit\n").unwrap();
+        sh(&fork, &["git", "add", "-A"]);
+        sh(&fork, &["git", "commit", "-qm", "second"]);
+        (fork, base)
+    }
+
+    #[test]
+    fn update_pushes_fast_forward_without_create() {
+        let f = Fixture::new("Cap/crc-rust", "BSD-2-Clause");
+        let (fork, base) = fork_two_commits(&f);
+        f.recon(Some("BSD-2-Clause"), &["BSD-2-Clause"]);
+        f.store("r1");
+        let host = FakeHost::new("Cap");
+        host.set_remote("Cap/crc-rust", 42, "public", &base);
+        // Without --update the same state still refuses.
+        assert!(cmd_with_host(&host, &f.args(&fork, "r1", &["--yes"])).unwrap_err().contains("--update"));
+        assert!(host.pushed.borrow().is_empty());
+        // With --update: no create, one push, store row at the fork head.
+        cmd_with_host(&host, &f.args(&fork, "r1", &["--yes", "--update"])).unwrap();
+        assert!(host.created.borrow().is_empty());
+        assert_eq!(host.pushed.borrow().len(), 1);
+        let head = run_prog(&fork, "git", &["rev-parse", "main"], &[]).unwrap();
+        let s = rustsmith_store::Store::open(&f.dir.join("store.db")).unwrap();
+        assert_eq!(s.get_github_repo("r1").unwrap().unwrap().sha, head);
+    }
+
+    #[test]
+    fn update_refuses_non_ancestor_visibility_mismatch_unknown() {
+        // Remote head is not an ancestor of the fork: refused.
+        let f = Fixture::new("Cap/crc-rust", "BSD-2-Clause");
+        let (fork, _) = fork_two_commits(&f);
+        f.recon(Some("BSD-2-Clause"), &["BSD-2-Clause"]);
+        f.store("r1");
+        let host = FakeHost::new("Cap");
+        host.set_remote("Cap/crc-rust", 42, "public", "0000000000000000000000000000000000000000");
+        assert!(
+            cmd_with_host(&host, &f.args(&fork, "r1", &["--yes", "--update"]))
+                .unwrap_err()
+                .contains("not an ancestor")
+        );
+        assert!(host.pushed.borrow().is_empty());
+        // Visibility mismatch: refused (asked public, repo is private).
+        let f = Fixture::new("Cap/crc-rust", "BSD-2-Clause");
+        let (fork, base) = fork_two_commits(&f);
+        f.recon(Some("BSD-2-Clause"), &["BSD-2-Clause"]);
+        f.store("r1");
+        let host = FakeHost::new("Cap");
+        host.set_remote("Cap/crc-rust", 42, "private", &base);
+        assert!(
+            cmd_with_host(&host, &f.args(&fork, "r1", &["--yes", "--update"]))
+                .unwrap_err()
+                .contains("is private")
+        );
+        assert!(host.pushed.borrow().is_empty());
+        // Unknown visibility / head: refused, never guessed.
+        let f = Fixture::new("Cap/crc-rust", "BSD-2-Clause");
+        let (fork, _) = fork_two_commits(&f);
+        f.recon(Some("BSD-2-Clause"), &["BSD-2-Clause"]);
+        f.store("r1");
+        let host = FakeHost::new("Cap");
+        host.repos.borrow_mut().insert("Cap/crc-rust".into(), 42);
+        assert!(
+            cmd_with_host(&host, &f.args(&fork, "r1", &["--yes", "--update"]))
+                .unwrap_err()
+                .contains("visibility unknown")
+        );
+        assert!(host.pushed.borrow().is_empty());
     }
 }
