@@ -6,6 +6,7 @@
 //!
 //! License: Apache-2.0 OR BSD-2-Clause (preserved from the original).
 
+pub mod elf;
 pub mod version;
 
 pub use version::ParsedVersion;

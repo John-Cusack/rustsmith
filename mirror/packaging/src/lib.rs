@@ -967,15 +967,168 @@ fn normalize_pre_fn(letter: String) -> String {
 #[pymodule]
 fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<Version>()?;
+    m.add_class::<ELFFile>()?;
     m.add("InvalidVersion", m.py().get_type::<InvalidVersion>())?;
+    m.add("ELFInvalid", m.py().get_type::<ELFInvalid>())?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_pre_fn, m)?)?;
     // Tracebacks name the public module, not the extension.
     m.py()
         .get_type::<InvalidVersion>()
         .setattr("__module__", "packaging.version")?;
+    m.py()
+        .get_type::<ELFInvalid>()
+        .setattr("__module__", "packaging._elffile")?;
     // Pattern matching (`__match_args__ == ("_str",)`, mirroring the original).
     m.getattr("Version")?
         .setattr("__match_args__", ("_str",))?;
     Ok(())
+}
+// ---------------------------------------------------------------------------
+// ELF files (`packaging._elffile`).
+// ---------------------------------------------------------------------------
+
+pyo3::create_exception!(_packaging, ELFInvalid, PyValueError);
+
+/// Read exactly `n` bytes via the file object's `read`, mirroring
+/// `struct.unpack(fmt, f.read(calcsize(fmt)))`: a short read is a
+/// `struct.error` in the original, surfaced here as `None`.
+fn read_bytes(f: &Bound<PyAny>, n: usize) -> PyResult<Option<Vec<u8>>> {
+    let data: Vec<u8> = f.call_method1("read", (n,))?.extract()?;
+    if data.len() < n {
+        return Ok(None);
+    }
+    Ok(Some(data))
+}
+
+/// `packaging._elffile.ELFFile`: parsed ELF executable.
+#[pyclass(name = "ELFFile", module = "packaging._elffile")]
+struct ELFFile {
+    f: Py<PyAny>,
+    kind: packaging_core::elf::ElfKind,
+    ehdr: packaging_core::elf::Ehdr,
+    capacity: u8,
+    encoding: u8,
+}
+
+#[pymethods]
+impl ELFFile {
+    #[new]
+    #[pyo3(signature = (*args))]
+    fn new(py: Python, args: &Bound<PyTuple>) -> PyResult<Self> {
+        use packaging_core::elf::ElfKind;
+        if args.len() != 1 {
+            return Err(PyTypeError::new_err(format!(
+                "ELFFile expected 1 argument, got {}",
+                args.len()
+            )));
+        }
+        let f: Bound<PyAny> = args.get_item(0)?;
+        let Some(ident) = read_bytes(&f, 16)? else {
+            return Err(ELFInvalid::new_err("unable to parse identification"));
+        };
+        if ident[..4] != [0x7f, b'E', b'L', b'F'] {
+            let magic = pyo3::types::PyBytes::new(py, &ident[..4]);
+            let repr = magic.repr()?.to_string();
+            return Err(ELFInvalid::new_err(format!("invalid magic: {repr}")));
+        }
+        let capacity = ident[4];
+        let encoding = ident[5];
+        let Some(kind) = ElfKind::for_ident(capacity, encoding) else {
+            return Err(ELFInvalid::new_err(format!(
+                "unrecognized capacity ({capacity}) or encoding ({encoding})"
+            )));
+        };
+        let n = kind.ehdr_len();
+        let Some(ehdr_data) = read_bytes(&f, n)? else {
+            return Err(ELFInvalid::new_err(
+                "unable to parse machine and section information",
+            ));
+        };
+        let ehdr = packaging_core::elf::parse_ehdr(kind, &ehdr_data);
+        Ok(ELFFile {
+            f: f.unbind(),
+            kind,
+            ehdr,
+            capacity,
+            encoding,
+        })
+    }
+
+    #[getter]
+    fn capacity(&self) -> u8 {
+        self.capacity
+    }
+
+    #[getter]
+    fn encoding(&self) -> u8 {
+        self.encoding
+    }
+
+    // Private header-layout attributes, exposed because the test suite
+    // reaches into them (`test_elffle_no_interpreter_section`).
+    #[getter]
+    fn _e_phoff<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(self.ehdr.phoff.into_pyobject(py)?.into_any())
+    }
+
+    #[getter]
+    fn _e_phentsize<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(self.ehdr.phentsize.into_pyobject(py)?.into_any())
+    }
+
+    #[getter]
+    fn _e_phnum<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(self.ehdr.phnum.into_pyobject(py)?.into_any())
+    }
+
+    #[getter]
+    fn _p_fmt(&self) -> String {
+        let endian = if self.kind.little { "<" } else { ">" };
+        if self.kind.is64 {
+            format!("{endian}IIQQQQQQ")
+        } else {
+            format!("{endian}IIIIIIII")
+        }
+    }
+
+    #[getter]
+    fn machine<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(self.ehdr.machine.into_pyobject(py)?.into_any())
+    }
+
+    #[getter]
+    fn flags<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(self.ehdr.flags.into_pyobject(py)?.into_any())
+    }
+
+    #[getter]
+    fn interpreter(slf: &Bound<Self>) -> PyResult<Option<String>> {
+        use packaging_core::elf::{PT_INTERP, parse_phdr};
+        let py = slf.py();
+        let this = slf.borrow();
+        let f: Bound<PyAny> = this.f.bind(py).clone();
+        let kind = this.kind;
+        let (phoff, phentsize, phnum) = (this.ehdr.phoff, this.ehdr.phentsize, this.ehdr.phnum);
+        drop(this);
+        for index in 0..phnum {
+            f.call_method1("seek", (phoff + phentsize * index,))?;
+            let Some(data) = read_bytes(&f, kind.phdr_len())? else {
+                continue;
+            };
+            let (ptype, offset, filesz) = parse_phdr(kind, &data);
+            if ptype != PT_INTERP {
+                continue;
+            }
+            f.call_method1("seek", (offset,))?;
+            let raw: Vec<u8> = f.call_method1("read", (filesz,))?.extract()?;
+            let text: Bound<PyAny> = py
+                .import("os")?
+                .getattr("fsdecode")?
+                .call1((pyo3::types::PyBytes::new(py, &raw),))?;
+            let s: String = text.extract()?;
+            return Ok(Some(s.trim_matches('\0').to_string()));
+        }
+        Ok(None)
+    }
 }
