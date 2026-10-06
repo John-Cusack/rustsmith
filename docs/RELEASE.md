@@ -200,7 +200,7 @@ human-triggered subcommand — never automatically during a run:
 
 ```
 rustsmith create-github-repo --fork <dir> --project mirror/<pkg> \
-    --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes]
+    --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes] [--update]
 ```
 
 - Public by default; `--private` opts out. The canonical name is
@@ -211,10 +211,20 @@ rustsmith create-github-repo --fork <dir> --project mirror/<pkg> \
 - With `--yes` it creates the repo via authenticated `gh`, adds the remote,
   records the remote in the run store (`github_repos`) plus a
   `github_repo_created` event, and pushes the fork's `main`.
-- Refused before any side effect: an existing non-empty repo, a `github_repo`
-  owner other than the authenticated `gh` user, any fork remote pointing at
-  the upstream package, a dirty fork tree, and a missing/ambiguous recon
-  license record (the upstream license is read from recon, never guessed).
+- Updating an existing non-empty repo needs `--update`, and is fast-forward
+  only: the repo visibility must match the requested one (public unless
+  `--private`), and the remote `main` head must already be an ancestor of
+  the fork's `main` (clone the repo and apply the prepared tree on top, so
+  history is preserved). Anything else — a visibility mismatch, an unknown
+  remote head, a fork that does not descend from it — is refused, and the
+  push itself is plain `git push` (no force flags anywhere), so the server
+  re-enforces fast-forward. The store recording is the same upsert as the
+  create path.
+- Refused before any side effect: an existing non-empty repo without
+  `--update`, a `github_repo` owner other than the authenticated `gh` user,
+  any fork remote pointing at the upstream package, a dirty fork tree, and a
+  missing/ambiguous recon license record (the upstream license is read from
+  recon, never guessed).
 - License: MIT unless the upstream license requires otherwise — copyleft
   GPL/LGPL stays under upstream terms with the upstream LICENSE text. Every
   pushed repo carries LICENSE plus NOTICE naming the upstream project, URL,
