@@ -1,0 +1,18 @@
+charset-normalizer-rust: Rust mirror of Ousret/charset_normalizer
+=======================================================================
+
+This directory holds the rustsmith Stage-1 mirror of
+https://github.com/Ousret/charset_normalizer (charset detection library).
+
+* Upstream authors: Ahmed R. TAHRI
+* Upstream license: MIT (SPDX tag carried in every file header).
+* This port: behavior-identical, same public API
+  (`charset_normalizer._charset_normalizer` extension module plus the
+  `charset_normalizer/__init__.py` + `charset_normalizer/__main__.py`
+  shims), published as the `charset-normalizer-rust` distribution on PyPI
+  (import name unchanged: `import charset_normalizer`) with reusable core
+  crate `charset-normalizer-core` on crates.io.
+
+Provenance: every artifact preserves the upstream license header and this
+attribution (provenance gate). See `release.toml` for the publishing
+configuration and `docs/RELEASE.md` for the release procedure.

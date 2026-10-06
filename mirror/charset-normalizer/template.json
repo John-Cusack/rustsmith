@@ -1,0 +1,97 @@
+{
+ "package": "charset-normalizer",
+ "extension_module": "charset_normalizer._charset_normalizer",
+ "src_layout": true,
+ "files": [
+  [
+   "Cargo.toml",
+   "Cargo.toml"
+  ],
+  [
+   "Cargo.lock",
+   "Cargo.lock"
+  ],
+  [
+   "pyproject.toml",
+   "pyproject.toml"
+  ],
+  [
+   "release.toml",
+   "release.toml"
+  ],
+  [
+   "NOTICE",
+   "NOTICE"
+  ],
+  [
+   "README.md",
+   "README.md"
+  ],
+  [
+   "src/lib.rs",
+   "src/lib.rs"
+  ],
+  [
+   "charset_normalizer-core/Cargo.toml",
+   "charset_normalizer-core/Cargo.toml"
+  ],
+  [
+   "charset_normalizer-core/src/lib.rs",
+   "charset_normalizer-core/src/lib.rs"
+  ],
+  [
+   "charset_normalizer-core/src/tables_constant.rs",
+   "charset_normalizer-core/src/tables_constant.rs"
+  ],
+  [
+   "charset_normalizer-core/src/tables_ucd.rs",
+   "charset_normalizer-core/src/tables_ucd.rs"
+  ],
+  [
+   "charset_normalizer-core/src/tables_codecs.rs",
+   "charset_normalizer-core/src/tables_codecs.rs"
+  ],
+  [
+   "charset_normalizer-core/src/decoders.rs",
+   "charset_normalizer-core/src/decoders.rs"
+  ],
+  [
+   "charset_normalizer-core/src/utils.rs",
+   "charset_normalizer-core/src/utils.rs"
+  ],
+  [
+   "charset_normalizer-core/src/models.rs",
+   "charset_normalizer-core/src/models.rs"
+  ],
+  [
+   "charset_normalizer-core/src/md.rs",
+   "charset_normalizer-core/src/md.rs"
+  ],
+  [
+   "charset_normalizer-core/src/cd.rs",
+   "charset_normalizer-core/src/cd.rs"
+  ],
+  [
+   "charset_normalizer-core/src/api.rs",
+   "charset_normalizer-core/src/api.rs"
+  ],
+  [
+   "charset_normalizer-core/src/legacy.rs",
+   "charset_normalizer-core/src/legacy.rs"
+  ],
+  [
+   "charset_normalizer/__init__.py",
+   "charset_normalizer/__init__.py"
+  ]
+ ],
+ "extra_files": {
+  "python:src/charset_normalizer/__main__.py": [
+   [
+    "charset_normalizer/__main__.py",
+    "charset_normalizer/__main__.py"
+   ]
+  ]
+ },
+ "delete_on_merge": {},
+ "orig_source": {}
+}

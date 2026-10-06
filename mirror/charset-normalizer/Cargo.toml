@@ -1,0 +1,19 @@
+[package]
+name = "charset-normalizer-rust"
+version = "3.5.1"
+edition = "2021"
+description = "Pure-Rust charset detection with Python bindings (rustsmith Stage-1 mirror of Ousret/charset_normalizer)"
+license = "MIT"
+repository = "https://github.com/John-Cusack/charset-normalizer-rust"
+homepage = "https://github.com/Ousret/charset_normalizer"
+
+[lib]
+name = "_charset_normalizer"
+crate-type = ["cdylib"]
+
+[dependencies]
+charset-normalizer-core = { path = "charset_normalizer-core", version = "3.5.1" }
+pyo3 = { version = "0.23", features = ["macros"] }
+
+[workspace]
+members = ["charset_normalizer-core"]

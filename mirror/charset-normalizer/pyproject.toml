@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "charset-normalizer-rust"
+version = "3.5.1"
+description = "Pure-Rust charset detection (rustsmith Stage-1 mirror of Ousret/charset_normalizer)"
+authors = [{ name = "Ahmed R. TAHRI" }]
+requires-python = ">=3.11,<4.0"
+readme = "README.md"
+license = "MIT"
+keywords = ["charset", "encoding", "detection", "rust"]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Text Processing :: Linguistic",
+]
+
+[project.urls]
+Homepage = "https://github.com/John-Cusack/charset-normalizer-rust"
+Upstream = "https://github.com/Ousret/charset_normalizer"
+
+[tool.maturin]
+module-name = "charset_normalizer._charset_normalizer"
+bindings = "pyo3"
+features = ["pyo3/extension-module"]
+# The reusable Rust core ships inside the sdist as a path dependency
+# (verified by `release-prep`: the sdist rebuild test builds the wheel
+# from the unpacked sdist with no network checkout).
+sdist-include = ["charset_normalizer-core/**/*", "NOTICE", "release.toml"]
+
+# Test config preserved verbatim from the original (frozen oracle owns this).
+[tool.pytest.ini_options]
+log_level = "DEBUG"
+filterwarnings = [
+    "error",
+]

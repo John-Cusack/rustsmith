@@ -1,0 +1,54 @@
+# Release configuration for the `charset-normalizer` converted project.
+#
+# This file is the single source of truth for publishing the rustsmith output
+# as a reusable Rust core crate (crates.io) plus a Python package calling that
+# same core (PyPI). `rustsmith release-prep --project mirror/charset-normalizer ...`
+# reads it; every name/version here MUST match the manifests below or prep fails.
+#
+# Reusable: copy this file to `mirror/<package>/release.toml` and fill in the
+# new project's values. Field meanings are documented in `docs/RELEASE.md`.
+
+[release]
+schema = 1
+# Original package identity. `project` is the Python module name (dashes are
+# not module names, so `charset_normalizer`, not the `template.json` dist
+# spelling `charset-normalizer`); `python_import` MUST equal it.
+project = "charset_normalizer"
+# Rust core crate published to crates.io (`charset_normalizer-core/Cargo.toml [package] name`).
+rust_crate = "charset-normalizer-core"
+# Python distribution published to PyPI (`pyproject.toml [project] name`).
+# MUST differ from `project`: the original name stays with upstream.
+pypi_dist = "charset-normalizer-rust"
+# Python import name. MUST equal `project`: users swap the install with zero
+# import changes (`pip install charset-normalizer-rust` still does `import charset_normalizer`).
+python_import = "charset_normalizer"
+# Release version. MUST equal `[package] version` in `Cargo.toml`,
+# `charset_normalizer-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
+version = "3.5.1"
+# Supported Python versions (workflow matrix) and the matching floor.
+requires_python = ">=3.11,<4.0"
+python_versions = ["3.11", "3.12", "3.13"]
+# GitHub runners the release workflow builds and tests on.
+platforms = ["ubuntu-22.04", "macos-14", "windows-2022"]
+
+# Publishing repository and workflow identity (trusted publishing, no tokens).
+# The repo below is the publishing home for the converted project: create it,
+# push the prepared tree, then register the trusted publishers.
+github_repo = "John-Cusack/charset-normalizer-rust"
+release_workflow = ".github/workflows/release.yml"
+pypi_environment = "pypi"
+testpypi_environment = "testpypi"
+
+# License and upstream attribution.
+license_spdx = "MIT"
+upstream = "Ousret/charset_normalizer"
+upstream_url = "https://github.com/Ousret/charset_normalizer"
+upstream_license = "MIT"
+upstream_authors = "Ahmed R. TAHRI"
+
+# Smoke checks run against the installed wheel (Python expressions; each must
+# evaluate truthy). Kept to stdlib-only, deterministic vectors.
+smoke_exprs = [
+  "charset_normalizer.from_bytes(b'Hello, world!').best().encoding == 'ascii'",
+  "charset_normalizer.from_bytes('café crème brûlée'.encode('cp1252')).best() is not None",
+]
