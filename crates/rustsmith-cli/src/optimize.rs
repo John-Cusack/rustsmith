@@ -1150,6 +1150,7 @@ pub fn round0_report(fork: &Path) -> Vec<String> {
 /// `failed_optimizations` with round 0. Finding→patch map is explicit; a
 /// finding with no deterministic patch is recorded `rejected_at_proposal`.
 /// Worker-command usage (slice 3) feeds `tokens_spent` only (default 0).
+#[allow(clippy::too_many_arguments)]
 pub fn run_round0_apply(
     store: &Store,
     ctx: &OptCtx,
@@ -1167,6 +1168,7 @@ pub fn run_round0_apply(
     }
     let finding = findings[0].clone();
     // Explicit finding→patch map (crc Round 0 reports the format! sites).
+    #[allow(clippy::type_complexity)]
     let mapped: Option<(&str, &str, u8, fn(&Path) -> Result<Vec<String>, String>)> = if finding.contains("format!") {
         Some(("round0-manual-hex", "compute", 8, crate::candidates::apply_round0_manual_hex))
     } else {
@@ -1318,7 +1320,7 @@ pub fn run_round0_apply(
 pub fn review_proposal(bound: profile::Bound, tier: u8, technique: &str) -> Result<(), String> {
     let ok = match bound {
         profile::Bound::Compute => matches!(tier, 1 | 2 | 8),
-        profile::Bound::MemoryBandwidth | profile::Bound::MemoryLatency => matches!(tier, 2 | 3 | 4 | 5),
+        profile::Bound::MemoryBandwidth | profile::Bound::MemoryLatency => matches!(tier, 2..=5),
         profile::Bound::Allocation => matches!(tier, 3 | 4),
         profile::Bound::SyscallIo => matches!(tier, 6),
         profile::Bound::Branch => matches!(tier, 2 | 8),

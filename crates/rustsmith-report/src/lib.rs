@@ -327,7 +327,7 @@ pub fn emit_md(r: &Report) -> String {
     s.push_str(&format!(
         "\n## Spend\ntokens: {} | cache hit rate: {}\n",
         r.tokens.spent,
-        r.tokens.cache_hit_rate.map(|v| num(v)).unwrap_or_else(|| "n/a".into()),
+        r.tokens.cache_hit_rate.map(num).unwrap_or_else(|| "n/a".into()),
     ));
     s.push_str("\n## Negative results\n");
     for n in &r.negative_results {
@@ -411,7 +411,7 @@ pub fn emit_html(r: &Report) -> String {
     s.push_str(&format!(
         "<h2>Spend</h2><p>tokens: {} | cache hit rate: {}</p>",
         r.tokens.spent,
-        r.tokens.cache_hit_rate.map(|v| num(v)).unwrap_or_else(|| "n/a".into()),
+        r.tokens.cache_hit_rate.map(num).unwrap_or_else(|| "n/a".into()),
     ));
     s.push_str("<h2>Negative results</h2><ul>");
     for n in &r.negative_results {

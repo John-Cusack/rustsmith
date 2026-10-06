@@ -51,6 +51,7 @@ fn run() -> Result<(), String> {
         "report" => cmd_report(&args[2..]),
         "status" => cmd_status(&args[2..]),
         "resume" => cmd_resume(&args[2..]),
+        "halt" => cmd_halt(&args[2..]),
         "release-prep" => release::cmd_release_prep(&args[2..]),
         "release-record" => release::cmd_release_record(&args[2..]),
         "release-status" => release::cmd_release_status(&args[2..]),
@@ -162,9 +163,9 @@ fn run_pipeline(
 ) -> Result<(), String> {
     let store = Store::open(store_path).map_err(|e| e.to_string())?;
     store
-        .create_run(&run_id, &repo_spec, "python", "run")
+        .create_run(run_id, repo_spec, "python", "run")
         .map_err(|e| e.to_string())?;
-    ev_run(&store, &run_id, "run_start", serde_json::json!({"repo": repo_spec, "stage": stage}));
+    ev_run(&store, run_id, "run_start", serde_json::json!({"repo": repo_spec, "stage": stage}));
     let recon_out = work.join("recon");
     let heldout_out = work.join("heldout");
     let opt = work.join("opt");
@@ -181,12 +182,12 @@ fn run_pipeline(
                 ("--out", &recon_out.display().to_string()),
                 ("--heldout-out", &heldout_out.display().to_string()),
                 ("--store", &store_s),
-                ("--run-id", &run_id),
+                ("--run-id", run_id),
             ])),
             "mirror" => {
                 if plant == Some("test-edit") {
-                    plant_test_edit(&store, &run_id, &recon_out, &orig, &work)?;
-                    return Err(format!("halted: {}", store.halt_reason(&run_id).map_err(|e| e.to_string())?.unwrap_or_default()));
+                    plant_test_edit(&store, run_id, &recon_out, orig, work)?;
+                    return Err(format!("halted: {}", store.halt_reason(run_id).map_err(|e| e.to_string())?.unwrap_or_default()));
                 }
                 cmd_mirror(&sargs(vec![
                     ("--repo", &orig.display().to_string()),
@@ -194,12 +195,12 @@ fn run_pipeline(
                     ("--recon-out", &recon_out.display().to_string()),
                     ("--heldout", &heldout_out.display().to_string()),
                     ("--store", &store_s),
-                    ("--run-id", &run_id),
+                    ("--run-id", run_id),
                 ]))
             }
             "optimize" => {
                 if plant == Some("hardcode") {
-                    return plant_hardcode(&store, &run_id, &fork, &orig, &recon_out, &heldout_out);
+                    return plant_hardcode(&store, run_id, fork, orig, &recon_out, &heldout_out);
                 }
                 let max_rounds_s = cfg.max_rounds.to_string();
                 let gain_s = cfg.gain_threshold_pct.to_string();
@@ -210,7 +211,7 @@ fn run_pipeline(
                     ("--recon-out", &recon_out.display().to_string()),
                     ("--heldout", &heldout_out.display().to_string()),
                     ("--store", &store_s),
-                    ("--run-id", &run_id),
+                    ("--run-id", run_id),
                     ("--orig", &orig.display().to_string()),
                     ("--max-rounds", &max_rounds_s),
                     ("--gain-threshold", &gain_s),
@@ -218,7 +219,7 @@ fn run_pipeline(
                 ]))
             }
             "harvest" => cmd_report(&sargs(vec![
-                ("--run-id", &run_id),
+                ("--run-id", run_id),
                 ("--fork", &fork.display().to_string()),
                 ("--orig", &orig.display().to_string()),
                 ("--store", &store_s),
@@ -230,11 +231,11 @@ fn run_pipeline(
         if let Err(e) = r {
             // Stages record tamper/divergence halts themselves; anything else
             // halts the run as a stage failure (never silent, never success).
-            let has_halt = store.halt_reason(&run_id).map_err(|e| e.to_string())?;
+            let has_halt = store.halt_reason(run_id).map_err(|e| e.to_string())?;
             if has_halt.is_none() {
                 let reason = format!("{s}_failed: {e}");
-                store.set_halt(&run_id, &reason).map_err(|e| e.to_string())?;
-                ev_run(&store, &run_id, "halt", serde_json::json!({"stage": s, "reason": reason}));
+                store.set_halt(run_id, &reason).map_err(|e| e.to_string())?;
+                ev_run(&store, run_id, "halt", serde_json::json!({"stage": s, "reason": reason}));
             }
             return Err(e);
         }
@@ -500,8 +501,8 @@ fn plant_hardcode(
     let mut t = std::fs::read_to_string(&shim).map_err(|e| e.to_string())?;
     t.push_str(&wrapper);
     std::fs::write(&shim, t).map_err(|e| e.to_string())?;
-    let _ = git_cli(&fork.to_path_buf(), &["add", "-A"]);
-    let _ = git_cli(&fork.to_path_buf(), &["commit", "-qm", "plant hardcode (adversarial probe)"]);
+    let _ = git_cli(fork, &["add", "-A"]);
+    let _ = git_cli(fork, &["commit", "-qm", "plant hardcode (adversarial probe)"]);
     // Whole-repo grade through the real path (no rebuild: pure-Python patch).
     // Measure first (counts-first precedence, same as `grade`).
     let venv = fork.join(".grade-venv");
@@ -1233,7 +1234,7 @@ fn cmd_learn_propose(args: &[String]) -> Result<(), String> {
         .unwrap_or_else(optimize::read_guidance_version_cli);
     let n: i64 = current
         .split('v')
-        .last()
+        .next_back()
         .and_then(|s| s.split_whitespace().next())
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);

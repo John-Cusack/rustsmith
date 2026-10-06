@@ -256,7 +256,7 @@ fn quoted_field(line: &str, field: &str) -> Option<String> {
         if let Some(stripped) = eq.strip_prefix('=') {
             let v = stripped.trim_start();
             if v.starts_with('"') {
-                let inner = &v[1..];
+                let inner = v.strip_prefix('"').unwrap();
                 if let Some(e) = inner.find('"') {
                     return Some(inner[..e].to_string());
                 }

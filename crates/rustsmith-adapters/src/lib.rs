@@ -1073,12 +1073,11 @@ impl BuildBridge for MaturinBridge {
                         c.as_os_str() == ".git" || c.as_os_str() == "target" || c.as_os_str() == ".cargo"
                     })
                 })
+                .flatten()
             {
-                if let Ok(entry) = entry {
-                    let p = entry.path();
-                    if p.is_file() && p.extension().map(|x| x == "whl").unwrap_or(false) {
-                        out.push(p.to_path_buf());
-                    }
+                let p = entry.path();
+                if p.is_file() && p.extension().map(|x| x == "whl").unwrap_or(false) {
+                    out.push(p.to_path_buf());
                 }
             }
         }
@@ -1313,9 +1312,7 @@ impl TestRunner for PytestRunner {
                 outcomes.insert(format!("summary-failed-{i}"), Outcome::Fail);
             }
             // Legacy exit-code fold: a failing run sets the code, else first nonzero wins.
-            if run.exit_code != 0 && r_failed > 0 {
-                exit_code = run.exit_code;
-            } else if run.exit_code != 0 && exit_code == 0 {
+            if run.exit_code != 0 && (r_failed > 0 || exit_code == 0) {
                 exit_code = run.exit_code;
             }
         }
@@ -1408,10 +1405,10 @@ print(json.dumps(out))
                         return false;
                     }
                 }
-                if p.components().any(|c| c.as_os_str() == "bench") {
-                    if p.extension().map(|x| x == "py").unwrap_or(false) {
-                        return false;
-                    }
+                if p.components().any(|c| c.as_os_str() == "bench")
+                    && p.extension().map(|x| x == "py").unwrap_or(false)
+                {
+                    return false;
                 }
                 true
             })
@@ -1593,7 +1590,7 @@ impl Profiler for PyProfiler {
         // The Python path never needs perf; the flag only gates perf-based
         // tools, which this stack does not use.
         let _ = perf_available;
-        rustsmith_profile::capture_hotspot_baseline(&self.repo, &[w.stmt.clone()])
+        rustsmith_profile::capture_hotspot_baseline(&self.repo, std::slice::from_ref(&w.stmt))
             .map_err(|e| AdapterError::Parse(e.to_string()))
     }
 }
@@ -1653,6 +1650,7 @@ fn walk_source_files(tree: &Path, build_dir: Option<&Path>) -> Result<Vec<PathBu
 /// [`assemble_call_graph`] and [`CompositeAdapter::partition`]: partition
 /// coarsens/marks units between collection and stem mapping, while the legacy
 /// path maps immediately so its output is unchanged.
+#[allow(clippy::type_complexity)]
 fn collect_fragments(
     tree: &Path,
     files: &[PathBuf],
@@ -1739,14 +1737,14 @@ fn stems_to_call_graph(
         }
         // First unit wins a stem collision (same rule as the rel entry):
         // frontends iterate deterministically, so this is stable.
-        if stem_to_lang.get(stem).is_none() {
+        if !stem_to_lang.contains_key(stem) {
             if let Some((head, _)) = unit.id.0.split_once(':') {
                 if !head.is_empty() && !head.contains('/') {
                     stem_to_lang.insert(stem, head);
                 }
             }
         }
-        if stem_to_exports.get(stem).is_none() {
+        if !stem_to_exports.contains_key(stem) {
             stem_to_exports.insert(
                 stem,
                 unit.exports.iter().map(|e| (e.linkage.clone(), export_bind_c(&e.abi))).collect(),
@@ -2462,8 +2460,7 @@ fn parse_bind_c(lower: &str, orig: &str) -> Option<Option<String>> {
         let after = search[bi + 4..].trim_start();
         // Byte offset of `after` within the whole line (ASCII throughout).
         let skipped = offset + bi + 4 + (search[bi + 4..].len() - after.len());
-        if after.starts_with('(') {
-            let inner = &after[1..];
+        if let Some(inner) = after.strip_prefix('(') {
             let head: String = inner.chars().take_while(|c| *c != ',' && *c != ')').collect();
             if head.trim() == "c" {
                 let rest = &inner[head.len()..];
@@ -2965,7 +2962,7 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
         let abs_key = src.to_string_lossy().into_owned();
         let lang = match db_index.as_ref().and_then(|db| db.get(&abs_key)) {
             Some(l) if l.to_ascii_uppercase().starts_with("CXX") => "cxx",
-            Some(l) if l.to_ascii_uppercase() == "C" => "c",
+            Some(l) if l.eq_ignore_ascii_case("C") => "c",
             _ => {
                 if cxx_ext_kind(src) == Some(true) {
                     "cxx"
@@ -3192,7 +3189,7 @@ pub fn parse_ld_debug_files(text: &str) -> Vec<String> {
         let Some(fi) = line.find("file=") else { continue };
         let rest = &line[fi + "file=".len()..];
         let end = rest
-            .find(|c| c == ' ' || c == '\t' || c == ';' || c == ']')
+            .find([' ', '\t', ';', ']'])
             .unwrap_or(rest.len());
         let candidate = rest[..end].trim().trim_matches('"');
         if candidate.contains(".so") {
@@ -3575,7 +3572,7 @@ fn ctest_grade_text(text: &str, outcomes: &mut BTreeMap<String, Outcome>) {
         let mut best: Option<(usize, Outcome)> = None;
         for (verb, outcome) in verbs {
             if let Some(pos) = right.rfind(verb) {
-                if best.map_or(true, |(p, _)| pos >= p) {
+                if best.is_none_or(|(p, _)| pos >= p) {
                     best = Some((pos, outcome));
                 }
             }
@@ -3770,7 +3767,7 @@ fn ctest_source_text(run: &RunOutput, source: &str) -> String {
     if source == "*" {
         let mut text = run.stdout.clone();
         text.push('\n');
-        for (_, bytes) in &run.artifacts {
+        for bytes in run.artifacts.values() {
             text.push_str(&String::from_utf8_lossy(bytes));
             text.push('\n');
         }
@@ -3919,11 +3916,9 @@ impl TestRunner for CtestRunner {
                 for scope in parsed.scopes {
                     non_test_symbols.insert(scope.name);
                 }
-            } else {
-                if let Some(stem) = abs.file_stem().and_then(|s| s.to_str()) {
-                    non_test_symbols.insert(stem.to_ascii_lowercase());
-                    non_test_symbols.insert(format!("{}_h", stem.to_ascii_lowercase()));
-                }
+            } else if let Some(stem) = abs.file_stem().and_then(|s| s.to_str()) {
+                non_test_symbols.insert(stem.to_ascii_lowercase());
+                non_test_symbols.insert(format!("{}_h", stem.to_ascii_lowercase()));
             }
         }
         let mut out = Vec::new();

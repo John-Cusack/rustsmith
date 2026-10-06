@@ -642,7 +642,7 @@ impl Sandbox {
             .args(["worktree", "add", "-b", &branch, wt.as_str()])
             .current_dir(repo)
             .output()
-            .map_err(|e| SandboxError::Io(e))?;
+            .map_err(SandboxError::Io)?;
         if !out.status.success() {
             return Err(SandboxError::Docker(format!("git worktree add failed: {}", String::from_utf8_lossy(&out.stderr))));
         }
@@ -677,7 +677,7 @@ impl BuildLease {
     pub fn acquire(run_dir: &Path, timeout: std::time::Duration) -> Result<Self, SandboxError> {
         std::fs::create_dir_all(run_dir)?;
         let path = run_dir.join(".build.lock");
-        let file = std::fs::OpenOptions::new().create(true).write(true).open(&path)?;
+        let file = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(&path)?;
         let start = std::time::Instant::now();
         loop {
             match try_lock(&file) {

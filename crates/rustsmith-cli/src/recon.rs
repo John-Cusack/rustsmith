@@ -229,7 +229,7 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
             None => stem.to_string(),
         }
     };
-    let mut dag_units: Vec<(String, String, Vec<String>, Vec<serde_json::Value>)> = dag
+    let dag_units: Vec<(String, String, Vec<String>, Vec<serde_json::Value>)> = dag
         .units
         .iter()
         .map(|u| {
@@ -429,9 +429,8 @@ fn leaf_first_order_forgiving(
         // dependent is still pending (deterministic feedback arc).
         let victim = edges
             .iter()
-            .filter(|(dependent, _)| remaining.contains(dependent))
-            .cloned()
-            .next();
+            .find(|(dependent, _)| remaining.contains(dependent))
+            .cloned();
         match victim {
             Some((dependent, dependency)) => {
                 edges.remove(&(dependent.clone(), dependency.clone()));
@@ -490,6 +489,7 @@ fn probe_observables() -> Vec<ObservableSpec> {
 /// runner-owned differential probes, observable skeleton, API surface,
 /// package identity, attribution) plus the seeded `rules` section (RepoFacts
 /// porting rules; the Architect refines workloads there in a later track).
+#[allow(clippy::too_many_arguments)]
 fn probe_facts(
     composite: &CompositeAdapter,
     probe: &ProbeReport,

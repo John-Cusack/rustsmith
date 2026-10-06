@@ -146,7 +146,7 @@ pub fn load_template(dir: &Path) -> Result<TemplateSpec, String> {
             extra_files.insert(k.clone(), pairs(val));
         }
     }
-    let mut orig_source = HashMap::new();
+    let orig_source = HashMap::new();
     let spec = TemplateSpec {
         package: v["package"].as_str().unwrap_or("").to_string(),
         extension_module: v["extension_module"].as_str().unwrap_or("").to_string(),
@@ -278,8 +278,8 @@ pub fn unit_task(spec: &TemplateSpec, template: &Path, unit: &str) -> Result<Str
 ///    whose value equals the UnitId rel);
 /// 3. scaffold fallback: the rel embedded in the UnitId itself (a UnitId is
 ///    self-describing: `<lang>:<repo-rel>[#<symbol>]`), else refuse.
-/// Deletes come from template `delete_on_merge` (same compat keys), defaulting
-/// to the resolved orig source — i.e. the scaffold replaces its unit source.
+///    Deletes come from template `delete_on_merge` (same compat keys), defaulting
+///    to the resolved orig source — i.e. the scaffold replaces its unit source.
 pub fn unit_sources(
     spec: &TemplateSpec,
     recon_modules: &HashMap<String, String>,
@@ -307,6 +307,7 @@ pub fn unit_sources(
 /// plus its authoritative source file. Exports/imports stay empty so the
 /// bridge derives the linkage stem from the file itself; no language is named
 /// here, keeping language knowledge in frontends/bridges.
+#[allow(dead_code)]
 pub fn unit_decl_for_scaffold(unit: &str, rel: &str) -> rustsmith_adapters::UnitDecl {
     rustsmith_adapters::UnitDecl {
         id: rustsmith_adapters::UnitId(unit.to_string()),
@@ -357,6 +358,7 @@ pub fn read_recon_build_languages(recon_out: &Path) -> Vec<String> {
 
 /// New-spec check for a frozen `dag.json` value: every unit `id`, `depends_on`
 /// entry, edge endpoint, and `leaf_first_order` entry parses as a UnitId.
+#[allow(dead_code)]
 pub fn validate_dag_json(v: &serde_json::Value) -> Result<(), String> {
     let units = v["units"].as_array().ok_or("dag.json lacks units")?;
     if units.is_empty() {
@@ -407,6 +409,7 @@ pub fn validate_dag_json(v: &serde_json::Value) -> Result<(), String> {
 /// New-spec check for a frozen `recon.json` value: `build.languages`
 /// non-empty, `modules` keys and `call_edges` endpoints UnitIds whose rels
 /// match their values.
+#[allow(dead_code)]
 pub fn validate_recon_json(v: &serde_json::Value) -> Result<(), String> {
     let langs = v["build"]["languages"].as_array().ok_or("recon.json lacks build.languages")?;
     if langs.is_empty() || langs.iter().any(|l| !l.is_string()) {

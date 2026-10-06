@@ -223,7 +223,6 @@ pub(crate) fn expected_rust_lib(build_dir: &Path, unit: &str) -> PathBuf {
 /// File API query before configure: `rustsmith-adapters::write_file_api_query`
 /// (single owner of the on-disk shape) so every configured build carries a
 /// codemodel reply for merge-time target resolution.
-
 /// Configure a CMake worktree out-of-source (fail-fast with the log).
 /// Argv comes from `CmakeBridge::prepare` with a worktree-anchored context;
 /// the frozen manifest `prepare` stays the audit record. The File API query
@@ -1623,7 +1622,7 @@ pub(crate) fn parse_heldout_rate(t: &str) -> Result<f64, String> {
     for line in t.lines() {
         let l = line.to_lowercase();
         let toks: Vec<&str> = l
-            .split(|c: char| c == ',' || c == ' ')
+            .split([',', ' '])
             .filter(|x| !x.is_empty())
             .collect();
         let mut i = 0;
@@ -1748,6 +1747,7 @@ fn walkdir_simple(root: &Path) -> Vec<PathBuf> {
     out
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

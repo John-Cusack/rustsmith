@@ -141,7 +141,7 @@ pub fn normalize_dist(name: &str) -> String {
 }
 
 fn is_version(s: &str) -> bool {
-    let (nums, suffix) = match s.split_once(|c| c == '-' || c == '+') {
+    let (nums, suffix) = match s.split_once(['-', '+']) {
         Some((n, _)) => (n, true),
         None => (s, false),
     };
