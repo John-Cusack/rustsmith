@@ -16,7 +16,7 @@ use rustsmith_gates as gates;
 use rustsmith_oracle::{execute_all, Oracle};
 use rustsmith_sandbox::Sandbox;
 use rustsmith_store::Store;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -37,6 +37,70 @@ fn ev(store: &Store, run_id: &str, kind: &str, detail: serde_json::Value) {
         kind: kind.into(),
         detail,
     });
+}
+/// S1 scope-skip: frozen `out_of_scope` set from dag.json (absent on
+/// Python/pre-rollout files -> empty, today's behavior).
+pub(crate) fn out_of_scope_set(dag: &serde_json::Value) -> HashSet<String> {
+    dag["out_of_scope"]
+        .as_array()
+        .map(|v| {
+            v.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// S1 scope allowlist from `RUSTSMITH_SCOPE` (comma-separated repo-relative
+/// prefixes). `None` = whole tree (empty/unset, today's behavior).
+pub(crate) fn scope_prefixes() -> Option<Vec<String>> {
+    scope_prefixes_from(&std::env::var("RUSTSMITH_SCOPE").unwrap_or_default())
+}
+
+fn scope_prefixes_from(raw: &str) -> Option<Vec<String>> {
+    let mut out: Vec<String> = raw
+        .split(',')
+        .map(|p| p.trim().trim_matches('/').to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    out.sort();
+    out.dedup();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// True when repo-rel `rel` is inside the allowlist (`None` = whole tree).
+/// Directory-prefix match: `rel == prefix` or `rel` starts with `prefix/`.
+pub(crate) fn in_scope(rel: &str, prefixes: Option<&[String]>) -> bool {
+    match prefixes {
+        None => true,
+        Some(ps) => ps.iter().any(|p| rel == p || rel.starts_with(&format!("{p}/"))),
+    }
+}
+
+/// Skip reason for `id`, if any. `out_of_scope` (frozen vendored/coverage
+/// marks) wins over `outside_scope` (prefix filter) when both apply.
+fn skip_reason(
+    id: &str,
+    out_of_scope: &HashSet<String>,
+    prefixes: Option<&[String]>,
+) -> Option<&'static str> {
+    if out_of_scope.contains(id) {
+        return Some("out_of_scope");
+    }
+    if !in_scope(crate::units::unit_rel(id), prefixes) {
+        return Some("outside_scope");
+    }
+    None
+}
+
+/// Ready-check: `passed` deps port normally; `skipped` deps count as
+/// satisfied (link, don't port). Anything else blocks scheduling.
+fn dep_satisfied(status: &str) -> bool {
+    status == "passed" || status == "skipped"
 }
 
 /// Reviewer assignment: two seats, distinct providers, never the implementer.
@@ -545,13 +609,18 @@ pub(crate) fn run_heldout_in_venv(
     let cx = BuildCtx { tree: worktree, build_dir: worktree, release: false };
     let cmds = PytestRunner::bind_venv(&runner.heldout(suite, &cx), &grade_venv_python(venv));
     let runs = execute_all(worktree, worktree, &cmds).map_err(|e| e.to_string())?;
-    if runs.iter().any(|r| r.exit_code != 0) {
+    // Fail-closed on an unrunnable suite, never on failing tests: pytest exit
+    // 1 means "collected, ran, some failed" — the measurement the held-out
+    // gate exists for (a hardcoded port fails exactly here, and must reach
+    // `heldout_divergence`, not abort before it). Interrupted (2), internal
+    // error (3), usage (4), no tests collected (5) and anything else error.
+    if runs.iter().any(|r| !heldout_exit_ran_tests(r.exit_code)) {
         let log = runs
             .iter()
             .map(|r| format!("{}\n{}", r.stdout, r.stderr))
             .collect::<Vec<_>>()
             .join("\n");
-        return Err(format!("held-out suite failed (nonzero exit):\n{log}"));
+        return Err(format!("held-out suite did not run (exit not 0/1):\n{log}"));
     }
     let t = runs
         .iter()
@@ -559,6 +628,12 @@ pub(crate) fn run_heldout_in_venv(
         .collect::<Vec<_>>()
         .join("\n");
     parse_heldout_rate(&t)
+}
+
+/// pytest exit codes that mean the suite ran to completion: 0 (all passed)
+/// and 1 (some tests failed). Every other code is an infrastructure failure.
+fn heldout_exit_ran_tests(code: i32) -> bool {
+    code == 0 || code == 1
 }
 
 /// Value lines of executor-captured stdout. The executor records a `$ <argv>`
@@ -725,17 +800,47 @@ fn scaffold_bridge(languages: &[String]) -> Box<dyn BuildBridge> {
     }
 }
 
-/// Grade-time unit declaration: frozen id + authoritative source plus
-/// re-derived exports (same frontends recon used, deterministic). Export
-/// re-derivation never halts grading: unparseable files fall back to the
-/// stem shape the scaffold derives itself.
+/// Frozen export pair back to a [`Symbol`](rustsmith_adapters::Symbol):
+/// linkage plus flag from the dag file, ABI from the UnitId language prefix.
+/// Unknown prefixes return `None` so the caller falls back to live
+/// re-derivation (never a guessed ABI, never a halt).
+fn frozen_exports_to_symbols(
+    unit: &str,
+    frozen: &[(String, bool)],
+) -> Option<Vec<rustsmith_adapters::Symbol>> {
+    // UnitId language prefix back to ABI (the frozen pair carries linkage +
+    // flag only). Unknown prefixes fall back to live re-derivation, never a
+    // guessed ABI.
+    let prefix = unit.split_once(':').map(|(head, _)| head).unwrap_or("");
+    let mut symbols = Vec::new();
+    for (linkage, bind_c) in frozen {
+        let abi = match prefix {
+            "fortran" => rustsmith_adapters::Abi::Fortran { bind_c: *bind_c },
+            "c" => rustsmith_adapters::Abi::C,
+            "cxx" => rustsmith_adapters::Abi::Cxx,
+            "python" => rustsmith_adapters::Abi::Python,
+            _ => return None,
+        };
+        symbols.push(rustsmith_adapters::Symbol { linkage: linkage.clone(), abi });
+    }
+    Some(symbols)
+}
+
 fn grade_unit_decl(
     repo: &Path,
     unit: &str,
     rel: &str,
+    frozen: Option<&[(String, bool)]>,
 ) -> rustsmith_adapters::UnitDecl {
-    let exports =
-        rustsmith_adapters::fragment_unit_exports(repo, rel).unwrap_or_default();
+    // Frozen exports first (audit truth, no re-parse); live re-derivation
+    // (same frontends recon used) when the dag file predates the key or the
+    // prefix is unknown; stem fallback when both are empty. Never a halt.
+    let exports = frozen
+        .filter(|f| !f.is_empty())
+        .and_then(|f| frozen_exports_to_symbols(unit, f))
+        .unwrap_or_else(|| {
+            rustsmith_adapters::fragment_unit_exports(repo, rel).unwrap_or_default()
+        });
     rustsmith_adapters::UnitDecl {
         id: rustsmith_adapters::UnitId(unit.to_string()),
         files: vec![rel.to_string()],
@@ -763,6 +868,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     // `module` audit stems (new writes) double as the old-reader key: prefer
     // `id`, fall back to `module` for pre-rollout dag files.
     let mut dag_module: HashMap<String, String> = HashMap::new();
+    // Frozen exports (non-Python recon only): linkage plus the BIND(C) flag
+    // per unit id. Absent on older/Python dag files: grade decls fall back
+    // to live re-derivation below, never a halt.
+    let mut dag_exports: HashMap<String, Vec<(String, bool)>> = HashMap::new();
     for u in &units_json {
         let id = u["id"]
             .as_str()
@@ -773,6 +882,20 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             if let Some(m) = u["module"].as_str() {
                 dag_module.insert(id.clone(), m.to_string());
             }
+            if let Some(list) = u["exports"].as_array() {
+                let exports: Vec<(String, bool)> = list
+                    .iter()
+                    .filter_map(|e| {
+                        Some((
+                            e["linkage"].as_str()?.to_string(),
+                            e["bind_c"].as_bool().unwrap_or(false),
+                        ))
+                    })
+                    .collect();
+                if !exports.is_empty() {
+                    dag_exports.insert(id.clone(), exports);
+                }
+            }
             depends.insert(
                 id,
                 u["depends_on"]
@@ -782,6 +905,12 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             );
         }
     }
+    // S1 scope-skip: frozen `out_of_scope` (vendored/coverage marks) plus the
+    // `RUSTSMITH_SCOPE` prefix allowlist (empty/unset = whole tree). Headers
+    // and helpers skip standalone here (link, don't port); header-follower
+    // attachment is a later track (see IMPLEMENTATION_ELMER.md S1).
+    let oos = out_of_scope_set(&dag_json);
+    let scope = scope_prefixes();
     // Scheduler works over this DAG: leaf-first order, ready = deps passed.
     let unit_dag = UnitDag {
         units: order
@@ -885,15 +1014,23 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         Some(build_shared_pristine(&a.fork, &orig_src, store, run_id)?)
     };
 
-    // Scheduler: leaf-first over the DAG; ready = all deps passed.
+    // Scheduler: leaf-first over the DAG; ready = all deps passed or skipped.
     // Parallel cap MAX_PARALLEL bounds independent units (runs serialize here).
     let _ = MAX_PARALLEL;
     for u in &unit_dag.units {
         let id = &u.id;
-        // Ready check.
+        // S1 scope-skip: out_of_scope / outside_scope units record `skipped`
+        // with a reason event and never grade or merge.
+        if let Some(reason) = skip_reason(id, &oos, scope.as_deref()) {
+            store.set_unit_status(id, "skipped").map_err(|e| e.to_string())?;
+            ev(store, run_id, "unit_skip", serde_json::json!({"unit": id, "reason": reason}));
+            continue;
+        }
+        // Ready check: `passed` deps port normally, `skipped` deps count as
+        // satisfied (link, don't port).
         for d in &u.depends_on {
             let st = store.unit_status(d).map_err(|e| e.to_string())?.unwrap_or_default();
-            if st != "passed" {
+            if !dep_satisfied(&st) {
                 return Err(format!("unit {id} scheduled before dep {d} passed (got {st})"));
             }
         }
@@ -929,12 +1066,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // on port scaffolds (MaturinBridge for single-Python, CmakeBridge
         // otherwise), so resolve this unit through `bridge.scaffold()` and
         // freeze the resulting file list next to the bundle. The declaration
-        // carries re-derived exports (same frontends recon used); unparseable
-        // files fall back to the stem shape, never a grade halt. Units the
-        // bridge cannot scaffold fall back to the template compat mapping
-        // recorded here; materialization below still follows the template task.
+        // carries frozen exports (audit truth) with live re-derivation as
+        // fallback; unparseable files fall back to the stem shape, never a
+        // grade halt. Units the bridge cannot scaffold fall back to the
+        // template compat mapping recorded here; materialization below still
+        // follows the template task.
         let bridge = scaffold_bridge(&build_languages);
-        let decl = grade_unit_decl(&a.repo, id, &orig_rel);
+        let decl = grade_unit_decl(&a.repo, id, &orig_rel, dag_exports.get(id).map(Vec::as_slice));
         let scaffold_note = match bridge.scaffold(&decl) {
             Ok(files) => serde_json::json!({
                 "scaffolded": true,
@@ -1119,16 +1257,17 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // Review: two seats, never the implementer (worker => any two seats).
         // Fail-closed throughout: reviewer seating errors (no distinct
         // providers) and a rejecting/empty review both halt before the merge.
-        // The artifact is the worker branch's real diff against its base
-        // (exactly what the merge below would bring in); an empty branch
-        // errors inside `record_review` instead of rubber-stamping.
+        // Reviewers see the real staged merge diff (worker branch + module
+        // deletion + build edits), never a placeholder: a worker branch can
+        // be empty when a sibling already materialized shared template
+        // files, but the merge itself always carries the deletion.
         let providers = default_providers();
         let (r1, r2) = assign_reviewers(None, &providers)?;
-        let diff = unit_branch_diff(&a.fork, id)?;
-        record_review(store, run_id, id, &diff, r1, r2)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
         let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
-        merge_unit(&a.fork, wt.as_str(), id, &deletes)?;
+        merge_unit(&a.fork, wt.as_str(), id, &deletes, |diff| {
+            record_review(store, run_id, id, diff, r1, r2)
+        })?;
         let sha = git(&a.fork, &["rev-parse", "HEAD"])?;
         store.set_unit_commit(id, &sha).map_err(|e| e.to_string())?;
         store.set_unit_status(id, "passed").map_err(|e| e.to_string())?;
@@ -1179,9 +1318,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     }
     // Held-out suite through the spine runner (ctest `-R` on the CTest
     // spine; an empty held-out set matches nothing and fails honestly).
-    // Fail-closed (`?`): the venv path errors on nonzero exit or
-    // unparseable output. Parity already returned above (zero visible
-    // failures), so divergence here compares two green-or-better suites.
+    // Fail-closed (`?`): the venv path errors when the suite cannot run
+    // (pytest exit other than 0/1) or its output is unparseable. Parity
+    // already returned above (zero visible failures), so any held-out
+    // shortfall here is divergence and halts below.
     let held_rate_all = if python_spine {
         run_heldout_in_venv(&venv, &a.fork, &a.heldout)?
     } else {
@@ -1263,7 +1403,7 @@ fn record_review(
     store: &Store,
     run_id: &str,
     unit_id: &str,
-    diff: &str,
+    diff: &[u8],
     r1: Seat,
     r2: Seat,
 ) -> Result<(), String> {
@@ -1280,7 +1420,7 @@ fn record_review(
         d.insert(s, review_driver(s, unit_id, live, cmds.get(&s)));
     }
     let c = Council::new(d);
-    record_review_with_council(store, run_id, unit_id, diff.as_bytes(), &c, r1, r2)
+    record_review_with_council(store, run_id, unit_id, diff, &c, r1, r2)
 }
 
 /// One review seat's driver: live worker command when opted in and configured,
@@ -1532,17 +1672,13 @@ fn remove_token(text: &str, token: &str) -> String {
 }
 
 
-/// Committed diff of a unit's worker branch against its base: exactly what
-/// `merge_unit` would bring in. Uncommitted worktree content is excluded
-/// (build artifacts are git-ignored; grading writes no tracked files), so
-/// the reviewed artifact and the merged content cannot skew.
-fn unit_branch_diff(fork: &Path, unit_id: &str) -> Result<String, String> {
-    let wt_branch = format!("unit/{}", crate::units::unit_fs_name(unit_id));
-    let base = git(fork, &["merge-base", "HEAD", &wt_branch])?;
-    git(fork, &["diff", &format!("{}..{}", base.trim(), wt_branch), "--"])
-}
-
-fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -> Result<(), String> {
+fn merge_unit(
+    fork: &Path,
+    _worktree: &str,
+    unit_id: &str,
+    deletes: &[String],
+    review: impl FnOnce(&[u8]) -> Result<(), String>,
+) -> Result<(), String> {
     // Merge worker branch with --no-commit, delete the mirrored
     // original-language modules (template manifest), drop the deleted
     // sources from CMake target lists (each owning target gains the shared
@@ -1594,6 +1730,13 @@ fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -
         }
     }
     git(fork, &["add", "-A"])?;
+    // Diff-only review of exactly what would land; a rejected (or empty)
+    // review aborts the merge, so nothing unreviewed reaches the fork.
+    let staged = git(fork, &["diff", "--cached", "HEAD"])?;
+    if let Err(e) = review(staged.as_bytes()) {
+        let _ = git(fork, &["merge", "--abort"]);
+        return Err(e);
+    }
     git(fork, &["commit", "-qm", &format!("merge {unit_id} + delete mirrored module")])?;
     Ok(())
 }
@@ -1780,6 +1923,71 @@ mod tests {
     }
 
     #[test]
+    fn s1_out_of_scope_set_reads_frozen_list() {
+        let dag = serde_json::json!({"out_of_scope": ["c:contrib/a.c", "fortran:contrib/b.F90"]});
+        let s = out_of_scope_set(&dag);
+        assert!(s.contains("c:contrib/a.c"));
+        assert!(s.contains("fortran:contrib/b.F90"));
+        assert_eq!(s.len(), 2);
+        // Absent on Python/pre-rollout files -> empty (today's behavior).
+        assert!(out_of_scope_set(&serde_json::json!({})).is_empty());
+        assert!(out_of_scope_set(&serde_json::json!({"out_of_scope": []})).is_empty());
+    }
+
+    #[test]
+    fn s1_scope_prefix_allowlist() {
+        // Empty = whole tree.
+        assert_eq!(scope_prefixes_from(""), None);
+        assert_eq!(scope_prefixes_from("  , ,"), None);
+        // Normalized: trimmed, trailing slashes stripped, deduped, sorted.
+        assert_eq!(
+            scope_prefixes_from("matc/, fhutiter,matc"),
+            Some(vec!["fhutiter".to_string(), "matc".to_string()])
+        );
+        let scope = scope_prefixes_from("fhutiter,matc");
+        let s = scope.as_deref();
+        assert!(in_scope("fhutiter/src/a.F90", s));
+        assert!(in_scope("matc", s));
+        assert!(in_scope("matc/src/main.c", s));
+        assert!(!in_scope("fem/src/b.F90", s));
+        // Directory boundary: `matc` never matches `matc_extra/`.
+        assert!(!in_scope("matc_extra/src/a.c", s));
+        // Whole tree matches everything.
+        assert!(in_scope("fem/src/b.F90", None));
+    }
+
+    #[test]
+    fn s1_skip_reasons_with_precedence() {
+        let oos: HashSet<String> = ["c:contrib/a.c".to_string()].into_iter().collect();
+        let scope = scope_prefixes_from("src");
+        let s = scope.as_deref();
+        // Frozen mark wins when both apply.
+        assert_eq!(skip_reason("c:contrib/a.c", &oos, s), Some("out_of_scope"));
+        let oos2: HashSet<String> =
+            ["fortran:src/vendored.F90".to_string()].into_iter().collect();
+        assert_eq!(skip_reason("fortran:src/vendored.F90", &oos2, s), Some("out_of_scope"));
+        // Outside scope, not frozen -> outside_scope.
+        assert_eq!(
+            skip_reason("c:include/h.h", &HashSet::new(), s),
+            Some("outside_scope")
+        );
+        // Inside scope, not frozen -> scheduled (None).
+        assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), s), None);
+        // Whole tree, not frozen -> scheduled.
+        assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), None), None);
+    }
+
+    #[test]
+    fn s1_skipped_deps_satisfy_ready_check() {
+        assert!(dep_satisfied("passed"));
+        assert!(dep_satisfied("skipped"));
+        assert!(!dep_satisfied("running"));
+        assert!(!dep_satisfied("gated"));
+        assert!(!dep_satisfied(""));
+        assert!(!dep_satisfied("failed"));
+    }
+
+    #[test]
     fn stub_reject_blocks_merge() {
         // A Reject stub among the reviewers turns the review into a
         // merge-blocking error (never a silent carry into `merge_unit`).
@@ -1817,53 +2025,6 @@ mod tests {
         // Approving review with real bytes carries.
         record_review_with_council(&store, "r", "u1", b"real diff bytes", &c, Seat::Verifier, Seat::Scope)
             .unwrap();
-    }
-
-    #[test]
-    fn unit_branch_diff_returns_worker_branch_content() {
-        // The reviewed artifact is the worker branch's committed diff against
-        // its base: exactly what `merge_unit` brings in.
-        let dir = tempfile::tempdir().unwrap();
-        let repo = dir.path();
-        let g = |a: &[&str]| git(repo, a).unwrap();
-        g(&["init", "-q"]);
-        g(&["config", "user.email", "t@t"]);
-        g(&["config", "user.name", "t"]);
-        std::fs::write(repo.join("a.txt"), "base\n").unwrap();
-        g(&["add", "-A"]);
-        g(&["commit", "-qm", "base"]);
-        let base_branch = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
-        let id = "python:src/crc/_crc.py";
-        let branch = format!("unit/{}", crate::units::unit_fs_name(id));
-        g(&["checkout", "-qb", &branch]);
-        std::fs::write(repo.join("b.txt"), "worker\n").unwrap();
-        g(&["add", "-A"]);
-        g(&["commit", "-qm", "unit work"]);
-        g(&["checkout", "-q", base_branch.trim()]);
-        let diff = unit_branch_diff(repo, id).unwrap();
-        assert!(diff.contains("b.txt"), "branch file missing:\n{diff}");
-        assert!(diff.contains("+worker"), "branch content missing:\n{diff}");
-        assert!(!diff.contains("+base"), "base leaked into diff:\n{diff}");
-    }
-
-    #[test]
-    fn unit_branch_diff_empty_without_worker_commit() {
-        // A branch with no new commit diffs empty; `record_review` refuses
-        // that (empty diff, nothing to review) instead of rubber-stamping.
-        let dir = tempfile::tempdir().unwrap();
-        let repo = dir.path();
-        let g = |a: &[&str]| git(repo, a).unwrap();
-        g(&["init", "-q"]);
-        g(&["config", "user.email", "t@t"]);
-        g(&["config", "user.name", "t"]);
-        std::fs::write(repo.join("a.txt"), "base\n").unwrap();
-        g(&["add", "-A"]);
-        g(&["commit", "-qm", "base"]);
-        let id = "python:src/crc/_crc.py";
-        let branch = format!("unit/{}", crate::units::unit_fs_name(id));
-        g(&["checkout", "-qb", &branch]);
-        g(&["checkout", "-q", "-"]);
-        assert_eq!(unit_branch_diff(repo, id).unwrap(), "");
     }
 
     fn review_probe() -> Proposal {
@@ -1913,6 +2074,10 @@ mod tests {
     fn empty_heldout_output_errors() {
         // No parseable counts (empty suite, collection error) errors —
         // never a 1.0 default that would read a broken suite as coverage.
+        assert!(heldout_exit_ran_tests(0) && heldout_exit_ran_tests(1));
+        for code in [2, 3, 4, 5, -1, 124] {
+            assert!(!heldout_exit_ran_tests(code), "exit {code} must fail closed");
+        }
         assert!(parse_heldout_rate("").is_err());
         assert!(parse_heldout_rate("no tests ran\n").is_err());
         assert!(parse_heldout_rate("0 passed, 0 failed\n").is_err());
@@ -2278,5 +2443,36 @@ mod tests {
         // Deterministic restage: a second call rebuilds the same path.
         let build2 = build_shared_pristine(fork.path(), repo.path(), &store, "r1").unwrap();
         assert_eq!(build, build2);
+    }
+
+    #[test]
+    fn grade_decl_prefers_frozen_exports_with_fallback() {
+        // Frozen non-BIND(C) exports ride the decl with their ABI flags.
+        let frozen = vec![("__solver_mod_MOD_step".to_string(), false)];
+        let decl = grade_unit_decl(
+            Path::new("/repo"),
+            "fortran:src/solver.F90",
+            "src/solver.F90",
+            Some(&frozen),
+        );
+        assert_eq!(decl.exports.len(), 1);
+        assert_eq!(decl.exports[0].linkage, "__solver_mod_MOD_step");
+        assert_eq!(
+            decl.exports[0].abi,
+            rustsmith_adapters::Abi::Fortran { bind_c: false }
+        );
+        // Unknown prefix: frozen unusable, falls back to live re-derivation
+        // (missing file here, so the stem fallback: empty exports).
+        let decl = grade_unit_decl(
+            Path::new("/repo"),
+            "cobol:src/x.cbl",
+            "src/x.cbl",
+            Some(&frozen),
+        );
+        assert!(decl.exports.is_empty(), "unexpected: {:?}", decl.exports);
+        // No frozen key (pre-exports dag file): same fallback, never a halt.
+        let decl =
+            grade_unit_decl(Path::new("/repo"), "fortran:src/y.F90", "src/y.F90", None);
+        assert!(decl.exports.is_empty(), "unexpected: {:?}", decl.exports);
     }
 }

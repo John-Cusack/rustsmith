@@ -50,8 +50,8 @@ fn run() -> Result<(), String> {
         "learn" => cmd_learn(&args[2..]),
         "report" => cmd_report(&args[2..]),
         "status" => cmd_status(&args[2..]),
-        "resume" => cmd_resume(&args[2..]),
         "halt" => cmd_halt(&args[2..]),
+        "resume" => cmd_resume(&args[2..]),
         "release-prep" => release::cmd_release_prep(&args[2..]),
         "release-record" => release::cmd_release_record(&args[2..]),
         "release-status" => release::cmd_release_status(&args[2..]),
@@ -264,6 +264,7 @@ fn image_for_repo(repo: &std::path::Path) -> Result<rustsmith_core::ImageSpec, S
     Ok(rustsmith_core::ImageSpec {
         base: spec.base,
         packages: spec.packages,
+        pip_packages: spec.pip_packages,
         writable: spec.writable,
     })
 }
@@ -327,7 +328,7 @@ fn cmd_run_legacy(args: &[String]) -> Result<(), String> {
             ts: now(),
             run_id: run_id.clone(),
             kind: "grade".into(),
-            detail: serde_json::json!({"passed":graded.passed,"failed":graded.failed}),
+            detail: serde_json::json!({"passed":graded.passed,"failed":graded.failed,"image":image_tag}),
         })
         .map_err(|e| e.to_string())?;
 

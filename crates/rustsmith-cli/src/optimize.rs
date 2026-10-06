@@ -298,8 +298,9 @@ fn startup_cpu(python: &Path, root: &Path) -> Result<f64, String> {
     Ok(s.user_secs + s.sys_secs)
 }
 /// One profiler sample: (cpu_per_op, wall_per_op, rss_kb).
-/// CPU is parent-measured `wait4` time minus startup; wall is the harness's
-/// in-process elapsed (both startup-free); RSS is the kernel peak.
+/// CPU is the harness's in-process loop CPU when it reports one (`cpu=`);
+/// otherwise parent-measured `wait4` time minus startup. Wall is the
+/// harness's in-process elapsed (both startup-free); RSS is the kernel peak.
 fn timed_sample(
     profiler: &PyProfiler,
     w: &rustsmith_core::Workload,
@@ -312,20 +313,22 @@ fn timed_sample(
         return Err(format!("timed harness failed: {}", s.stdout.trim()));
     }
     let wall_total = parse_elapsed(&s.stdout)?;
-    let cpu = (s.user_secs + s.sys_secs - startup).max(0.0) / w.iters as f64;
+    let cpu_total = parse_prefixed(&s.stdout, "cpu=")
+        .unwrap_or_else(|| (s.user_secs + s.sys_secs - startup).max(0.0));
+    let cpu = cpu_total / w.iters as f64;
     Ok((cpu, wall_total / w.iters as f64, s.maxrss_kb))
 }
 /// Parse the profiler harness's `elapsed=<secs>` line.
 fn parse_elapsed(stdout: &str) -> Result<f64, String> {
-    for line in stdout.lines() {
-        let t = line.trim();
-        if let Some(v) = t.strip_prefix("elapsed=") {
-            if let Ok(f) = v.trim().parse::<f64>() {
-                return Ok(f);
-            }
-        }
-    }
-    Err(format!("timed harness printed no elapsed line: {stdout:?}"))
+    parse_prefixed(stdout, "elapsed=")
+        .ok_or_else(|| format!("timed harness printed no elapsed line: {stdout:?}"))
+}
+/// First `<prefix><float>` line in the harness output.
+fn parse_prefixed(stdout: &str, prefix: &str) -> Option<f64> {
+    stdout
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix(prefix))
+        .find_map(|v| v.trim().parse::<f64>().ok())
 }
 /// Parent-measured execution of a profiler `timed` command via `wait4(2)`:
 /// precise per-child CPU + peak RSS without perf/valgrind (ADR-003).
@@ -751,7 +754,7 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
     // cwd=worktree — the local package then shadows site-packages and the
     // import fails outright. Refreshed on every build, so never stale.
     // The query is a plain interpreter probe (no toolchain literal).
-    let (pkg, ext) = installed_ext_location(worktree)?;
+    let (pkg, ext) = crate_package(worktree)?;
     let so_q = TestCommand {
         program: venv.join("bin/python").display().to_string(),
         args: vec![
@@ -794,9 +797,16 @@ fn venv_path_prepend(venv: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// `[package] name` + `[lib] name` from a tree's Cargo.toml (no toml dep;
-/// line-oriented parse is enough for maturin template manifests).
+/// Installed Python package dir + extension stem for a maturin tree.
+/// `[tool.maturin] module-name` (`pkg._ext`) is authoritative: the Cargo
+/// `[package] name` is the crate's registry name and may differ from the
+/// import package (the split crc layout ships crate `crc-rust`, package
+/// `crc`). Falls back to `[package] name` + `[lib] name` from Cargo.toml
+/// (no toml dep; line-oriented parse is enough for template manifests).
 fn crate_package(worktree: &Path) -> Result<(String, String), String> {
+    if let Some((pkg, ext)) = maturin_module_name(worktree) {
+        return Ok((pkg, ext));
+    }
     let t = std::fs::read_to_string(worktree.join("Cargo.toml")).map_err(|e| e.to_string())?;
     let mut section = String::new();
     let (mut pkg, mut lib) = (None, None);
@@ -822,32 +832,27 @@ fn crate_package(worktree: &Path) -> Result<(String, String), String> {
     }
 }
 
-/// Python dir + ext stem of the installed wheel, from the tree's own
-/// `[tool.maturin] module-name` (`crc._crc` -> dir `crc`, stem `_crc`).
-/// Falls back to [`crate_package`] for trees without a module-name.
-fn installed_ext_location(worktree: &Path) -> Result<(String, String), String> {
-    if let Ok(t) = std::fs::read_to_string(worktree.join("pyproject.toml")) {
-        let mut section = String::new();
-        for line in t.lines() {
-            let l = line.trim();
-            if l.starts_with('[') {
-                section = l.to_string();
-            }
-            if section == "[tool.maturin]" {
-                if let Some(v) = l.strip_prefix("module-name") {
-                    let v = v.trim().trim_start_matches('=').trim().trim_matches('"').trim_matches('\'');
-                    let mut parts: Vec<&str> = v.split('.').collect();
-                    if let Some(stem) = parts.pop() {
-                        if !stem.is_empty() {
-                            let dir = if parts.is_empty() { stem.to_string() } else { parts.join("/") };
-                            return Ok((dir, stem.to_string()));
-                        }
-                    }
-                }
-            }
+/// `pkg._ext` from `[tool.maturin] module-name` in the tree's pyproject.toml,
+/// as (`pkg` path with `/` separators, `ext`). `None` when absent or undotted.
+fn maturin_module_name(worktree: &Path) -> Option<(String, String)> {
+    let t = std::fs::read_to_string(worktree.join("pyproject.toml")).ok()?;
+    let mut section = String::new();
+    for line in t.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            section = l.to_string();
+            continue;
+        }
+        if section != "[tool.maturin]" {
+            continue;
+        }
+        if let Some(v) = l.strip_prefix("module-name") {
+            let v = v.trim().trim_start_matches('=').trim().trim_matches('"').trim_matches('\'');
+            let (pkg, ext) = v.rsplit_once('.')?;
+            return Some((pkg.replace('.', "/"), ext.to_string()));
         }
     }
-    crate_package(worktree)
+    None
 }
 
 fn full_build_secs(src_dir: &Path, venv: &Path) -> Result<f64, String> {
@@ -1246,6 +1251,7 @@ pub fn run_round0_apply(
     let cand_dir = work.join(".cand-r0-manual-hex");
     let _ = std::fs::remove_dir_all(&cand_dir);
     std::fs::create_dir_all(&cand_dir).map_err(|e| e.to_string())?;
+    // Same base as a Round-1 candidate: the fork tree minus scratch/venvs.
     copy_filtered(work, &cand_dir)?;
     git(&cand_dir, &["init", "-q"])?;
     git(&cand_dir, &["config", "user.email", "t@t"])?;
@@ -2155,6 +2161,20 @@ mod merge_tests {
     use super::*;
 
     #[test]
+    fn crate_package_prefers_maturin_module_name() {
+        // Templates under mirror/ are data: every maturin template's import
+        // package comes from module-name, even when the crate name differs.
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mirror");
+        for (tpl, want) in [("crc", ("crc", "_crc")), ("strsimpy", ("strsimpy", "_strsimpy"))] {
+            let (pkg, ext) = crate_package(&root.join(tpl)).unwrap();
+            assert_eq!((pkg.as_str(), ext.as_str()), want, "{tpl}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"p\"\n[lib]\nname = \"_x\"\n").unwrap();
+        assert_eq!(crate_package(dir.path()).unwrap(), ("p".to_string(), "_x".to_string()));
+    }
+
+    #[test]
     fn decide_final_refuses_missing_tool_by_name() {
         let v = decide_final("pgo", None, 0.01, false, "llvm-profdata");
         assert_eq!(v["outcome"], "rejected_at_proposal");
@@ -2366,7 +2386,7 @@ mod ext_location_tests {
         )
         .unwrap();
         assert_eq!(
-            installed_ext_location(dir.path()).unwrap(),
+            crate_package(dir.path()).unwrap(),
             ("crc".to_string(), "_crc".to_string())
         );
     }
@@ -2381,7 +2401,7 @@ mod ext_location_tests {
         )
         .unwrap();
         assert_eq!(
-            installed_ext_location(dir.path()).unwrap(),
+            crate_package(dir.path()).unwrap(),
             ("pkg".to_string(), "ext".to_string())
         );
     }

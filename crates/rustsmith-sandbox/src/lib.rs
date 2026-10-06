@@ -1,6 +1,7 @@
 use camino::Utf8PathBuf;
 use rustsmith_core::{
     AdapterError, Cwd, GradedResult, ImageSpec, Manifest, RunOutput, TestCommand, TestRunner,
+    record_line,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -51,6 +52,14 @@ impl Sandbox {
             text.push_str(&format!(
                 "RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*\n",
                 spec.packages.join(" ")
+            ));
+        }
+        if !spec.pip_packages.is_empty() {
+            let reqs: Vec<String> =
+                spec.pip_packages.iter().map(|r| format!("\"{r}\"")).collect();
+            text.push_str(&format!(
+                "RUN pip install --no-cache-dir {} && rm -rf /root/.cache\n",
+                reqs.join(" ")
             ));
         }
         std::fs::write(&dockerfile, text)?;
@@ -129,6 +138,7 @@ fn image_tag(spec: &ImageSpec) -> String {
     for b in spec
         .packages
         .iter()
+        .chain(spec.pip_packages.iter())
         .chain(spec.writable.iter())
         .flat_map(|s| s.bytes())
     {
@@ -231,6 +241,7 @@ fn docker_grading_run(
         }
         docker.args(["--workdir", &container_cwd(&cmd.cwd, out_of_tree)]);
         for (k, v) in &cmd.env_set {
+            let v = remap_env_value(v, artifact, build_dir, out_of_tree);
             docker.args(["-e", &format!("{k}={v}")]);
         }
         docker.arg(image_tag);
@@ -265,8 +276,8 @@ fn docker_grading_run(
         runs.push(RunOutput {
             exit_code: code,
             stdout: format!(
-                "$ {}\n{}",
-                requested_argv(cmd).join(" ").replace('\n', " "),
+                "{}{}",
+                record_line(&requested_argv(cmd)),
                 String::from_utf8_lossy(&out.stdout)
             ),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -318,6 +329,23 @@ fn remap(p: &str, artifact: &Path, build_dir: &Path, out_of_tree: bool) -> Strin
         }
     }
     p.to_string()
+}
+
+/// Remap absolute host paths inside an env value (e.g. a frozen
+/// `PYTHONPATH=<tree>/src`), component-wise for `:`-separated lists. A host
+/// path left verbatim does not exist in the container: imports fail at
+/// collection and the graded pass silently runs zero tests.
+fn remap_env_value(v: &str, artifact: &Path, build_dir: &Path, out_of_tree: bool) -> String {
+    v.split(':')
+        .map(|part| {
+            if part.starts_with('/') {
+                remap(part, artifact, build_dir, out_of_tree)
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 fn container_argv(
@@ -427,8 +455,7 @@ fn execute_one(
     // The `$` invocation line is recorded here (absolute program) because
     // `grade(&[RunOutput])` never sees the commands; the runner parses what
     // follows and appends stderr itself.
-    // Single-line record (see oracle): multi-line `-c` scripts flatten here.
-    let mut stdout = format!("$ {}\n", argv.join(" ").replace('\n', " "));
+    let mut stdout = record_line(&argv);
     stdout.push_str(&String::from_utf8_lossy(&so));
     Ok(RunOutput {
         exit_code,
@@ -791,6 +818,16 @@ mod polyglot_regression_tests {
     /// on threads, and the opt-in flag lives in the process environment.
     static FALLBACK_ENV_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
+    #[test]
+    fn env_paths_remap_into_container() {
+        let tree = Path::new("/host/repo");
+        let v = remap_env_value("/host/repo/src:/usr/lib/py:rel", tree, tree, false);
+        assert_eq!(v, "/artifact/src:/usr/lib/py:rel");
+        let build = Path::new("/host/build");
+        assert_eq!(remap_env_value("/host/build/lib", tree, build, true), "/build/lib");
+        assert_eq!(remap_env_value("0", tree, tree, false), "0");
+    }
+
     fn graded_fixture(passed: u32, failed: u32, marker: &str) -> GradedResult {
         GradedResult {
             exit_code: 0,
@@ -882,6 +919,7 @@ mod polyglot_regression_tests {
         ImageSpec {
             base: "scratch".to_string(),
             packages: Vec::new(),
+            pip_packages: Vec::new(),
             writable: Vec::new(),
         }
     }
