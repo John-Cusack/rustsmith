@@ -12,7 +12,8 @@
     ["src/lib.rs", "src/lib.rs"],
     ["crc-core/Cargo.toml", "crc-core/Cargo.toml"],
     ["crc-core/src/lib.rs", "crc-core/src/lib.rs"],
-    ["crc/__init__.py", "crc/__init__.py"]
+    ["crc/__init__.py", "crc/__init__.py"],
+    ["tests/test_readme_parity.py", "tests/test_readme_parity.py"]
   ],
   "extra_files": {
     "python:src/crc/__main__.py": [["crc/__main__.py", "crc/__main__.py"]]

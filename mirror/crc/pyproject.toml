@@ -23,6 +23,9 @@ classifiers = [
 Homepage = "https://github.com/John-Cusack/crc-rust"
 Upstream = "https://github.com/Nicoretti/crc"
 
+[project.scripts]
+crc = "crc._crc:main"
+
 # Test config preserved verbatim from the original (frozen oracle owns this).
 [tool.coverage.run]
 source = [
