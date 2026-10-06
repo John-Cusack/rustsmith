@@ -146,7 +146,14 @@ pub fn load_template(dir: &Path) -> Result<TemplateSpec, String> {
             extra_files.insert(k.clone(), pairs(val));
         }
     }
-    let orig_source = HashMap::new();
+    let mut orig_source = HashMap::new();
+    if let Some(o) = v["orig_source"].as_object() {
+        for (k, val) in o {
+            if let Some(s) = val.as_str() {
+                orig_source.insert(k.clone(), s.to_string());
+            }
+        }
+    }
     let spec = TemplateSpec {
         package: v["package"].as_str().unwrap_or("").to_string(),
         extension_module: v["extension_module"].as_str().unwrap_or("").to_string(),
@@ -740,5 +747,28 @@ mod tests {
         .unwrap();
         let err = load_template(dir.path()).unwrap_err();
         assert!(err.contains("module-name"), "unexpected: {err}");
+    }
+    #[test]
+    fn load_template_parses_orig_source_override() {
+        // `orig_source` is the documented first-resolution source in
+        // `unit_sources`; a template-declared override must survive loading.
+        let dir = tempfile::tempdir().unwrap();
+        write_template(
+            dir.path(),
+            r#"{"package":"pkg","extension_module":"pkg._pkg","files":[["a","a"]],"orig_source":{"python:src/pkg/_pkg.py":"src/pkg/_pkg.py"}}"#,
+        );
+        let spec = load_template(dir.path()).unwrap();
+        assert_eq!(
+            spec.orig_source.get("python:src/pkg/_pkg.py"),
+            Some(&"src/pkg/_pkg.py".to_string()),
+        );
+        // The override wins over the recon-modules fallback and the
+        // UnitId-embedded rel.
+        let recon: HashMap<String, String> = HashMap::from([(
+            "python:src/pkg/_pkg.py".to_string(),
+            "src/pkg/wrong.py".to_string(),
+        )]);
+        let (rel, _) = unit_sources(&spec, &recon, "python:src/pkg/_pkg.py").unwrap();
+        assert_eq!(rel, "src/pkg/_pkg.py");
     }
 }

@@ -134,6 +134,48 @@ fn render_bytes3(header: &str, line: &str, datas_hex: &[String], vals: &[[u64; 3
     body
 }
 
+/// JSON value as a Python literal (`None`/`True`/`False`, never `null`).
+/// JSON string quoting is valid Python; numbers transfer verbatim.
+fn json_to_py(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "None".to_string(),
+        serde_json::Value::Bool(true) => "True".to_string(),
+        serde_json::Value::Bool(false) => "False".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Render bytes-input pins with generic JSON values: `{LIT}` the input
+/// literal and `{V0..V2}` the pinned JSON values. Detector-style repos (bytes
+/// in, encoding-string/float out) need this; checksum repos use `render_bytes3`.
+fn render_bytes_json3(
+    header: &str,
+    line: &str,
+    datas_hex: &[String],
+    vals: &[[serde_json::Value; 3]],
+) -> String {
+    let mut body = String::from(header);
+    for (h, v) in datas_hex.iter().zip(vals.iter()) {
+        let bytes = hex::decode(h).unwrap_or_default();
+        let lit = format!(
+            "bytes([{}])",
+            bytes
+                .iter()
+                .map(|b| b.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        body.push_str(
+            &line
+                .replace("{LIT}", &lit)
+                .replace("{V0}", &json_to_py(&v[0]))
+                .replace("{V1}", &json_to_py(&v[1]))
+                .replace("{V2}", &json_to_py(&v[2])),
+        );
+    }
+    body
+}
+
 /// Render similarity-style pins: `{A}`/`{B}` the debug-formatted pair,
 /// `{V0..V2}` the pinned JSON values.
 fn render_pairs3(
@@ -148,9 +190,9 @@ fn render_pairs3(
             &line
                 .replace("{A}", &format!("{a:?}"))
                 .replace("{B}", &format!("{b:?}"))
-                .replace("{V0}", &v[0].to_string())
-                .replace("{V1}", &v[1].to_string())
-                .replace("{V2}", &v[2].to_string()),
+                .replace("{V0}", &json_to_py(&v[0]))
+                .replace("{V1}", &json_to_py(&v[1]))
+                .replace("{V2}", &json_to_py(&v[2])),
         );
     }
     body
@@ -235,6 +277,28 @@ pub fn generate_from_manifest(
             }
             render_bytes3(header, line, &args, &vals)
         }
+        "bytes_json3" => {
+            let avoid: Vec<String> = gen["avoid_hex"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+            let datas = bytes_inputs(seed, &avoid);
+            let args: Vec<String> = datas.iter().map(hex::encode).collect();
+            let text = run_probe(package, orig_repo, probe, &args)?;
+            let vals: Vec<[serde_json::Value; 3]> =
+                serde_json::from_str(&text).map_err(|e| format!("heldout-gen parse: {e}"))?;
+            if vals.len() != datas.len() {
+                return Err(format!(
+                    "heldout-gen count {} != {}",
+                    vals.len(),
+                    datas.len()
+                ));
+            }
+            render_bytes_json3(header, line, &args, &vals)
+        }
         "pairs3" => {
             let pairs = pairs_inputs(seed);
             let args: Vec<String> = pairs
@@ -289,6 +353,13 @@ mod tests {
                         serde_json::from_value(sample["vals"].clone()).unwrap();
                     render_bytes3(header, line, &datas_hex, &vals)
                 }
+                "bytes_json3" => {
+                    let datas_hex: Vec<String> =
+                        serde_json::from_value(sample["datas_hex"].clone()).unwrap();
+                    let vals: Vec<[serde_json::Value; 3]> =
+                        serde_json::from_value(sample["vals"].clone()).unwrap();
+                    render_bytes_json3(header, line, &datas_hex, &vals)
+                }
                 "pairs3" => {
                     let pairs: Vec<(String, String)> =
                         serde_json::from_value(sample["pairs"].clone()).unwrap();
@@ -322,5 +393,13 @@ mod tests {
             }
         }
         assert!(covered > 0, "no package declares heldout suites");
+    }
+    #[test]
+    fn json_to_py_emits_python_literals() {
+        assert_eq!(json_to_py(&serde_json::Value::Null), "None");
+        assert_eq!(json_to_py(&serde_json::json!(true)), "True");
+        assert_eq!(json_to_py(&serde_json::json!(false)), "False");
+        assert_eq!(json_to_py(&serde_json::json!("utf_8")), "\"utf_8\"");
+        assert_eq!(json_to_py(&serde_json::json!(0.5)), "0.5");
     }
 }

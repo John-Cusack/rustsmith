@@ -446,25 +446,29 @@ mod tests {
 
     fn template_under_test() -> std::path::PathBuf {
         // Templates under mirror/ are data; the conformance tree is the
-        // first package (sorted) whose template carries the maturin spine
-        // marker (`extension_module`). CMake templates own no pyo3 anchors;
-        // no package is named.
+        // first package (sorted) whose template the slice-8 transform
+        // applies to: maturin spine marker plus the technique's domain
+        // marker in `src/lib.rs`. CMake templates and unrelated ports are
+        // skipped; no package is named.
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let mut pkgs = crate::repo_content::packages();
         pkgs.sort();
         let found = pkgs
             .into_iter()
             .find(|p| {
-                let manifest =
-                    root.join("../../mirror").join(p).join("template.json");
-                std::fs::read_to_string(manifest)
+                let dir = root.join("../../mirror").join(p);
+                let maturin = std::fs::read_to_string(dir.join("template.json"))
                     .ok()
                     .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
                     .and_then(|v| v["extension_module"].as_str().map(str::to_string))
                     .map(|s| !s.is_empty())
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                maturin
+                    && std::fs::read_to_string(dir.join("src/lib.rs"))
+                        .map(|text| text.contains("TableBasedRegister"))
+                        .unwrap_or(false)
             })
-            .expect("no maturin template under mirror/");
+            .expect("no template carries the slice-8 transform anchors");
         root.join("../../mirror").join(found)
     }
 
