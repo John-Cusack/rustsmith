@@ -54,6 +54,7 @@ fn run() -> Result<(), String> {
         "release-prep" => release::cmd_release_prep(&args[2..]),
         "release-record" => release::cmd_release_record(&args[2..]),
         "release-status" => release::cmd_release_status(&args[2..]),
+        "release-publish" => release::cmd_release_publish(&args[2..]),
         _ => Err(usage().into()),
     }
 }
@@ -1363,7 +1364,9 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         .unwrap_or_else(|| {
             opt_rep["stop"].as_str().unwrap_or("unknown").to_string()
         });
-    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop, &attribution, &license)
+    let delivered: Option<rustsmith_report::DeliveredArtifact> =
+        serde_json::from_value(opt_rep["accepted"].clone()).unwrap_or(None);
+    let rep = rustsmith_report::render(&run_id, &store, &dag_units, unsafe_count, floor, &parity_text, &divergence_text, &stop, &attribution, &license, delivered)
         .map_err(|e| e.to_string())?;
     write_gated(&fork.join("RUSTSMITH_REPORT.md"), &rustsmith_report::emit_md(&rep), &attribution)?;
     write_gated(&fork.join("rustsmith-report.json"), &rustsmith_report::emit_json(&rep), &attribution)?;

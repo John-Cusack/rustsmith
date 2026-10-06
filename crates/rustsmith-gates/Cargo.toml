@@ -1,10 +1,13 @@
 [package]
 name = "rustsmith-gates"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Stage-gate evaluation for the rustsmith pipeline"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-rustsmith-core = { path = "../rustsmith-core" }
+rustsmith-core = { version = "0.1.0", path = "../rustsmith-core" }
 serde_json = { workspace = true }
 
 [dev-dependencies]

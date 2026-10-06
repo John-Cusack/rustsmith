@@ -264,10 +264,36 @@ pub fn cmd_release_prep(args: &[String]) -> Result<(), String> {
     copy_stage(&source, &stage)?;
     // The staged source must carry the same release metadata (drift fails).
     rustsmith_release::validate_tree(&cfg, &stage).map_err(|e| e.to_string())?;
+    // Staged README receipt: measured outcomes land in the staged README
+    // BEFORE anything builds, so the wheel/sdist ship the receipt. The block
+    // is generated (never hand-edited); hashes stay in release-manifest.json.
+    // The optimize report rides alongside the source tree when prep runs off
+    // `--opt`; a fork-only source has no report and receipts the baseline.
+    let readme_path = stage.join("README.md");
+    let readme_text = std::fs::read_to_string(&readme_path)
+        .map_err(|e| format!("{}: staged README missing: {e}", readme_path.display()))?;
+    let report_path = source.join("optimize-report.json");
+    let perf = match std::fs::read_to_string(&report_path) {
+        Ok(t) => {
+            let v: serde_json::Value = serde_json::from_str(&t)
+                .map_err(|e| format!("{}: unparseable optimize report: {e}", report_path.display()))?;
+            rustsmith_release::collect_readme_perf(&v)
+        }
+        Err(_) => rustsmith_release::ReadmePerf { merged: Vec::new() },
+    };
+    let block = rustsmith_release::render_readme_perf(&perf);
+    std::fs::write(&readme_path, rustsmith_release::inject_readme_perf(&readme_text, &block))
+        .map_err(|e| format!("{}: {e}", readme_path.display()))?;
     let dist = out.join("dist");
     std::fs::create_dir_all(&dist).map_err(|e| e.to_string())?;
 
     let mut verify = serde_json::json!({});
+    verify["readme_perf"] = serde_json::json!({
+        "passed": true,
+        "merged_count": perf.merged.len(),
+        "techniques": perf.merged.iter().map(|m| m.technique.clone()).collect::<Vec<_>>(),
+    });
+
     // 1. Rust core tests: the same core Rust consumers use, standalone.
     let core_manifest = stage.join("crc-core/Cargo.toml");
     let core_manifest_arg = if core_manifest.is_file() {
@@ -692,4 +718,219 @@ pub fn cmd_release_status(args: &[String]) -> Result<(), String> {
     } else {
         Err(format!("release {overall} (not complete)"))
     }
+}
+
+/// `release-publish`: autonomous upload lane (no browser, no human clicks).
+///
+/// Reads the `release-prep` bundle next to `--state` (`dist/`,
+/// `verification.json`, `release-manifest.json`), enforces the policy gate
+/// (prep battery green; prod lanes additionally need
+/// `RUSTSMITH_ALLOW_PROD_PUBLISH=1` plus a fresh TestPyPI success), uploads
+/// the SAME retained files by explicit recorded filename (re-hashed first;
+/// the `.crate` never goes to a Python index), reconciles per-file remote
+/// hashes afterwards, and records the outcome (sticky success). Credentials
+/// come from the environment (`TWINE_USERNAME`/`TWINE_PASSWORD`,
+/// `CARGO_REGISTRY_TOKEN`) and are never logged. `--dry-run` resolves,
+/// gates, and prints the plan without uploading or recording anything.
+pub fn cmd_release_publish(args: &[String]) -> Result<(), String> {
+    let state_path = PathBuf::from(flag(args, "--state").ok_or("missing --state")?);
+    let registry = flag(args, "--registry").ok_or("missing --registry (testpypi|pypi|crates-io)")?;
+    let dry = has_flag(args, "--dry-run");
+    let out = state_path.parent().ok_or("state has no parent dir")?.to_path_buf();
+    let text = std::fs::read_to_string(&state_path).map_err(|e| format!("{}: {e}", state_path.display()))?;
+    let state: rustsmith_release::ReleaseState =
+        serde_json::from_str(&text).map_err(|e| format!("{}: bad state: {e}", state_path.display()))?;
+    let verify: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(out.join("verification.json")).map_err(|e| format!("verification.json: {e}"))?,
+    )
+    .map_err(|e| format!("verification.json: bad json: {e}"))?;
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(out.join("release-manifest.json")).map_err(|e| format!("release-manifest.json: {e}"))?,
+    )
+    .map_err(|e| format!("release-manifest.json: bad json: {e}"))?;
+    let prod_allowed = std::env::var("RUSTSMITH_ALLOW_PROD_PUBLISH").as_deref() == Ok("1");
+    rustsmith_release::publish_gate(verify.get("passed").and_then(|v| v.as_bool()).unwrap_or(false), &state, &registry, now(), prod_allowed)?;
+    // Same-SHA256 promotion: the files on disk must still match the recorded
+    // hashes (no rebuild, no drift since prep).
+    let dist = out.join("dist");
+    let mut local: Vec<(String, String, PathBuf)> = vec![];
+    if registry == "crates-io" {
+        let stage = PathBuf::from(flag(args, "--stage").ok_or("crates-io lane needs --stage <staged tree>")?);
+        let core_manifest = if stage.join("crc-core/Cargo.toml").is_file() {
+            stage.join("crc-core/Cargo.toml").display().to_string()
+        } else {
+            probe_core_manifest(&stage)?
+        };
+        let plan = serde_json::json!({"registry": registry, "core_manifest": core_manifest, "dry_run": dry});
+        if dry {
+            println!("{plan}");
+            return Ok(());
+        }
+        if std::env::var("CARGO_REGISTRY_TOKEN").unwrap_or_default().is_empty() {
+            return Err("crates-io: missing CARGO_REGISTRY_TOKEN in the environment (nothing uploaded, nothing recorded)".into());
+        }
+        let r = run_cmd(&stage, "cargo", &["publish".into(), "--manifest-path".into(), core_manifest, "--allow-dirty".into()], &[]);
+        return finish_crates_publish(&state_path, &state, &registry, &r, &manifest);
+    }
+    let names = rustsmith_release::publish_files(&state.artifacts, &registry)?;
+    for name in &names {
+        let p = dist.join(name);
+        let recorded = state.artifacts.iter().find(|a| &a.file == name).map(|a| a.sha256.clone()).unwrap_or_default();
+        let actual = rustsmith_release::sha256_file(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+        if actual != recorded {
+            return Err(format!("{name}: on-disk sha256 {actual} != recorded {recorded} (re-run prep, never publish drift)"));
+        }
+        local.push((name.clone(), actual, p));
+    }
+    let plan = serde_json::json!({"registry": registry, "files": names, "dry_run": dry});
+    if dry {
+        println!("{plan}");
+        return Ok(());
+    }
+    for var in ["TWINE_USERNAME", "TWINE_PASSWORD"] {
+        if std::env::var(var).unwrap_or_default().is_empty() {
+            return Err(format!("{registry}: missing {var} in the environment (nothing uploaded, nothing recorded)"));
+        }
+    }
+    let paths: Vec<String> = local.iter().map(|(_, _, p)| p.display().to_string()).collect();
+    let mut targs = vec!["upload".into(), "--repository".into(), registry.clone(), "--non-interactive".into()];
+    targs.extend(paths);
+    let r = run_cmd(&out, "twine", &targs, &[]);
+    let dist_name = manifest.get("pypi_dist").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let version = manifest.get("release_version").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    // Crash recovery: twine failing does NOT mean unpublished. Reconcile the
+    // remote file hashes; a match promotes the attempt to success.
+    let reconciled = reconcile_pypi(&registry, &dist_name, &version, &local);
+    if !r.ok && reconciled.is_err() {
+        record_publish(&state_path, &state, &registry, "failed", &tail(&r.log, 5))?;
+        return Err(format!("twine upload failed and remote does not match:\n{}", tail(&r.log, 15)));
+    }
+    let note = if r.ok { "twine upload ok" } else { "twine errored but remote matches (verified-after-error)" };
+    // Post-upload proof: pinned install from the index + smoke vectors.
+    match verify_index_install(&out, &registry, &dist_name, &version, &manifest, &verify) {
+        Ok(detail) => {
+            record_publish(&state_path, &state, &registry, "success", &format!("{note}; {detail}"))?;
+            println!("{}", serde_json::json!({"registry": registry, "result": "success", "overall": rustsmith_release::overall_status(&reread(&state_path)?)}));
+            Ok(())
+        }
+        Err(e) => {
+            record_publish(&state_path, &state, &registry, "failed", &format!("{note}; index verify failed: {e}"))?;
+            Err(format!("uploaded but index verification failed: {e}"))
+        }
+    }
+}
+
+/// Re-read state from disk (for the post-record overall readout).
+fn reread(path: &Path) -> Result<rustsmith_release::ReleaseState, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
+}
+
+/// Record one publish attempt (atomic write, sticky success) and print it.
+fn record_publish(state_path: &Path, state: &rustsmith_release::ReleaseState, registry: &str, result: &str, detail: &str) -> Result<(), String> {
+    let mut owned = state.clone();
+    rustsmith_release::record_outcome(&mut owned, registry, result, detail, now()).map_err(|e| e.to_string())?;
+    atomic_write(state_path, serde_json::to_string_pretty(&owned).unwrap().as_bytes())?;
+    Ok(())
+}
+
+/// Per-file remote-hash reconciliation for a Python index: every uploaded
+/// file must appear under the release with its recorded SHA-256.
+fn reconcile_pypi(registry: &str, dist: &str, version: &str, local: &[(String, String, PathBuf)]) -> Result<(), String> {
+    let url = rustsmith_release::pypi_json_url(registry, dist, version)?;
+    let r = run_cmd(&std::env::temp_dir(), "curl", &["-sS".into(), "--max-time".into(), "60".into(), url.clone()], &[]);
+    if !r.ok {
+        return Err(format!("index query failed: {url}"));
+    }
+    let v: serde_json::Value = serde_json::from_str(&r.log).map_err(|_| format!("index returned no release: {dist}=={version}"))?;
+    let urls = v.get("urls").and_then(|u| u.as_array()).ok_or(format!("index has no files for {dist}=={version}"))?;
+    for (name, sha, _) in local {
+        let ok = urls.iter().any(|u| {
+            u.get("filename").and_then(|f| f.as_str()) == Some(name)
+                && u.get("digests").and_then(|d| d.get("sha256")).and_then(|s| s.as_str()) == Some(sha)
+        });
+        if !ok {
+            return Err(format!("{name}: remote file or sha256 mismatch on {registry}"));
+        }
+    }
+    Ok(())
+}
+
+/// Fresh-venv proof that the index serves what was uploaded: pinned
+/// `dist==version` install, dist-version assert, then the prep smoke
+/// expressions (re-read from `verification.json`, same interpreter shape).
+fn verify_index_install(out: &Path, registry: &str, dist: &str, version: &str, manifest: &serde_json::Value, verify: &serde_json::Value) -> Result<String, String> {
+    let venv = out.join(".publish-verify-venv");
+    let _ = std::fs::remove_dir_all(&venv);
+    let r = run_cmd(out, "python3", &["-m".into(), "venv".into(), venv.display().to_string()], &[]);
+    if !r.ok {
+        return Err(format!("venv creation failed:\n{}", tail(&r.log, 6)));
+    }
+    let py = venv.join("bin/python");
+    let pip = venv.join("bin/pip");
+    let (index, extra): (String, Vec<String>) = match registry {
+        "testpypi" => ("https://test.pypi.org/simple/".into(), vec!["--extra-index-url".into(), "https://pypi.org/simple/".into()]),
+        _ => ("https://pypi.org/simple/".into(), vec![]),
+    };
+    let mut iargs = vec!["install".into(), "--index-url".into(), index];
+    iargs.extend(extra);
+    iargs.push(format!("{dist}=={version}"));
+    let r = run_cmd(out, &pip.display().to_string(), &iargs, &[]);
+    if !r.ok {
+        return Err(format!("pinned index install failed:\n{}", tail(&r.log, 8)));
+    }
+    let imp = manifest.get("python_import").and_then(|v| v.as_str()).unwrap_or("");
+    let r = run_cmd(out, &py.display().to_string(), &["-c".into(), format!("import importlib.metadata as m; assert m.version({dist:?}) == {version:?}")], &[]);
+    if !r.ok {
+        return Err(format!("index dist-version mismatch:\n{}", tail(&r.log, 4)));
+    }
+    let mut n = 0;
+    if let Some(rows) = verify.get("python_install_smoke").and_then(|v| v.as_array()) {
+        for row in rows.iter().skip(1) {
+            if let Some(expr) = row.get("check").and_then(|c| c.as_str()) {
+                let r = run_cmd(out, &py.display().to_string(), &["-c".into(), format!("import {imp}; assert {expr}, {expr:?}")], &[]);
+                if !r.ok {
+                    return Err(format!("index smoke failed ({expr}):\n{}", tail(&r.log, 4)));
+                }
+                n += 1;
+            }
+        }
+    }
+    Ok(format!("pinned {dist}=={version} install + {n} smoke exprs from {registry}"))
+}
+
+/// Terminal handling for the crates.io lane: success records; transport
+/// failures query the sparse index first (a timeout after upload does NOT
+/// mean unpublished); "already exists" with the version present is an
+/// idempotent success, never a duplicate publish.
+fn finish_crates_publish(state_path: &Path, state: &rustsmith_release::ReleaseState, registry: &str, r: &Run, manifest: &serde_json::Value) -> Result<(), String> {
+    let krate = manifest.get("rust_crate").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let version = manifest.get("release_version").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if r.ok {
+        record_publish(state_path, state, registry, "success", "cargo publish ok")?;
+        println!("{}", serde_json::json!({"registry": registry, "result": "success", "overall": rustsmith_release::overall_status(&reread(state_path)?)}));
+        return Ok(());
+    }
+    let log = r.log.to_lowercase();
+    let ambiguous =
+        log.contains("timed out") || log.contains("network") || log.contains("connection") || log.contains("already");
+    if ambiguous && crates_version_present(&krate, &version) {
+        record_publish(state_path, state, registry, "success", "index shows version (verified-after-upload-error)")?;
+        println!("{}", serde_json::json!({"registry": registry, "result": "success", "overall": rustsmith_release::overall_status(&reread(state_path)?)}));
+        return Ok(());
+    }
+    record_publish(state_path, state, registry, "failed", &tail(&r.log, 5))?;
+    Err(format!("cargo publish failed:\n{}", tail(&r.log, 15)))
+}
+
+/// Sparse-index version check for crash recovery (`cargo` cache layout).
+fn crates_version_present(krate: &str, version: &str) -> bool {
+    let path = rustsmith_release::crates_index_path(krate);
+    let r = run_cmd(
+        &std::env::temp_dir(),
+        "curl",
+        &["-sS".into(), "--max-time".into(), "30".into(), format!("https://index.crates.io/{path}")],
+        &[],
+    );
+    r.ok && r.log.lines().any(|l| l.contains(&format!("\"vers\":\"{version}\"")))
 }

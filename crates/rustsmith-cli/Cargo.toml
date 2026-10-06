@@ -1,25 +1,28 @@
 [package]
 name = "rustsmith-cli"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Rustsmith command-line harness for measured library porting"
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "rustsmith"
 path = "src/main.rs"
 
 [dependencies]
-rustsmith-core = { path = "../rustsmith-core" }
-rustsmith-store = { path = "../rustsmith-store" }
-rustsmith-oracle = { path = "../rustsmith-oracle" }
-rustsmith-gates = { path = "../rustsmith-gates" }
-rustsmith-sandbox = { path = "../rustsmith-sandbox" }
-rustsmith-agent = { path = "../rustsmith-agent" }
-rustsmith-council = { path = "../rustsmith-council" }
-rustsmith-adapters = { path = "../rustsmith-adapters" }
-rustsmith-profile = { path = "../rustsmith-profile" }
-rustsmith-harvest = { path = "../rustsmith-harvest" }
-rustsmith-report = { path = "../rustsmith-report" }
-rustsmith-release = { path = "../rustsmith-release" }
+rustsmith-core = { version = "0.1.0", path = "../rustsmith-core" }
+rustsmith-store = { version = "0.1.0", path = "../rustsmith-store" }
+rustsmith-oracle = { version = "0.1.0", path = "../rustsmith-oracle" }
+rustsmith-gates = { version = "0.1.0", path = "../rustsmith-gates" }
+rustsmith-sandbox = { version = "0.1.0", path = "../rustsmith-sandbox" }
+rustsmith-agent = { version = "0.1.0", path = "../rustsmith-agent" }
+rustsmith-council = { version = "0.1.0", path = "../rustsmith-council" }
+rustsmith-adapters = { version = "0.1.0", path = "../rustsmith-adapters" }
+rustsmith-profile = { version = "0.1.0", path = "../rustsmith-profile" }
+rustsmith-harvest = { version = "0.1.0", path = "../rustsmith-harvest" }
+rustsmith-report = { version = "0.1.0", path = "../rustsmith-report" }
+rustsmith-release = { version = "0.1.0", path = "../rustsmith-release" }
 serde_json = { workspace = true }
 walkdir = { workspace = true }
 camino = "1"

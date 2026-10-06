@@ -1120,9 +1120,13 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // Review: two seats, never the implementer (worker => any two seats).
         // Fail-closed throughout: reviewer seating errors (no distinct
         // providers) and a rejecting/empty review both halt before the merge.
+        // The artifact is the worker branch's real diff against its base
+        // (exactly what the merge below would bring in); an empty branch
+        // errors inside `record_review` instead of rubber-stamping.
         let providers = default_providers();
         let (r1, r2) = assign_reviewers(None, &providers)?;
-        record_review(store, run_id, id, &format!("unit {id} diff"), r1, r2)?;
+        let diff = unit_branch_diff(&a.fork, id)?;
+        record_review(store, run_id, id, &diff, r1, r2)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
         let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
         merge_unit(&a.fork, wt.as_str(), id, &deletes)?;
@@ -1267,18 +1271,42 @@ fn record_review(
 ) -> Result<(), String> {
     use std::collections::HashMap as Map;
     // Implementer (worker) never reviews; two seats on different providers, diff-only.
+    // Live seats are opt-in (`RUSTSMITH_LIVE_REVIEWS=1`) with per-seat commands
+    // (`RUSTSMITH_SEAT_CMD_*`); anything unconfigured stays a scripted stub,
+    // so the default path is unchanged. A live seat that errors (exit, parse)
+    // fails the review closed: silence can never approve.
+    let live = std::env::var("RUSTSMITH_LIVE_REVIEWS").as_deref() == Ok("1");
+    let cmds = rustsmith_council::seat_commands_from_env();
     let mut d: Map<Seat, Box<dyn SeatDriver>> = Map::new();
     for s in [Seat::Architect, Seat::Verifier, Seat::Performance, Seat::Scope] {
-        d.insert(
-            s,
-            Box::new(StubDriver {
-                stance: Stance::Approve,
-                reasoning: format!("{} approves diff-only review of {unit_id}", s.as_str()),
-            }),
-        );
+        d.insert(s, review_driver(s, unit_id, live, cmds.get(&s)));
     }
     let c = Council::new(d);
     record_review_with_council(store, run_id, unit_id, diff.as_bytes(), &c, r1, r2)
+}
+
+/// One review seat's driver: live worker command when opted in and configured,
+/// scripted approve-stub otherwise. Pure selection (env read stays in
+/// `record_review`) so tests cover both arms without touching the environment.
+fn review_driver(
+    seat: Seat,
+    unit_id: &str,
+    live: bool,
+    cmd: Option<&String>,
+) -> Box<dyn SeatDriver> {
+    use rustsmith_council::WorkerSeatDriver;
+    match (live, cmd) {
+        (true, Some(cmd)) => Box::new(WorkerSeatDriver {
+            seat,
+            command: cmd.clone(),
+            model: rustsmith_council::model_for_seat(seat),
+            provider: rustsmith_council::provider_for_seat(seat),
+        }),
+        _ => Box::new(StubDriver {
+            stance: Stance::Approve,
+            reasoning: format!("{} approves diff-only review of {unit_id}", seat.as_str()),
+        }),
+    }
 }
 /// Review decision with fail-closed merge semantics. `diff_bytes` are the
 /// real review artifact: empty bytes (or an empty `artifact_ref`) error —
@@ -1505,6 +1533,16 @@ fn remove_token(text: &str, token: &str) -> String {
     out
 }
 
+
+/// Committed diff of a unit's worker branch against its base: exactly what
+/// `merge_unit` would bring in. Uncommitted worktree content is excluded
+/// (build artifacts are git-ignored; grading writes no tracked files), so
+/// the reviewed artifact and the merged content cannot skew.
+fn unit_branch_diff(fork: &Path, unit_id: &str) -> Result<String, String> {
+    let wt_branch = format!("unit/{}", crate::units::unit_fs_name(unit_id));
+    let base = git(fork, &["merge-base", "HEAD", &wt_branch])?;
+    git(fork, &["diff", &format!("{}..{}", base.trim(), wt_branch), "--"])
+}
 
 fn merge_unit(fork: &Path, _worktree: &str, unit_id: &str, deletes: &[String]) -> Result<(), String> {
     // Merge worker branch with --no-commit, delete the mirrored
@@ -1780,6 +1818,96 @@ mod tests {
         // Approving review with real bytes carries.
         record_review_with_council(&store, "r", "u1", b"real diff bytes", &c, Seat::Verifier, Seat::Scope)
             .unwrap();
+    }
+
+    #[test]
+    fn unit_branch_diff_returns_worker_branch_content() {
+        // The reviewed artifact is the worker branch's committed diff against
+        // its base: exactly what `merge_unit` brings in.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let g = |a: &[&str]| git(repo, a).unwrap();
+        g(&["init", "-q"]);
+        g(&["config", "user.email", "t@t"]);
+        g(&["config", "user.name", "t"]);
+        std::fs::write(repo.join("a.txt"), "base\n").unwrap();
+        g(&["add", "-A"]);
+        g(&["commit", "-qm", "base"]);
+        let base_branch = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
+        let id = "python:src/crc/_crc.py";
+        let branch = format!("unit/{}", crate::units::unit_fs_name(id));
+        g(&["checkout", "-qb", &branch]);
+        std::fs::write(repo.join("b.txt"), "worker\n").unwrap();
+        g(&["add", "-A"]);
+        g(&["commit", "-qm", "unit work"]);
+        g(&["checkout", "-q", base_branch.trim()]);
+        let diff = unit_branch_diff(repo, id).unwrap();
+        assert!(diff.contains("b.txt"), "branch file missing:\n{diff}");
+        assert!(diff.contains("+worker"), "branch content missing:\n{diff}");
+        assert!(!diff.contains("+base"), "base leaked into diff:\n{diff}");
+    }
+
+    #[test]
+    fn unit_branch_diff_empty_without_worker_commit() {
+        // A branch with no new commit diffs empty; `record_review` refuses
+        // that (empty diff, nothing to review) instead of rubber-stamping.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let g = |a: &[&str]| git(repo, a).unwrap();
+        g(&["init", "-q"]);
+        g(&["config", "user.email", "t@t"]);
+        g(&["config", "user.name", "t"]);
+        std::fs::write(repo.join("a.txt"), "base\n").unwrap();
+        g(&["add", "-A"]);
+        g(&["commit", "-qm", "base"]);
+        let id = "python:src/crc/_crc.py";
+        let branch = format!("unit/{}", crate::units::unit_fs_name(id));
+        g(&["checkout", "-qb", &branch]);
+        g(&["checkout", "-q", "-"]);
+        assert_eq!(unit_branch_diff(repo, id).unwrap(), "");
+    }
+
+    fn review_probe() -> Proposal {
+        Proposal {
+            question: "review u".into(),
+            artifact_ref: "diff".into(),
+            proposer: Seat::Architect,
+            reasoning: "r".into(),
+        }
+    }
+
+    #[test]
+    fn review_driver_stubs_unless_live_and_configured() {
+        // Default (and live-without-command): scripted approve, no subprocess.
+        for (live, cmd) in [(false, None), (true, None)] {
+            let d = review_driver(Seat::Verifier, "u", live, cmd);
+            let pos = d.critique(Seat::Verifier, &review_probe(), b"diff").unwrap();
+            assert_eq!(pos.stance, Stance::Approve);
+        }
+        // Live with an unconfigured seat also stubs (mixed councils allowed).
+        let cmd = "printf '{\"stance\":\"approve\",\"reasoning\":\"lgtm\"}'".to_string();
+        let d = review_driver(Seat::Verifier, "u", false, Some(&cmd));
+        let pos = d.critique(Seat::Verifier, &review_probe(), b"diff").unwrap();
+        assert_eq!(pos.stance, Stance::Approve);
+        assert!(pos.reasoning.contains("approves diff-only review"));
+    }
+
+    #[test]
+    fn review_driver_live_runs_command_and_fails_closed() {
+        // Live seat shells the command and parses stance/reasoning.
+        let cmd = "printf '{\"stance\":\"approve\",\"reasoning\":\"lgtm\"}'".to_string();
+        let d = review_driver(Seat::Verifier, "u", true, Some(&cmd));
+        let pos = d.critique(Seat::Verifier, &review_probe(), b"diff").unwrap();
+        assert_eq!(pos.stance, Stance::Approve);
+        assert_eq!(pos.reasoning, "lgtm");
+        // Reject stance and worker failure both surface (never silent approve).
+        let cmd = "printf '{\"stance\":\"reject\",\"reasoning\":\"no\"}'".to_string();
+        let d = review_driver(Seat::Verifier, "u", true, Some(&cmd));
+        let pos = d.critique(Seat::Verifier, &review_probe(), b"diff").unwrap();
+        assert_eq!(pos.stance, Stance::Reject);
+        let cmd = "exit 3".to_string();
+        let d = review_driver(Seat::Verifier, "u", true, Some(&cmd));
+        assert!(d.critique(Seat::Verifier, &review_probe(), b"diff").is_err());
     }
 
     #[test]

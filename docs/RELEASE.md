@@ -70,19 +70,27 @@ rustsmith release-prep --project mirror/crc --fork <fork> [--opt <opt>] \
 
 It stages a clean copy of the final accepted source, then:
 
-1. runs the core's `cargo test` (the same core Rust consumers use);
-2. builds a throwaway downstream crate depending on the core by path with
+1. injects the measured-performance receipt into the staged `README.md`
+   (`collect_readme_perf` over the `--opt` tree's `optimize-report.json`,
+   `render_readme_perf`, `inject_readme_perf` between the
+   `RUSTSMITH-PERF:BEGIN/END` markers; a source with no report receipts
+   the mirror baseline). The block is generated — never hand-edit it —
+   and carries measured outcomes only: artifact hashes live in
+   `release-manifest.json`, never in the README. Recorded in
+   `verification.json` as `readme_perf`;
+2. runs the core's `cargo test` (the same core Rust consumers use);
+3. builds a throwaway downstream crate depending on the core by path with
    no Python anywhere (reusability proof) and runs `cargo package` on the
    core (what crates.io receives);
-3. builds the wheel (`maturin build --release`) and the sdist
+4. builds the wheel (`maturin build --release`) and the sdist
    (`maturin sdist`);
-4. installs the wheel from disk into a fresh venv (`pip install --no-index
+5. installs the wheel from disk into a fresh venv (`pip install --no-index
    --no-deps`) and checks the dist name/version plus every `smoke_exprs`;
-5. unpacks the sdist, asserts it contains everything needed to rebuild
+6. unpacks the sdist, asserts it contains everything needed to rebuild
    (both manifests, `pyproject.toml`, the import shim, `NOTICE`), and
    rebuilds the wheel from the unpacked sdist (proves the core ships
    inside);
-6. retains artifacts (wheel, sdist, `.crate`), `SHA256SUMS`,
+7. retains artifacts (wheel, sdist, `.crate`), `SHA256SUMS`,
    `release-manifest.json` (config snapshot + `source_sha` + artifact
    hashes), `verification.json` (every check above with pass/fail),
    `release-state.json` (per-registry tracking, all `pending`), the
@@ -135,6 +143,38 @@ rustsmith release-status --state <dist>/release-state.json
   per-registry, never "publish everything again").
 - Recording an unknown registry or result is refused (it would corrupt the
   state the workflow and humans share).
+
+## 5b. Autonomous publish (`release-publish`, no browser)
+
+`release-publish` uploads a prepped bundle without human clicks: it reads
+the bundle next to `--state`, enforces the policy gate, uploads the SAME
+retained files by explicit recorded filename, reconciles per-file remote
+hashes, verifies the index serves the release, and records the outcome
+(sticky success). Credentials come from the environment and are never
+logged.
+
+```sh
+rustsmith release-publish --state <dist>/release-state.json --registry testpypi
+rustsmith release-publish --state <dist>/release-state.json --registry testpypi --dry-run  # plan only
+rustsmith release-publish --state <dist>/release-state.json --registry crates-io --stage <dist>/stage
+```
+
+- Policy gate: the prep battery must be green. Production lanes (`pypi`,
+  `crates-io`) additionally need `RUSTSMITH_ALLOW_PROD_PUBLISH=1` plus a
+  TestPyPI success under 24h on the same state (TestPyPI-first,
+  same-SHA256 promotion).
+- Python lanes upload exactly one wheel + one sdist; the `.crate` is
+  excluded by construction. On-disk bytes are re-hashed before upload
+  (drift refuses, never publishes). Missing `TWINE_USERNAME` /
+  `TWINE_PASSWORD` names the variable (nothing uploaded, nothing recorded).
+- After upload, each file's remote SHA-256 is reconciled via the index
+  JSON API, then a fresh venv installs pinned `dist==version` and re-runs
+  the smoke vectors. A twine/cargo transport failure queries the index
+  first (a timeout after upload does NOT mean unpublished; an existing
+  version with matching hashes is an idempotent success).
+- The crates.io lane publishes the core from `--stage` (`cargo publish`,
+  `CARGO_REGISTRY_TOKEN`); first release bootstraps the token lane, OIDC
+  thereafter (see the generated setup instructions).
 
 ## 6. Troubleshooting (invalid metadata / prerequisites)
 

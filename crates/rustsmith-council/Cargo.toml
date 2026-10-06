@@ -1,13 +1,15 @@
 [package]
 name = "rustsmith-council"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+description = "Multi-seat review council for rustsmith pipeline decisions"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-rustsmith-core = { path = "../rustsmith-core" }
-rustsmith-store = { path = "../rustsmith-store" }
+rustsmith-core = { version = "0.1.0", path = "../rustsmith-core" }
+rustsmith-store = { version = "0.1.0", path = "../rustsmith-store" }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-
 [dev-dependencies]
 tempfile = { workspace = true }
