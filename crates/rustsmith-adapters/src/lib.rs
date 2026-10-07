@@ -2234,6 +2234,26 @@ pub fn dag_from_call_graph(graph: &CallGraph) -> UnitDag {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn maturin_wheel_build_is_release() {
+        // C13 foot-gun: a develop/debug build benchmarked as "the Rust port"
+        // silently measures unoptimized code. The optimize-stage wheel flow
+        // must always carry `--release`.
+        let dir = tempfile::tempdir().unwrap();
+        let cx = BuildCtx {
+            tree: dir.path(),
+            build_dir: dir.path(),
+            release: true,
+        };
+        let cmds = MaturinBridge.build_wheel(&cx, dir.path());
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].program, "maturin");
+        assert!(
+            cmds[0].args.contains(&"--release".to_string()),
+            "wheel argv lost --release: {:?}",
+            cmds[0].args
+        );
+    }
 
     #[test]
     fn topo_orders_leaves_first_and_detects_cycle() {
