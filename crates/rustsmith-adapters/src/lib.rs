@@ -1171,6 +1171,20 @@ impl PytestRunner {
 
     fn pytest_command(tree: &Path, extra: &[String], verbose_flags: &[&str]) -> TestCommand {
         let mut args = vec!["-m".to_string(), "pytest".to_string()];
+        // Collection firewall (ADR-012): newer pytest versions emit
+        // collection-time deprecation warnings (e.g. generator-fed
+        // parametrize, removed in pytest 10) that pinned upstream suites
+        // cannot adapt to — their files are frozen by the oracle, and their
+        // own `filterwarnings = error` promotes the warning to a collection
+        // error. A message-scoped CLI `-W` ignore (which takes precedence
+        // over ini filters) keeps those suites collectible without touching
+        // assertion strictness: every other warning still honors the repo
+        // config, and the filter is a no-op on older pytest versions that
+        // never emit the message.
+        args.push("-W".to_string());
+        args.push(
+            "ignore:Passing a non-Collection iterable to parametrize".to_string(),
+        );
         args.extend(extra.iter().cloned());
         args.extend(verbose_flags.iter().map(|s| s.to_string()));
         let mut env_set = vec![("PY_COLORS".to_string(), "0".to_string())];
@@ -2412,6 +2426,31 @@ mod tests {
         let heldout = composite.runner.heldout(Path::new("test/unit"), &cx);
         assert_eq!(heldout.len(), 1);
         assert_eq!(heldout[0].cwd, Cwd::Tree);
+    }
+
+    #[test]
+    fn pytest_commands_carry_collection_firewall() {
+        // ADR-012: frozen invocations and held-out commands must ignore the
+        // pytest-9 collection deprecation (message-scoped, so a no-op where
+        // the warning never fires) while keeping every other flag in place.
+        let dir = python_only_tree();
+        let (composite, _) = select_composite(dir.path()).unwrap();
+        let build = dir.path().join("build");
+        std::fs::create_dir_all(&build).unwrap();
+        let cx = BuildCtx { tree: dir.path(), build_dir: &build, release: false };
+        let firewall =
+            "ignore:Passing a non-Collection iterable to parametrize".to_string();
+        for cmd in composite
+            .runner
+            .invocation(&cx)
+            .iter()
+            .chain(composite.runner.heldout(Path::new("test/unit"), &cx).iter())
+        {
+            let wpos = cmd.args.iter().position(|a| a == "-W");
+            assert!(wpos.is_some(), "missing -W in {:?}", cmd.args);
+            assert_eq!(cmd.args[wpos.unwrap() + 1], firewall);
+            assert!(cmd.args.contains(&"pytest".to_string()));
+        }
     }
 }
 // --- Track I: Fortran + C/C++ frontends and the CMake/CTest spine (ADR-008 step 8) ---
@@ -5666,7 +5705,7 @@ mod track_i_tests {
         let empty_build = tempfile::tempdir().unwrap();
         let cx_empty = BuildCtx {
             tree: &mock.tree,
-            build_dir: &empty_build.path(),
+            build_dir: empty_build.path(),
             release: false,
         };
         let err = composite
@@ -6025,9 +6064,8 @@ mod track_i_tests {
         assert!(profiler.hotspots(&loaded, false).is_err());
         // Claimed-available: either real perf data or an honest error when
         // the binary cannot run here (blocked perf events, missing binary).
-        match profiler.hotspots(&loaded, true) {
-            Ok(baseline) => assert_eq!(baseline.tool, "perf"),
-            Err(_) => {}
+        if let Ok(baseline) = profiler.hotspots(&loaded, true) {
+            assert_eq!(baseline.tool, "perf");
         }
     }
 
