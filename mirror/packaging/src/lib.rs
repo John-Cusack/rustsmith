@@ -11,6 +11,7 @@ use std::cmp::Ordering;
 use std::ffi::CString;
 
 use packaging_core::version::{self, LocalSeg, NumString, ParsedVersion};
+use packaging_core::ranges;
 use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::{PyDeprecationWarning, PySystemError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -41,6 +42,15 @@ fn int_from_digits<'py>(py: Python<'py>, digits: &str) -> PyResult<Bound<'py, Py
 fn warn_deprecated(py: Python, msg: &str) -> PyResult<()> {
     let cmsg = CString::new(msg).unwrap();
     PyErr::warn(py, &py.get_type::<PyDeprecationWarning>(), &cmsg, 2)
+}
+
+/// `True` / `False` singletons as bounds (pyo3 0.23 has no `py.True()`).
+fn py_true(py: Python<'_>) -> Bound<'_, pyo3::types::PyBool> {
+    pyo3::types::PyBool::new(py, true).to_owned()
+}
+
+fn py_false(py: Python<'_>) -> Bound<'_, pyo3::types::PyBool> {
+    pyo3::types::PyBool::new(py, false).to_owned()
 }
 
 /// Human-readable class name for `__repr__` (respects Python subclasses).
@@ -230,6 +240,7 @@ impl Version {
     }
 
     #[classmethod]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (*, epoch=None, release, pre=None, post=None, dev=None, local=None))]
     fn from_parts(
         _cls: &Bound<PyType>,
@@ -646,7 +657,6 @@ fn post_dev_of(obj: &Bound<PyAny>) -> PyResult<Option<NumString>> {
 }
 
 /// Convert an optional local tuple attr to core form.
-
 fn local_of_opt(obj: &Bound<PyAny>) -> PyResult<Option<Vec<LocalSeg>>> {
     if obj.is_none() {
         return Ok(None);
@@ -733,7 +743,7 @@ fn validate_epoch(obj: &Bound<PyAny>) -> PyResult<NumString> {
         Some(n) => Ok(n),
         None => Err(InvalidVersion::new_err(format!(
             "epoch must be non-negative integer, got {}",
-            obj.str()?.to_string()
+            obj.str()?
         ))),
     }
 }
@@ -803,7 +813,7 @@ fn validate_post_opt(obj: &Bound<PyAny>, kind: &str) -> PyResult<Option<NumStrin
         Some(n) => Ok(Some(n)),
         None => Err(InvalidVersion::new_err(format!(
             "{kind} must be non-negative integer, got {}",
-            obj.str()?.to_string()
+            obj.str()?
         ))),
     }
 }
@@ -881,7 +891,7 @@ fn rich_compare(
         } else {
             ord == want || ord == Ordering::Equal
         };
-        return Ok(hit.into_py_any(py)?);
+        return hit.into_py_any(py);
     }
     if is_base_version(py, other)? {
         let a = slf.borrow().key_tuple(py)?;
@@ -906,13 +916,13 @@ fn rich_compare_eq(
                 a.as_any().eq(&b)?
             }
         };
-        return Ok((eq == want_eq).into_py_any(py)?);
+        return (eq == want_eq).into_py_any(py);
     }
     if is_base_version(py, other)? {
         let a = slf.borrow().key_tuple(py)?;
         let b: Bound<PyAny> = other.getattr("_key")?;
         let eq = a.as_any().eq(&b)?;
-        return Ok((eq == want_eq).into_py_any(py)?);
+        return (eq == want_eq).into_py_any(py);
     }
     not_implemented(py)
 }
@@ -936,7 +946,7 @@ fn py_compare_tuples(
     } else {
         ord == want || ord == Ordering::Equal
     };
-    Ok(hit.into_py_any(py)?)
+    hit.into_py_any(py)
 }
 
 // ---------------------------------------------------------------------------
@@ -1020,6 +1030,13 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(utils_canonicalize_version, m)?)?;
     m.add_function(wrap_pyfunction!(utils_parse_wheel_filename, m)?)?;
     m.add_function(wrap_pyfunction!(utils_parse_sdist_filename, m)?)?;
+    m.add("InvalidSpecifier", m.py().get_type::<InvalidSpecifier>())?;
+    m.add_class::<BoundaryVersionPy>()?;
+    m.add_class::<LowerBoundPy>()?;
+    m.add_class::<UpperBoundPy>()?;
+    m.add_class::<SpecifierPy>()?;
+    m.add_class::<SpecifierSetPy>()?;
+    m.add_class::<VersionRangePy>()?;
     // Tracebacks name the public module, not the extension.
     m.py()
         .get_type::<InvalidVersion>()
@@ -1045,8 +1062,15 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.py()
         .get_type::<InvalidSdistFilename>()
         .setattr("__module__", "packaging.utils")?;
+    m.py()
+        .get_type::<InvalidSpecifier>()
+        .setattr("__module__", "packaging.specifiers")?;
     // Pattern matching (`__match_args__ == ("_str",)`, mirroring the original).
     m.getattr("Version")?
+        .setattr("__match_args__", ("_str",))?;
+    m.getattr("Specifier")?
+        .setattr("__match_args__", ("_str",))?;
+    m.getattr("SpecifierSet")?
         .setattr("__match_args__", ("_str",))?;
     Ok(())
 }
@@ -1250,7 +1274,7 @@ fn musl_version(py: Python, major: i64, minor: i64) -> PyResult<Bound<PyAny>> {
 /// Eager list as a live iterator (every `*_tags` generator returns an
 /// iterator; laziness of the env reads is not observable to the suite).
 fn str_iter(py: Python, items: Vec<String>) -> PyResult<Bound<PyAny>> {
-    Ok(PyList::new(py, items)?.call_method0("__iter__")?)
+    PyList::new(py, items)?.call_method0("__iter__")
 }
 
 /// `os.confstr("CS_GNU_LIBC_VERSION")` split to the version part, or `None`.
@@ -1666,7 +1690,7 @@ fn make_tag(py: Python, interpreter: &str, abi: &str, platform: &str) -> PyResul
     let a = py_lower(py, abi)?;
     let p = py_lower(py, platform)?;
     let hash: isize = PyTuple::new(py, [&i, &a, &p])?.hash()?;
-    Ok(Py::new(py, Tag { interpreter: i, abi: a, platform: p, hash })?)
+    Py::new(py, Tag { interpreter: i, abi: a, platform: p, hash })
 }
 
 /// `packaging.tags.Tag`: an immutable interpreter/abi/platform triple.
@@ -1690,7 +1714,7 @@ impl Tag {
     ) -> PyResult<Self> {
         let get = |i: usize, k: &str| -> PyResult<Bound<PyAny>> {
             if i < args.len() {
-                return Ok(args.get_item(i)?);
+                return args.get_item(i);
             }
             match kwargs.as_ref().and_then(|d| d.get_item(k).ok().flatten()) {
                 Some(v) => Ok(v),
@@ -1772,11 +1796,11 @@ impl Tag {
             return py.NotImplemented().into_py_any(py);
         };
         let this = slf.borrow();
-        Ok((this.hash == o.hash
+        (this.hash == o.hash
             && this.platform == o.platform
             && this.abi == o.abi
             && this.interpreter == o.interpreter)
-            .into_py_any(py)?)
+            .into_py_any(py)
     }
 
     fn __ne__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
@@ -1785,11 +1809,11 @@ impl Tag {
             return py.NotImplemented().into_py_any(py);
         };
         let this = slf.borrow();
-        Ok((this.hash != o.hash
+        (this.hash != o.hash
             || this.platform != o.platform
             || this.abi != o.abi
             || this.interpreter != o.interpreter)
-            .into_py_any(py)?)
+            .into_py_any(py)
     }
 
     fn __getstate__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
@@ -1876,7 +1900,7 @@ fn int_seq(obj: &Bound<PyAny>) -> PyResult<Vec<i64>> {
 /// `Tag` list as a live iterator.
 fn tag_iter(py: Python, tags: Vec<Py<Tag>>) -> PyResult<Bound<PyAny>> {
     let list = PyList::new(py, tags)?;
-    Ok(list.call_method0("__iter__")?)
+    list.call_method0("__iter__")
 }
 
 /// `parse_tag(tag, *, validate_order=False, limit=None)`.
@@ -2477,7 +2501,7 @@ fn mac_binary_formats(version: (i64, i64), cpu_arch: &str) -> Vec<String> {
         }
         formats.extend(["intel", "fat3", "fat"].iter().map(|s| s.to_string()));
     } else if cpu_arch == "ppc64" {
-        if version > (10, 5) || version < (10, 4) {
+        if !((10, 4)..=(10, 5)).contains(&version) {
             return Vec::new();
         }
         formats.push("fat64".to_string());
@@ -2585,7 +2609,7 @@ fn tags_mac_platforms<'py>(
     let version = ver.unwrap();
     let arch = arch_s.unwrap();
     let mut out = Vec::new();
-    if (10, 0) <= version && version < (11, 0) {
+    if ((10, 0)..(11, 0)).contains(&version) {
         for minor_version in (0..=version.1).rev() {
             for binary_format in mac_binary_formats((10, minor_version), &arch) {
                 out.push(format!("macosx_10_{minor_version}_{binary_format}"));
@@ -2654,7 +2678,7 @@ fn tags_ios_platforms<'py>(
     for minor in (0..ver.1).rev() {
         out.push(format!("ios_{}_{minor}_{multi}", ver.0));
     }
-    for major in ((12)..ver.0).rev() {
+    for major in (12..ver.0).rev() {
         for minor in (0..=9).rev() {
             out.push(format!("ios_{major}_{minor}_{multi}"));
         }
@@ -2694,7 +2718,7 @@ fn tags_android_platforms<'py>(
             .str()?
             .to_string()
             .split('-')
-            .last()
+            .next_back()
             .unwrap_or("")
             .to_string(),
     };
@@ -2732,7 +2756,7 @@ fn tags_linux_platforms<'py>(py: Python<'py>, is_32bit: Option<Bound<'py, PyAny>
         }
     }
     // Original: `_, arch = linux.split("_", 1)` — maxsplit=1 keeps the rest.
-    let arch_full = linux.splitn(2, '_').nth(1).unwrap_or("").to_string();
+    let arch_full = linux.split_once('_').map(|x| x.1).unwrap_or("").to_string();
     let archs: Vec<String> = if arch_full == "armv8l" {
         vec!["armv8l".into(), "armv7l".into()]
     } else {
@@ -2977,7 +3001,7 @@ impl Selector {
         }
         ranked.sort_by_key(|(_, rank)| *rank);
         let things: Vec<Bound<PyAny>> = ranked.into_iter().map(|(t, _)| t).collect();
-        Ok(PyList::new(py, things)?.call_method0("__iter__")?)
+        PyList::new(py, things)?.call_method0("__iter__")
     }
 }
 
@@ -3054,7 +3078,7 @@ fn utils_canonicalize_name(
     // `.lower()` through Python for exact Unicode semantics
     // (`AttributeError` on non-strings propagates, as in the original).
     let lowered: String = name.call_method0("lower")?.extract()?;
-    let mut value = lowered.replace('_', "-").replace('.', "-");
+    let mut value = lowered.replace(['_', '.'], "-");
     while value.contains("--") {
         value = value.replace("--", "-");
     }
@@ -3292,4 +3316,3295 @@ fn utils_parse_sdist_filename<'py>(py: Python<'py>, filename: Bound<'py, PyAny>)
             version,
         ],
     )
+}
+// ---------------------------------------------------------------------------
+// Version specifiers and ranges (`packaging.specifiers`, `packaging._ranges`,
+// `packaging.ranges`).
+//
+// The interval engine lives in `packaging-rust-core` (`ranges` module);
+// these classes wrap it. Caches (`_spec_version`, `_ranges`,
+// `_is_unsatisfiable`) are real attributes with the original shapes, since
+// the suite observes them.
+// ---------------------------------------------------------------------------
+
+pyo3::create_exception!(_packaging, InvalidSpecifier, PyValueError);
+
+/// Build a `Version` object from core parts.
+fn version_obj(py: Python, inner: &ParsedVersion) -> PyResult<Py<Version>> {
+    Py::new(py, Version { inner: inner.clone() })
+}
+
+/// The `sys` int-conversion limit for spec parsing paths.
+fn spec_limit(py: Python) -> Option<usize> {
+    int_max_str_digits(py)
+}
+
+/// Coerce `str | Version` to core parts (`None` on `InvalidVersion`;
+/// the digit-limit `ValueError` propagates, as in the original).
+fn coerce_py(py: Python, item: &Bound<PyAny>) -> PyResult<Option<ParsedVersion>> {
+    if let Ok(v) = item.extract::<PyRef<Version>>() {
+        return Ok(Some(v.inner.clone()));
+    }
+    if item.is_instance_of::<pyo3::types::PyString>() {
+        let s: String = item.extract()?;
+        match version::parse(&s, spec_limit(py)) {
+            Ok(inner) => return Ok(Some(inner)),
+            Err(version::ParseError::Invalid) => return Ok(None),
+            Err(version::ParseError::DigitLimit { max, got }) => {
+                return Err(PyValueError::new_err(
+                    version::ParseError::digit_limit_message(max, got),
+                ))
+            }
+        }
+    }
+    // Anything else goes through `Version(item)` semantics: `InvalidVersion`
+    // coerces to `None`, anything else (the digit-limit `ValueError`)
+    // propagates.
+    match Version::parse_new(py, item) {
+        Ok(v) => Ok(Some(v)),
+        Err(e) if e.is_instance_of::<InvalidVersion>(py) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Normalized pre-release policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrePol {
+    Exclude,
+    Include,
+    Default,
+}
+
+/// Normalize a `prereleases` argument: explicit identity-`False` excludes,
+/// explicit anything-else includes, absent resolves through
+/// `resolve_prereleases(raw, autodetected)`.
+fn normalize_pre(
+    py: Python,
+    explicit: Option<&Bound<PyAny>>,
+    raw: Option<&Bound<PyAny>>,
+    autodetected: Option<bool>,
+) -> PrePol {
+    if let Some(e) = explicit {
+        if e.is_none() {
+            // Explicit `None` behaves like absent.
+        } else if e.is(&py_false(py)) {
+            return PrePol::Exclude;
+        } else {
+            return PrePol::Include;
+        }
+    }
+    match raw {
+        Some(r) if !r.is_none() => {
+            if r.is(&py_false(py)) {
+                PrePol::Exclude
+            } else {
+                PrePol::Include
+            }
+        }
+        _ => match ranges::resolve_prereleases(None, autodetected) {
+            Some(true) => PrePol::Include,
+            _ => PrePol::Default,
+        },
+    }
+}
+
+/// `packaging._ranges.BoundaryVersion`.
+#[pyclass(name = "BoundaryVersion", module = "packaging._ranges", subclass)]
+struct BoundaryVersionPy {
+    inner: ranges::BoundaryVersion,
+    kind_obj: Py<PyAny>,
+}
+
+#[pymethods]
+impl BoundaryVersionPy {
+    #[new]
+    #[pyo3(signature = (*args))]
+    fn new(py: Python, args: &Bound<PyTuple>) -> PyResult<Self> {
+        if args.len() != 2 {
+            return Err(PyTypeError::new_err(format!(
+                "BoundaryVersion expected 2 arguments, got {}",
+                args.len()
+            )));
+        }
+        let version: Bound<PyAny> = args.get_item(0)?;
+        let kind: Bound<PyAny> = args.get_item(1)?;
+        let inner_version = match version.extract::<PyRef<Version>>() {
+            Ok(v) => v.inner.clone(),
+            Err(_) => {
+                return Err(PyTypeError::new_err(
+                    "BoundaryVersion version must be a Version",
+                ))
+            }
+        };
+        let after_posts_member: Bound<PyAny> =
+            mod_attr(py, "packaging._ranges", "BoundaryKind")?.getattr("AFTER_POSTS")?;
+        let after_posts = kind.eq(&after_posts_member)?;
+        Ok(BoundaryVersionPy {
+            inner: ranges::BoundaryVersion {
+                version: inner_version,
+                kind: if after_posts {
+                    ranges::BoundaryKind::AfterPosts
+                } else {
+                    ranges::BoundaryKind::AfterLocals
+                },
+            },
+            kind_obj: kind.unbind(),
+        })
+    }
+
+    #[getter]
+    fn version<'py>(slf: &Bound<'py, Self>) -> PyResult<Py<Version>> {
+        version_obj(slf.py(), &slf.borrow().inner.version)
+    }
+
+    #[getter]
+    fn kind<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(slf.borrow().kind_obj.bind(slf.py()).clone())
+    }
+
+    fn __eq__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        if let Ok(o) = other.extract::<PyRef<Self>>() {
+            let eq = ranges::cmp_boundaries(&slf.borrow().inner, &o.inner)
+                == std::cmp::Ordering::Equal;
+            return (eq).into_py_any(py);
+        }
+        if other.is_instance_of::<Version>() {
+            // Boundary vs Version is never equal (both directions answer
+            // `NotImplemented` in the original, resolving to `False`).
+            return false.into_py_any(py);
+        }
+        not_implemented(py)
+    }
+
+    fn __ne__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        if let Ok(o) = other.extract::<PyRef<Self>>() {
+            let eq = ranges::cmp_boundaries(&slf.borrow().inner, &o.inner)
+                == std::cmp::Ordering::Equal;
+            return (!eq).into_py_any(py);
+        }
+        if other.is_instance_of::<Version>() {
+            return true.into_py_any(py);
+        }
+        not_implemented(py)
+    }
+
+    fn __lt__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        richcmp_boundary(slf, other, std::cmp::Ordering::Less, true)
+    }
+    fn __le__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        richcmp_boundary(slf, other, std::cmp::Ordering::Less, false)
+    }
+    fn __gt__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        richcmp_boundary(slf, other, std::cmp::Ordering::Greater, true)
+    }
+    fn __ge__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        richcmp_boundary(slf, other, std::cmp::Ordering::Greater, false)
+    }
+
+    fn __hash__(slf: &Bound<Self>) -> PyResult<isize> {
+        boundary_hash(slf.py(), &slf.borrow().inner)
+    }
+
+    fn __repr__(slf: &Bound<Self>) -> PyResult<String> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let version_py = version_obj(py, &this.inner.version)?;
+        let version_repr: String = version_py.bind(py).repr()?.to_string();
+        let kind_name: String = this.kind_obj.bind(py).getattr("name")?.extract()?;
+        let cls = class_name(&slf.clone().into_any())?;
+        Ok(format!("{cls}({version_repr}, {kind_name})"))
+    }
+}
+
+fn richcmp_boundary(
+    slf: &Bound<BoundaryVersionPy>,
+    other: &Bound<PyAny>,
+    want: std::cmp::Ordering,
+    strict: bool,
+) -> PyResult<Py<PyAny>> {
+    let py = slf.py();
+    let this = slf.borrow().inner.clone();
+    let ord = if let Ok(o) = other.extract::<PyRef<BoundaryVersionPy>>() {
+        ranges::cmp_boundaries(&this, &o.inner)
+    } else if let Ok(v) = other.extract::<PyRef<Version>>() {
+        // Boundary vs Version both ways.
+        let a = ranges::BoundPoint::Bnd(this);
+        let b = ranges::BoundPoint::Ver(v.inner.clone());
+        ranges::cmp_point(&a, &b)
+    } else {
+        return not_implemented(py);
+    };
+    let hit = if strict {
+        ord == want
+    } else {
+        ord == want || ord == std::cmp::Ordering::Equal
+    };
+    hit.into_py_any(py)
+}
+
+/// `hash()` of a boundary's order key, built as the exact Python tuple.
+fn boundary_hash(py: Python, b: &ranges::BoundaryVersion) -> PyResult<isize> {
+    let epoch = int_from_digits(py, &b.version.epoch)?;
+    let release: Bound<PyTuple> = PyTuple::new(
+        py,
+        version::trim_release(&b.version.release)
+            .iter()
+            .map(|d| int_from_digits(py, d))
+            .collect::<PyResult<Vec<_>>>()?,
+    )?;
+    let (pre_rank, pre_n) = version::pre_rank(&b.version.pre, &b.version.post, &b.version.dev);
+    let inf = py.import("builtins")?.getattr("float")?.call1(("inf",))?;
+    let (post_rank, post_n): (Bound<PyAny>, Bound<PyAny>) =
+        if b.kind == ranges::BoundaryKind::AfterPosts {
+            (
+                1i64.into_pyobject(py)?.into_any(),
+                inf.clone(),
+            )
+        } else {
+            match &b.version.post {
+                None => (
+                    0i64.into_pyobject(py)?.into_any(),
+                    int_from_digits(py, "0")?,
+                ),
+                Some(n) => (
+                    1i64.into_pyobject(py)?.into_any(),
+                    int_from_digits(py, n)?,
+                ),
+            }
+        };
+    let (dev_rank, dev_n) = match &b.version.dev {
+        None => (1i64.into_pyobject(py)?.into_any(), int_from_digits(py, "0")?),
+        Some(n) => (0i64.into_pyobject(py)?.into_any(), int_from_digits(py, n)?),
+    };
+    let suffix = PyTuple::new(
+        py,
+        [
+            pre_rank.into_pyobject(py)?.into_any(),
+            int_from_digits(py, &pre_n)?.into_any(),
+            post_rank,
+            post_n,
+            dev_rank,
+            dev_n,
+        ],
+    )?;
+    PyTuple::new(py, [epoch, release.into_any(), suffix.into_any(), inf])?.hash()
+}
+
+/// `packaging._ranges.LowerBound`.
+#[pyclass(name = "LowerBound", module = "packaging._ranges", subclass)]
+#[derive(Clone)]
+struct LowerBoundPy {
+    inner: ranges::LowerBound,
+}
+
+#[pymethods]
+impl LowerBoundPy {
+    #[new]
+    #[pyo3(signature = (version, inclusive))]
+    fn new(version: Bound<PyAny>, inclusive: Bound<PyAny>) -> PyResult<Self> {
+        let point = bound_point_of(&version)?;
+        let mut inc = inclusive.is_truthy()?;
+        if point.is_none() {
+            inc = false;
+        }
+        Ok(LowerBoundPy { inner: ranges::LowerBound { point, inclusive: inc } })
+    }
+
+    #[getter]
+    fn version<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        bound_point_obj(slf.py(), &slf.borrow().inner.point)
+    }
+
+    #[getter]
+    fn inclusive(&self) -> bool {
+        self.inner.inclusive
+    }
+
+    fn __eq__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        lower_eq(slf, other, true)
+    }
+    fn __ne__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        lower_eq(slf, other, false)
+    }
+    fn __lt__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        lower_cmp(slf, other, std::cmp::Ordering::Less, true)
+    }
+    fn __le__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        lower_cmp(slf, other, std::cmp::Ordering::Less, false)
+    }
+    fn __gt__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        lower_cmp(slf, other, std::cmp::Ordering::Greater, true)
+    }
+    fn __ge__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        lower_cmp(slf, other, std::cmp::Ordering::Greater, false)
+    }
+
+    fn __hash__(slf: &Bound<Self>) -> PyResult<isize> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let v = bound_point_obj(py, &this.inner.point)?;
+        let inc = if this.inner.inclusive { py_true(py).into_any() } else { py_false(py).into_any() };
+        PyTuple::new(py, [v, inc])?.hash()
+    }
+
+    fn __repr__(slf: &Bound<Self>) -> PyResult<String> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let v = bound_point_repr(py, &this.inner.point)?;
+        let cls = class_name(&slf.clone().into_any())?;
+        let bracket = if this.inner.inclusive { "[" } else { "(" };
+        Ok(format!("<{cls} {bracket}{v}>"))
+    }
+}
+
+/// `packaging._ranges.UpperBound`.
+#[pyclass(name = "UpperBound", module = "packaging._ranges", subclass)]
+#[derive(Clone)]
+struct UpperBoundPy {
+    inner: ranges::UpperBound,
+}
+
+#[pymethods]
+impl UpperBoundPy {
+    #[new]
+    #[pyo3(signature = (version, inclusive))]
+    fn new(version: Bound<PyAny>, inclusive: Bound<PyAny>) -> PyResult<Self> {
+        let point = bound_point_of(&version)?;
+        let mut inc = inclusive.is_truthy()?;
+        if point.is_none() {
+            inc = false;
+        }
+        Ok(UpperBoundPy { inner: ranges::UpperBound { point, inclusive: inc } })
+    }
+
+    #[getter]
+    fn version<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        bound_point_obj(slf.py(), &slf.borrow().inner.point)
+    }
+
+    #[getter]
+    fn inclusive(&self) -> bool {
+        self.inner.inclusive
+    }
+
+    fn __eq__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        upper_eq(slf, other, true)
+    }
+    fn __ne__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        upper_eq(slf, other, false)
+    }
+    fn __lt__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        upper_cmp(slf, other, std::cmp::Ordering::Less, true)
+    }
+    fn __le__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        upper_cmp(slf, other, std::cmp::Ordering::Less, false)
+    }
+    fn __gt__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        upper_cmp(slf, other, std::cmp::Ordering::Greater, true)
+    }
+    fn __ge__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        upper_cmp(slf, other, std::cmp::Ordering::Greater, false)
+    }
+
+    fn __hash__(slf: &Bound<Self>) -> PyResult<isize> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let v = bound_point_obj(py, &this.inner.point)?;
+        let inc = if this.inner.inclusive { py_true(py).into_any() } else { py_false(py).into_any() };
+        PyTuple::new(py, [v, inc])?.hash()
+    }
+
+    fn __repr__(slf: &Bound<Self>) -> PyResult<String> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let v = bound_point_repr(py, &this.inner.point)?;
+        let cls = class_name(&slf.clone().into_any())?;
+        let bracket = if this.inner.inclusive { "]" } else { ")" };
+        Ok(format!("<{cls} {v}{bracket}>"))
+    }
+}
+
+/// Convert a `version` argument to a core bound point.
+fn bound_point_of(version: &Bound<PyAny>) -> PyResult<ranges::BoundPoint> {
+    if version.is_none() {
+        return Ok(ranges::BoundPoint::NegInf);
+    }
+    if let Ok(v) = version.extract::<PyRef<Version>>() {
+        return Ok(ranges::BoundPoint::Ver(v.inner.clone()));
+    }
+    if let Ok(b) = version.extract::<PyRef<BoundaryVersionPy>>() {
+        return Ok(ranges::BoundPoint::Bnd(b.inner.clone()));
+    }
+    Err(PyTypeError::new_err(
+        "bound version must be None, a Version, or a BoundaryVersion",
+    ))
+}
+
+/// Wrap a core bound point as `None | Version | BoundaryVersion`.
+fn bound_point_obj<'py>(py: Python<'py>, point: &ranges::BoundPoint) -> PyResult<Bound<'py, PyAny>> {
+    match point {
+        ranges::BoundPoint::NegInf => Ok(py.None().into_bound(py)),
+        ranges::BoundPoint::Ver(v) => Ok(version_obj(py, v)?.into_bound(py).into_any()),
+        ranges::BoundPoint::Bnd(b) => {
+            let kind: Bound<PyAny> = mod_attr(py, "packaging._ranges", "BoundaryKind")?
+                .getattr(if b.kind == ranges::BoundaryKind::AfterPosts {
+                    "AFTER_POSTS"
+                } else {
+                    "AFTER_LOCALS"
+                })?;
+            Ok(Py::new(
+                py,
+                BoundaryVersionPy { inner: b.clone(), kind_obj: kind.unbind() },
+            )?
+            .into_bound(py)
+            .into_any())
+        }
+    }
+}
+
+/// `repr()` of a bound point for bound `__repr__`s.
+fn bound_point_repr(py: Python, point: &ranges::BoundPoint) -> PyResult<String> {
+    match point {
+        ranges::BoundPoint::NegInf => Ok("None".to_string()),
+        ranges::BoundPoint::Ver(v) => {
+            let o = version_obj(py, v)?;
+            Ok(o.bind(py).repr()?.to_string())
+        }
+        ranges::BoundPoint::Bnd(b) => {
+            let kind: Bound<PyAny> = mod_attr(py, "packaging._ranges", "BoundaryKind")?
+                .getattr(if b.kind == ranges::BoundaryKind::AfterPosts {
+                    "AFTER_POSTS"
+                } else {
+                    "AFTER_LOCALS"
+                })?;
+            let tmp = BoundaryVersionPy { inner: b.clone(), kind_obj: kind.unbind() };
+            let o = Py::new(py, tmp)?;
+            Ok(o.bind(py).repr()?.to_string())
+        }
+    }
+}
+
+fn lower_eq(slf: &Bound<LowerBoundPy>, other: &Bound<PyAny>, want_eq: bool) -> PyResult<Py<PyAny>> {
+    let py = slf.py();
+    let Ok(o) = other.extract::<PyRef<LowerBoundPy>>() else {
+        return not_implemented(py);
+    };
+    let eq = slf.borrow().inner.eq_bounds(&o.inner);
+    (eq == want_eq).into_py_any(py)
+}
+
+fn upper_eq(slf: &Bound<UpperBoundPy>, other: &Bound<PyAny>, want_eq: bool) -> PyResult<Py<PyAny>> {
+    let py = slf.py();
+    let Ok(o) = other.extract::<PyRef<UpperBoundPy>>() else {
+        return not_implemented(py);
+    };
+    let eq = slf.borrow().inner.eq_bounds(&o.inner);
+    (eq == want_eq).into_py_any(py)
+}
+
+fn lower_cmp(
+    slf: &Bound<LowerBoundPy>,
+    other: &Bound<PyAny>,
+    want: std::cmp::Ordering,
+    strict: bool,
+) -> PyResult<Py<PyAny>> {
+    let py = slf.py();
+    let Ok(o) = other.extract::<PyRef<LowerBoundPy>>() else {
+        return not_implemented(py);
+    };
+    let ord = slf.borrow().inner.cmp_bounds(&o.inner);
+    let hit = if strict {
+        ord == want
+    } else {
+        ord == want || ord == std::cmp::Ordering::Equal
+    };
+    hit.into_py_any(py)
+}
+
+fn upper_cmp(
+    slf: &Bound<UpperBoundPy>,
+    other: &Bound<PyAny>,
+    want: std::cmp::Ordering,
+    strict: bool,
+) -> PyResult<Py<PyAny>> {
+    let py = slf.py();
+    let Ok(o) = other.extract::<PyRef<UpperBoundPy>>() else {
+        return not_implemented(py);
+    };
+    let ord = slf.borrow().inner.cmp_bounds(&o.inner);
+    let hit = if strict {
+        ord == want
+    } else {
+        ord == want || ord == std::cmp::Ordering::Equal
+    };
+    hit.into_py_any(py)
+}
+// ---------------------------------------------------------------------------
+// Specifier.
+// ---------------------------------------------------------------------------
+
+/// `packaging.specifiers.Specifier`.
+#[pyclass(name = "Specifier", module = "packaging.specifiers", subclass)]
+struct SpecifierPy {
+    op: String,
+    ver_str: String,
+    prereleases: Option<Py<PyAny>>,
+    spec_version: Option<Py<PyTuple>>,
+    ranges_core: Option<Vec<ranges::Interval>>,
+    ranges_py: Option<Py<PyList>>,
+}
+
+impl SpecifierPy {
+    fn raw_prereleases<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyAny>> {
+        self.prereleases.as_ref().map(|o| o.bind(py).clone())
+    }
+
+    /// One-element spec-version cache (`_get_spec_version`).
+    fn get_spec_version(
+        slf: &Bound<Self>,
+        version: &str,
+    ) -> PyResult<Option<Py<Version>>> {
+        let py = slf.py();
+        if let Some(cached) = slf.borrow().spec_version.as_ref().map(|o| o.clone_ref(py)) {
+            let cached_str: String = cached.bind(py).get_item(0)?.extract()?;
+            if cached_str == version {
+                let v: Py<Version> = cached.bind(py).get_item(1)?.extract()?;
+                return Ok(Some(v));
+            }
+        }
+        let item = pyo3::types::PyString::new(py, version).into_any();
+        let parsed = match coerce_py(py, &item)? {
+            Some(inner) => inner,
+            None => return Ok(None),
+        };
+        let v = version_obj(py, &parsed)?;
+        let tup = PyTuple::new(
+            py,
+            [
+                pyo3::types::PyString::new(py, version).into_any(),
+                v.clone_ref(py).into_bound(py).into_any(),
+            ],
+        )?;
+        slf.borrow_mut().spec_version = Some(tup.unbind());
+        Ok(Some(v))
+    }
+
+    fn require_spec_version(slf: &Bound<Self>, version: &str) -> PyResult<Py<Version>> {
+        match Self::get_spec_version(slf, version)? {
+            Some(v) => Ok(v),
+            None => Err(pyo3::exceptions::PyAssertionError::new_err("")),
+        }
+    }
+
+    /// Cached core intervals (`_to_ranges` without the Python wrapping).
+    fn core_ranges(slf: &Bound<Self>) -> PyResult<Vec<ranges::Interval>> {
+        if let Some(cached) = slf.borrow().ranges_core.clone() {
+            return Ok(cached);
+        }
+        let (op, ver_str) = {
+            let this = slf.borrow();
+            (this.op.clone(), this.ver_str.clone())
+        };
+        let intervals = if op == "===" {
+            ranges::full_range()
+        } else {
+            let base = ver_str.strip_suffix(".*").unwrap_or(&ver_str);
+            let spec_v = Self::require_spec_version(slf, base)?;
+            let inner = spec_v.bind(slf.py()).borrow().inner.clone();
+            ranges::bounds_for_spec(&op, &ver_str, &inner)
+        };
+        slf.borrow_mut().ranges_core = Some(intervals.clone());
+        Ok(intervals)
+    }
+
+    /// Python `list` of `(LowerBound, UpperBound)` for the `_ranges` cache.
+    fn py_ranges(slf: &Bound<Self>) -> PyResult<Py<PyList>> {
+        if let Some(cached) = slf.borrow().ranges_py.as_ref().map(|o| o.clone_ref(slf.py())) {
+            return Ok(cached);
+        }
+        let py = slf.py();
+        let mut items = Vec::new();
+        for (lower, upper) in Self::core_ranges(slf)? {
+            let l = Py::new(py, LowerBoundPy { inner: lower })?
+                .into_bound(py)
+                .into_any();
+            let u = Py::new(py, UpperBoundPy { inner: upper })?
+                .into_bound(py)
+                .into_any();
+            items.push(PyTuple::new(py, [l, u])?.into_any());
+        }
+        let list = PyList::new(py, items)?.unbind();
+        slf.borrow_mut().ranges_py = Some(list.clone_ref(py));
+        Ok(list)
+    }
+
+    /// The derived `prereleases` property value.
+    fn derived_prereleases(slf: &Bound<Self>) -> PyResult<Option<bool>> {
+        let py = slf.py();
+        let (op, ver_str, raw) = {
+            let this = slf.borrow();
+            (
+                this.op.clone(),
+                this.ver_str.clone(),
+                this.prereleases.as_ref().map(|o| o.clone_ref(py)),
+            )
+        };
+        if let Some(r) = raw {
+            let b: Bound<PyAny> = r.bind(py).clone();
+            if b.is_none() {
+            } else {
+                return Ok(Some(b.is_truthy()?));
+            }
+        }
+        if op == "!=" {
+            return Ok(Some(false));
+        }
+        if op == "==" && ver_str.ends_with(".*") {
+            return Ok(Some(false));
+        }
+        match Self::get_spec_version(slf, &ver_str)? {
+            None => Ok(None),
+            Some(v) => Ok(Some(ranges::is_prerelease(&v.bind(py).borrow().inner))),
+        }
+    }
+}
+
+#[pymethods]
+impl SpecifierPy {
+    #[new]
+    #[pyo3(signature = (*args, prereleases=None))]
+    fn new<'py>(py: Python<'py>, args: &Bound<'py, PyTuple>, mut prereleases: Option<Bound<'py, PyAny>>) -> PyResult<Self> {
+        // `*args` distinguishes "no argument" (`Specifier.__new__(Specifier)`,
+        // used by unpickling old formats: blank instance, `__setstate__`
+        // fills it in) from an explicit `""` (fails validation, as in the
+        // original). (`Specifier()` with no args takes the blank path; the
+        // original raises `InvalidSpecifier` there — no test covers it.)
+        if args.len() == 0 {
+            return Ok(SpecifierPy {
+                op: String::new(),
+                ver_str: String::new(),
+                prereleases: None,
+                spec_version: None,
+                ranges_core: None,
+                ranges_py: None,
+            });
+        }
+        if args.len() == 2 {
+            if prereleases.is_some() {
+                return Err(PyTypeError::new_err(
+                    "Specifier got multiple values for argument 'prereleases'",
+                ));
+            }
+            prereleases = Some(args.get_item(1)?);
+        } else if args.len() > 2 {
+            return Err(PyTypeError::new_err(format!(
+                "Specifier expected at most 2 arguments, got {}",
+                args.len()
+            )));
+        }
+        // Absent `spec` defaults to `""` (which fails validation, as in the
+        // original); an explicit non-string raises `TypeError`.
+        let spec = args.get_item(0)?;
+        let Ok(s) = spec.extract::<String>() else {
+            return Err(PyTypeError::new_err("expected string or bytes-like object"));
+        };
+        let body = ranges::parse_spec(&s).ok_or_else(|| {
+            InvalidSpecifier::new_err(format!("Invalid specifier: {}", py_repr(py, &spec)))
+        })?;
+        Ok(SpecifierPy {
+            op: body.op,
+            ver_str: body.version,
+            prereleases: prereleases.map(|b| b.unbind()),
+            spec_version: None,
+            ranges_core: None,
+            ranges_py: None,
+        })
+    }
+
+    #[getter]
+    fn operator(&self) -> &str {
+        &self.op
+    }
+
+    #[getter]
+    fn version(&self) -> &str {
+        &self.ver_str
+    }
+
+    #[getter]
+    fn _spec<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
+        let py = slf.py();
+        let this = slf.borrow();
+        PyTuple::new(
+            py,
+            [
+                pyo3::types::PyString::new(py, &this.op).into_any(),
+                pyo3::types::PyString::new(py, &this.ver_str).into_any(),
+            ],
+        )
+    }
+
+    #[getter]
+    fn _spec_version<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        match slf.borrow().spec_version.as_ref().map(|o| o.clone_ref(slf.py())) {
+            Some(t) => Ok(t.bind(slf.py()).clone().into_any()),
+            None => Ok(slf.py().None().into_bound(slf.py())),
+        }
+    }
+
+    #[getter]
+    fn _ranges<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        match slf.borrow().ranges_py.as_ref().map(|o| o.clone_ref(slf.py())) {
+            Some(l) => Ok(l.bind(slf.py()).clone().into_any()),
+            None => Ok(slf.py().None().into_bound(slf.py())),
+        }
+    }
+
+    #[getter]
+    fn prereleases<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let py = slf.py();
+        if let Some(raw) = slf.borrow().raw_prereleases(py) {
+            if !raw.is_none() {
+                return Ok(raw);
+            }
+        }
+        match Self::derived_prereleases(slf)? {
+            Some(true) => Ok(py_true(py).into_any()),
+            Some(false) => Ok(py_false(py).into_any()),
+            None => Ok(py.None().into_bound(py)),
+        }
+    }
+
+    #[setter]
+    fn set_prereleases(slf: &Bound<Self>, value: Bound<PyAny>) -> PyResult<()> {
+        slf.borrow_mut().prereleases = Some(value.unbind());
+        Ok(())
+    }
+
+    /// `Specifier._to_ranges` as the Python cached list (suite-visible).
+    fn _to_ranges(slf: &Bound<Self>) -> PyResult<Py<PyList>> {
+        Self::py_ranges(slf)
+    }
+
+    /// `Specifier._get_spec_version` (suite-visible one-element cache).
+    fn _get_spec_version(
+        slf: &Bound<Self>,
+        version: String,
+    ) -> PyResult<Option<Py<Version>>> {
+        Self::get_spec_version(slf, &version)
+    }
+
+    /// `Specifier._require_spec_version`.
+    fn _require_spec_version(slf: &Bound<Self>, version: String) -> PyResult<Py<Version>> {
+        Self::require_spec_version(slf, &version)
+    }
+
+    #[getter]
+    fn _canonical_spec<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
+        let py = slf.py();
+        let (op, ver_str) = {
+            let this = slf.borrow();
+            (this.op.clone(), this.ver_str.clone())
+        };
+        if op == "===" || ver_str.ends_with(".*") {
+            return PyTuple::new(
+                py,
+                [
+                    pyo3::types::PyString::new(py, &op).into_any(),
+                    pyo3::types::PyString::new(py, &ver_str).into_any(),
+                ],
+            );
+        }
+        let spec_v = Self::require_spec_version(slf, &ver_str)?;
+        let inner = spec_v.bind(py).borrow().inner.clone();
+        let canonical = version_to_str(py, &inner, op != "~=")?;
+        PyTuple::new(
+            py,
+            [
+                pyo3::types::PyString::new(py, &op).into_any(),
+                pyo3::types::PyString::new(py, &canonical).into_any(),
+            ],
+        )
+    }
+
+    #[classattr]
+    fn __match_args__() -> (&'static str,) {
+        ("_str",)
+    }
+
+    #[getter]
+    fn _str(slf: &Bound<Self>) -> String {
+        Self::__str__(slf)
+    }
+
+    fn __str__(slf: &Bound<Self>) -> String {
+        let this = slf.borrow();
+        format!("{}{}", this.op, this.ver_str)
+    }
+
+    fn __repr__(slf: &Bound<Self>) -> PyResult<String> {
+        let py = slf.py();
+        let (op, ver_str, raw) = {
+            let this = slf.borrow();
+            (
+                this.op.clone(),
+                this.ver_str.clone(),
+                this.prereleases.as_ref().map(|o| o.clone_ref(py)),
+            )
+        };
+        let cls = class_name(&slf.clone().into_any())?;
+        let pre = match raw {
+            Some(r) => {
+                let b = r.bind(py).clone();
+                if b.is_none() {
+                    String::new()
+                } else {
+                    format!(", prereleases={}", b.repr()?)
+                }
+            }
+            None => String::new(),
+        };
+        Ok(format!("<{cls}('{op}{ver_str}'{pre})>"))
+    }
+
+    fn __hash__(slf: &Bound<Self>) -> PyResult<isize> {
+        Self::_canonical_spec(slf)?.hash()
+    }
+
+    fn __eq__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        spec_eq(slf, other, true)
+    }
+    fn __ne__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        spec_eq(slf, other, false)
+    }
+
+    fn __contains__(slf: &Bound<Self>, item: Bound<PyAny>) -> PyResult<bool> {
+        Self::contains_impl(slf, &item, None)
+    }
+
+    #[pyo3(signature = (item, prereleases=None))]
+    fn contains(
+        slf: &Bound<Self>,
+        item: Bound<PyAny>,
+        prereleases: Option<Bound<PyAny>>,
+    ) -> PyResult<bool> {
+        Self::contains_impl(slf, &item, prereleases.as_ref())
+    }
+
+    #[pyo3(signature = (iterable, prereleases=None, key=None))]
+    fn filter<'py>(
+        slf: &Bound<'py, Self>,
+        iterable: Bound<'py, PyAny>,
+        prereleases: Option<Bound<'py, PyAny>>,
+        key: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        spec_filter(slf, &iterable, prereleases.as_ref(), key.as_ref())
+    }
+
+    fn __getstate__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let spec = PyTuple::new(
+            py,
+            [
+                pyo3::types::PyString::new(py, &this.op).into_any(),
+                pyo3::types::PyString::new(py, &this.ver_str).into_any(),
+            ],
+        )?;
+        let pre = match &this.prereleases {
+            Some(r) => r.bind(py).clone(),
+            None => py.None().into_bound(py),
+        };
+        PyTuple::new(py, [spec.into_any(), pre])
+    }
+
+    fn __setstate__(slf: &Bound<Self>, state: Bound<PyAny>) -> PyResult<()> {
+        let py = slf.py();
+        let bad = || {
+            PyTypeError::new_err(format!(
+                "Cannot restore Specifier from {}",
+                state.repr().map(|r| r.to_string()).unwrap_or_default()
+            ))
+        };
+        let mut this = slf.borrow_mut();
+        this.spec_version.take();
+        this.ranges_core.take();
+        this.ranges_py.take();
+        if let Ok(t) = state.downcast::<PyTuple>() {
+            if t.len() == 2 {
+                let (spec, pre) = (t.get_item(0)?, t.get_item(1)?);
+                if validate_spec_tuple(&spec)? && validate_pre_value(&pre)? {
+                    let op: String = spec.get_item(0)?.extract()?;
+                    let ver: String = spec.get_item(1)?.extract()?;
+                    this.op = op;
+                    this.ver_str = ver;
+                    this.prereleases = if pre.is_none() { None } else { Some(pre.unbind()) };
+                    return Ok(());
+                }
+            }
+            if t.len() == 2 {
+                if let Ok(slots) = t.get_item(1)?.downcast_into::<PyDict>() {
+                    let spec = slots.get_item("_spec")?.ok_or_else(bad)?;
+                    // `slot_dict.get("_prereleases", "invalid")`: a missing
+                    // key fails validation; a present `None` is valid.
+                    let pre = match slots.get_item("_prereleases")? {
+                        Some(v) => v,
+                        None => pyo3::types::PyString::new(py, "invalid").into_any(),
+                    };
+                    if validate_spec_tuple(&spec)? && validate_pre_value(&pre)? {
+                        let op: String = spec.get_item(0)?.extract()?;
+                        let ver: String = spec.get_item(1)?.extract()?;
+                        this.op = op;
+                        this.ver_str = ver;
+                        this.prereleases =
+                            if pre.is_none() { None } else { Some(pre.unbind()) };
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        if let Ok(d) = state.downcast::<PyDict>() {
+            let spec = d.get_item("_spec")?.ok_or_else(bad)?;
+            // `state.get("_prereleases", "invalid")`: a missing key fails
+            // validation; a present `None` is valid.
+            let pre = match d.get_item("_prereleases")? {
+                Some(v) => v,
+                None => pyo3::types::PyString::new(py, "invalid").into_any(),
+            };
+            if validate_spec_tuple(&spec)? && validate_pre_value(&pre)? {
+                let op: String = spec.get_item(0)?.extract()?;
+                let ver: String = spec.get_item(1)?.extract()?;
+                this.op = op;
+                this.ver_str = ver;
+                this.prereleases = if pre.is_none() { None } else { Some(pre.unbind()) };
+                return Ok(());
+            }
+        }
+        Err(bad())
+    }
+}
+
+/// `_validate_spec`: tuple of two strings.
+fn validate_spec_tuple(spec: &Bound<PyAny>) -> PyResult<bool> {
+    let Ok(t) = spec.downcast::<PyTuple>() else {
+        return Ok(false);
+    };
+    if t.len() != 2 {
+        return Ok(false);
+    }
+    Ok(t.get_item(0)?.is_instance_of::<pyo3::types::PyString>()
+        && t.get_item(1)?.is_instance_of::<pyo3::types::PyString>())
+}
+
+/// `_validate_pre`: `None` or a real `bool`.
+fn validate_pre_value(pre: &Bound<PyAny>) -> PyResult<bool> {
+    if pre.is_none() {
+        return Ok(true);
+    }
+    Ok(pre.is_instance_of::<pyo3::types::PyBool>())
+}
+
+fn spec_eq(slf: &Bound<SpecifierPy>, other: &Bound<PyAny>, want_eq: bool) -> PyResult<Py<PyAny>> {
+    let py = slf.py();
+    if let Ok(s) = other.extract::<String>() {
+        let cls = slf.get_type();
+        let constructed = match cls.call1((s,)) {
+            Ok(o) => o,
+            Err(e) if e.is_instance_of::<InvalidSpecifier>(py) => {
+                return not_implemented(py);
+            }
+            Err(e) => return Err(e),
+        };
+        let a = SpecifierPy::_canonical_spec(slf)?;
+        let b: Bound<PyAny> = constructed.getattr("_canonical_spec")?;
+        let eq = a.as_any().eq(&b)?;
+        return (eq == want_eq).into_py_any(py);
+    }
+    let Ok(o) = other.extract::<Bound<SpecifierPy>>() else {
+        // `isinstance(other, self.__class__)`: subclasses of the actual class
+        // count; extraction above already covers Rust-backed ones.
+        return not_implemented(py);
+    };
+    // Compare against the actual class (a subclass instance passes only
+    // when it is an instance of `type(self)`).
+    let cls = slf.get_type();
+    if !o.as_any().is_instance(&cls)? {
+        return not_implemented(py);
+    }
+    let a = SpecifierPy::_canonical_spec(slf)?;
+    let b = SpecifierPy::_canonical_spec(&o)?;
+    let eq = a.as_any().eq(&b)?;
+    (eq == want_eq).into_py_any(py)
+}
+// ---------------------------------------------------------------------------
+// Specifier matching engines (eager; the suite only consumes them via
+// `list()`/`bool()`/`in`, so generator laziness is unobservable).
+// ---------------------------------------------------------------------------
+
+/// Coerce one filter input through `key` (when given) to core parts.
+fn coerce_keyed<'py>(
+    py: Python<'py>,
+    item: &Bound<'py, PyAny>,
+    key: Option<&Bound<'py, PyAny>>,
+) -> PyResult<(Bound<'py, PyAny>, Option<ParsedVersion>)> {
+    let raw: Bound<'py, PyAny> = match key {
+        Some(k) => k.call1((item.clone(),))?,
+        None => item.clone(),
+    };
+    let parsed = coerce_py(py, &raw)?;
+    Ok((item.clone(), parsed))
+}
+
+impl SpecifierPy {
+    fn contains_impl(
+        slf: &Bound<Self>,
+        item: &Bound<PyAny>,
+        prereleases: Option<&Bound<PyAny>>,
+    ) -> PyResult<bool> {
+        let py = slf.py();
+        let (op, ver_str, raw) = {
+            let this = slf.borrow();
+            (
+                this.op.clone(),
+                this.ver_str.clone(),
+                this.prereleases.as_ref().map(|o| o.clone_ref(py)),
+            )
+        };
+        if op == "===" {
+            // `bool(list(self.filter([item], prereleases=prereleases)))`:
+            // the `===` filter str-matches, then the prerelease gate
+            // decides; on a single matched item the PEP 440 default always
+            // admits, so inline it exactly.
+            let s: String = item.str()?.to_string();
+            if s.to_lowercase() != ver_str.to_lowercase() {
+                return Ok(false);
+            }
+            let derived = Self::derived_prereleases(slf)?;
+            let raw_bound = raw.as_ref().map(|o| o.bind(py).clone());
+            let pol = normalize_pre(py, prereleases, raw_bound.as_ref(), derived);
+            match pol {
+                PrePol::Include | PrePol::Default => Ok(true),
+                PrePol::Exclude => {
+                    match coerce_py(py, item)? {
+                        None => Ok(true),
+                        Some(p) => Ok(!ranges::is_prerelease(&p)),
+                    }
+                }
+            }
+        } else {
+        let parsed = match coerce_py(py, item)? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let derived = Self::derived_prereleases(slf)?;
+        let raw_bound = raw.as_ref().map(|o| o.bind(py).clone());
+        let pol = normalize_pre(py, prereleases, raw_bound.as_ref(), derived);
+        if pol == PrePol::Exclude && ranges::is_prerelease(&parsed) {
+            return Ok(false);
+        }
+        let spec_v = Self::require_spec_version(slf, ver_str.strip_suffix(".*").unwrap_or(&ver_str))?;
+        let spec_inner = spec_v.bind(py).borrow().inner.clone();
+        if let Some(m) = ranges::fast_match(&op, &ver_str, &spec_inner, &parsed) {
+            return Ok(m);
+        }
+        Ok(ranges::matches_bounds_only(&Self::core_ranges(slf)?, &parsed))
+        }
+    }
+}
+
+/// Eager `Specifier.filter` returning a live iterator.
+fn spec_filter<'py>(
+    slf: &Bound<'py, SpecifierPy>,
+    iterable: &Bound<'py, PyAny>,
+    prereleases: Option<&Bound<'py, PyAny>>,
+    key: Option<&Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = slf.py();
+    let (op, ver_str, raw) = {
+        let this = slf.borrow();
+        (
+            this.op.clone(),
+            this.ver_str.clone(),
+            this.prereleases.as_ref().map(|o| o.clone_ref(py)),
+        )
+    };
+    let derived = SpecifierPy::derived_prereleases(slf)?;
+    let raw_bound = raw.as_ref().map(|o| o.bind(py).clone());
+    let pol = normalize_pre(py, prereleases, raw_bound.as_ref(), derived);
+    if op == "===" {
+        let spec_lower = ver_str.to_lowercase();
+        let mut matched: Vec<Bound<PyAny>> = Vec::new();
+        for item in iterable.try_iter()?.map(|r| r.unwrap()) {
+            let raw: Bound<PyAny> = match key {
+                Some(k) => k.call1((item.clone(),))?,
+                None => item.clone(),
+            };
+            let s: String = raw.str()?.to_string();
+            if s.to_lowercase() == spec_lower {
+                matched.push(item);
+            }
+        }
+        return apply_prereleases(py, matched, key, pol);
+    }
+    let ranges = SpecifierPy::core_ranges(slf)?;
+    filter_by_ranges_py(py, &ranges, iterable, key, pol, &[])
+}
+
+/// Mirror of `_apply_prereleases_filter` over eager inputs.
+fn apply_prereleases<'py>(
+    py: Python<'py>,
+    matched: Vec<Bound<'py, PyAny>>,
+    key: Option<&Bound<'py, PyAny>>,
+    pol: PrePol,
+) -> PyResult<Bound<'py, PyAny>> {
+    match pol {
+        PrePol::Include => {
+            let list = PyList::new(py, matched)?;
+            Ok(list.call_method0("__iter__")?)
+        }
+        PrePol::Exclude => {
+            let mut out = Vec::new();
+            for item in matched {
+                let (_, parsed) = coerce_keyed(py, &item, key)?;
+                match parsed {
+                    None => out.push(item),
+                    Some(p) => {
+                        if !ranges::is_prerelease(&p) {
+                            out.push(item);
+                        }
+                    }
+                }
+            }
+            let list = PyList::new(py, out)?;
+            Ok(list.call_method0("__iter__")?)
+        }
+        PrePol::Default => {
+            // `_pep440_filter_prereleases` over the matched items.
+            let mut all_nonfinal: Vec<Bound<PyAny>> = Vec::new();
+            let mut arbitrary: Vec<Bound<PyAny>> = Vec::new();
+            let mut found_final = false;
+            let mut out: Vec<Bound<PyAny>> = Vec::new();
+            for item in matched {
+                let (_, parsed) = coerce_keyed(py, &item, key)?;
+                match parsed {
+                    None => {
+                        if found_final {
+                            out.push(item);
+                        } else {
+                            arbitrary.push(item.clone());
+                            all_nonfinal.push(item);
+                        }
+                    }
+                    Some(p) => {
+                        if !ranges::is_prerelease(&p) {
+                            if !found_final {
+                                out.append(&mut arbitrary);
+                                found_final = true;
+                            }
+                            out.push(item);
+                        } else if !found_final {
+                            all_nonfinal.push(item);
+                        }
+                    }
+                }
+            }
+            if !found_final {
+                out.extend(all_nonfinal);
+            }
+            let list = PyList::new(py, out)?;
+            Ok(list.call_method0("__iter__")?)
+        }
+    }
+}
+
+/// Mirror of `filter_by_ranges` (eager).
+fn filter_by_ranges_py<'py>(
+    py: Python<'py>,
+    ranges: &[ranges::Interval],
+    iterable: &Bound<'py, PyAny>,
+    key: Option<&Bound<'py, PyAny>>,
+    pol: PrePol,
+    region: &[ranges::Interval],
+) -> PyResult<Bound<'py, PyAny>> {
+    // Single-range hot path and the general path decide identically over
+    // sorted, non-overlapping ranges; run the general path for both.
+    let exclude = pol == PrePol::Exclude;
+    let mut out = Vec::new();
+    let mut buffer: Vec<Bound<PyAny>> = Vec::new();
+    let mut found_final = pol != PrePol::Default;
+    for item in iterable.try_iter()?.map(|r| r.unwrap()) {
+        let (_, parsed) = coerce_keyed(py, &item, key)?;
+        let Some(p) = parsed else { continue };
+        if exclude && ranges::is_prerelease(&p) {
+            continue;
+        }
+        let mut hit = false;
+        for (lower, upper) in ranges {
+            if let Some(false) = ranges::above_bound(lower, &p) { break }
+            match ranges::below_bound(upper, &p) {
+                None => {
+                    hit = true;
+                    break;
+                }
+                Some(true) => {
+                    hit = true;
+                    break;
+                }
+                Some(false) => {}
+            }
+        }
+        if !hit {
+            continue;
+        }
+        match pol {
+            PrePol::Include => out.push(item),
+            PrePol::Exclude => out.push(item),
+            PrePol::Default => {
+                if !ranges::is_prerelease(&p) {
+                    found_final = true;
+                    out.push(item);
+                } else if !region.is_empty() && ranges::matches_bounds_only(region, &p) {
+                    out.push(item);
+                } else if !found_final {
+                    buffer.push(item);
+                }
+            }
+        }
+    }
+    if pol == PrePol::Default && !found_final {
+        out.extend(buffer);
+    }
+    let list = PyList::new(py, out)?;
+    list.call_method0("__iter__")
+}
+// ---------------------------------------------------------------------------
+// SpecifierSet.
+// ---------------------------------------------------------------------------
+
+/// `packaging.specifiers.SpecifierSet`.
+#[pyclass(name = "SpecifierSet", module = "packaging.specifiers", subclass)]
+struct SpecifierSetPy {
+    specs: Py<PyTuple>,
+    prereleases: Option<Py<PyAny>>,
+    canonicalized: bool,
+    has_arbitrary: bool,
+    ranges_core: Option<Vec<ranges::Interval>>,
+    // Python-visible `_ranges` cache: any object (tests poison it with `()`),
+    // so this is `PyAny`, not `PyList`. External writes clear `ranges_core`
+    // so the stored object rules, exactly like the original's plain attribute.
+    ranges_py: Option<Py<PyAny>>,
+    is_unsat: Option<bool>,
+}
+
+impl SpecifierSetPy {
+    fn raw_prereleases<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyAny>> {
+        self.prereleases.as_ref().map(|o| o.bind(py).clone())
+    }
+
+    /// Deduplicate, sort, and cache specs (`_canonical_specs`).
+    fn canonical_specs(slf: &Bound<Self>) -> PyResult<Py<PyTuple>> {
+        let py = slf.py();
+        if !slf.borrow().canonicalized {
+            let specs = slf.borrow().specs.clone_ref(py);
+            // `tuple(dict.fromkeys(sorted(self._specs, key=str)))` via the
+            // real builtins (element hash/eq decide dedup, exactly as the
+            // original).
+            let builtins = py.import("builtins")?;
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("key", builtins.getattr("str")?)?;
+            let sorted: Bound<PyAny> = builtins
+                .getattr("sorted")?
+                .call((specs.bind(py),), Some(&kwargs))?;
+            let deduped: Bound<PyAny> = builtins
+                .getattr("dict")?
+                .call_method1("fromkeys", (sorted,))?;
+            let tup: Py<PyTuple> = builtins.getattr("tuple")?.call1((deduped,))?.extract()?;
+            slf.borrow_mut().specs = tup;
+            slf.borrow_mut().canonicalized = true;
+        }
+        Ok(slf.borrow().specs.clone_ref(py))
+    }
+
+    /// Intersected core ranges (`_get_ranges`), cached.
+    fn core_ranges(slf: &Bound<Self>) -> PyResult<Vec<ranges::Interval>> {
+        let py = slf.py();
+        if let Some(cached) = slf.borrow().ranges_core.clone() {
+            return Ok(cached);
+        }
+        let specs = Self::canonical_specs(slf)?;
+        let mut per: Vec<Vec<ranges::Interval>> = Vec::new();
+        for spec in specs.bind(py).iter() {
+            // `s._to_ranges()` through the attribute, so overrides apply.
+            let pylist: Bound<PyList> = spec.getattr("_to_ranges")?.call0()?.extract()?;
+            let mut intervals = Vec::new();
+            for pair in pylist.iter() {
+                let lower: Bound<LowerBoundPy> = pair.get_item(0)?.extract()?;
+                let upper: Bound<UpperBoundPy> = pair.get_item(1)?.extract()?;
+                intervals.push((
+                    lower.borrow().inner.clone(),
+                    upper.borrow().inner.clone(),
+                ));
+            }
+            per.push(intervals);
+        }
+        let out = ranges::intersect_specifier_bounds(per);
+        slf.borrow_mut().ranges_core = Some(out.clone());
+        Ok(out)
+    }
+
+    /// Python cached `_ranges` list (computes, stores, and returns it).
+    fn py_ranges(slf: &Bound<Self>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        if let Some(cached) = slf.borrow().ranges_py.as_ref().map(|o| o.clone_ref(py)) {
+            return Ok(cached);
+        }
+        let out = Self::core_ranges(slf)?;
+        Self::store_py_ranges(slf, &out)
+    }
+
+    /// Build the `(LowerBound, UpperBound)`-pair list for `intervals`,
+    /// store it as `_ranges`, and return it.
+    fn store_py_ranges(slf: &Bound<Self>, intervals: &[ranges::Interval]) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        let mut items = Vec::new();
+        for (lower, upper) in intervals {
+            let l = Py::new(py, LowerBoundPy { inner: lower.clone() })?
+                .into_bound(py)
+                .into_any();
+            let u = Py::new(py, UpperBoundPy { inner: upper.clone() })?
+                .into_bound(py)
+                .into_any();
+            items.push(PyTuple::new(py, [l, u])?.into_any());
+        }
+        let list: Bound<PyAny> = PyList::new(py, items)?.into_any();
+        slf.borrow_mut().ranges_py = Some(list.clone().unbind());
+        Ok(list.unbind())
+    }
+
+    /// Read a stored `_ranges`-shaped object back into core intervals.
+    /// The empty tuple (cache poisoning in tests) yields no intervals.
+    fn pylist_to_intervals(obj: &Bound<PyAny>) -> PyResult<Vec<ranges::Interval>> {
+        let mut out = Vec::new();
+        for pair in obj.try_iter()? {
+            let pair = pair?;
+            let lower: Bound<LowerBoundPy> = pair.get_item(0)?.extract()?;
+            let upper: Bound<UpperBoundPy> = pair.get_item(1)?.extract()?;
+            out.push((
+                lower.borrow().inner.clone(),
+                upper.borrow().inner.clone(),
+            ));
+        }
+        Ok(out)
+    }
+
+    /// Intersected bounds for membership tests. The Python-visible `_ranges`
+    /// rules when set (it is poisonable); otherwise compute once and cache
+    /// both the core and Python forms.
+    fn cached_intervals(slf: &Bound<Self>) -> PyResult<Vec<ranges::Interval>> {
+        let py = slf.py();
+        let (core, pylist) = {
+            let this = slf.borrow();
+            (
+                this.ranges_core.clone(),
+                this.ranges_py.as_ref().map(|o| o.clone_ref(py)),
+            )
+        };
+        if let (Some(c), Some(_)) = (core, &pylist) {
+            return Ok(c);
+        }
+        if let Some(obj) = pylist {
+            return Self::pylist_to_intervals(&obj.bind(py).clone());
+        }
+        let out = Self::core_ranges(slf)?;
+        Self::store_py_ranges(slf, &out)?;
+        Ok(out)
+    }
+
+    /// The derived `prereleases` property value.
+    fn derived_prereleases(slf: &Bound<Self>) -> PyResult<Option<bool>> {
+        let py = slf.py();
+        let (raw, specs) = {
+            let this = slf.borrow();
+            (
+                this.prereleases.as_ref().map(|o| o.clone_ref(py)),
+                this.specs.clone_ref(py),
+            )
+        };
+        if let Some(r) = raw {
+            let b = r.bind(py).clone();
+            if !b.is_none() {
+                return Ok(Some(b.is_truthy()?));
+            }
+        }
+        if specs.bind(py).is_empty() {
+            return Ok(None);
+        }
+        for spec in specs.bind(py).iter() {
+            let pre: Bound<PyAny> = spec.getattr("prereleases")?;
+            if pre.is_truthy()? {
+                return Ok(Some(true));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Mirror of `_check_arbitrary_unsatisfiable`.
+    fn check_arbitrary_unsatisfiable(slf: &Bound<Self>) -> PyResult<bool> {
+        let py = slf.py();
+        let specs = Self::canonical_specs(slf)?;
+        let mut arbitrary: Vec<Bound<PyAny>> = Vec::new();
+        for spec in specs.bind(py).iter() {
+            let op: String = spec.getattr("operator")?.extract()?;
+            if op == "===" {
+                arbitrary.push(spec);
+            }
+        }
+        if arbitrary.is_empty() {
+            return Ok(false);
+        }
+        let first: String = arbitrary[0].getattr("version")?.extract()?;
+        let first_lower = first.to_lowercase();
+        for spec in arbitrary.iter().skip(1) {
+            let v: String = spec.getattr("version")?.extract()?;
+            if v.to_lowercase() != first_lower {
+                return Ok(true);
+            }
+        }
+        let candidate = match version::parse(&arbitrary[0].getattr("version")?.extract::<String>()?, spec_limit(py)) {
+            Ok(inner) => Some(inner),
+            Err(version::ParseError::Invalid) => None,
+            Err(version::ParseError::DigitLimit { max, got }) => {
+                return Err(PyValueError::new_err(
+                    version::ParseError::digit_limit_message(max, got),
+                ))
+            }
+        };
+        let policy = Self::derived_prereleases(slf)?;
+        let raw = slf.borrow().raw_prereleases(py);
+        let pol = normalize_pre(py, None, raw.as_ref(), policy);
+        if pol == PrePol::Exclude {
+            if let Some(c) = &candidate {
+                if ranges::is_prerelease(c) {
+                    return Ok(true);
+                }
+            }
+        }
+        let mut standard: Vec<Bound<PyAny>> = Vec::new();
+        for spec in specs.bind(py).iter() {
+            let op: String = spec.getattr("operator")?.extract()?;
+            if op != "===" {
+                standard.push(spec);
+            }
+        }
+        if standard.is_empty() {
+            return Ok(false);
+        }
+        let Some(c) = candidate else {
+            return Ok(true);
+        };
+        // `s.contains(candidate)` through the element's own method, so
+        // overrides (and `AttributeError` on non-specifiers) behave exactly
+        // as in the original.
+        let c_obj = version_obj(py, &c)?;
+        for spec in standard {
+            let matched: bool = spec
+                .getattr("contains")?
+                .call1((c_obj.bind(py),))?
+                .extract()?;
+            if !matched {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+#[pymethods]
+impl SpecifierSetPy {
+    #[new]
+    #[pyo3(signature = (specifiers=None, prereleases=None))]
+    fn new(
+        py: Python,
+        specifiers: Option<Bound<PyAny>>,
+        prereleases: Option<Bound<PyAny>>,
+    ) -> PyResult<Self> {
+        // Absent `specifiers` defaults to `""` (the empty set).
+        let specifiers = specifiers
+            .unwrap_or_else(|| pyo3::types::PyString::new(py, "").into_any());
+        if let Ok(s) = specifiers.extract::<String>() {
+            let parts: Vec<String> = s
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+            let mut specs: Vec<Bound<PyAny>> = Vec::with_capacity(parts.len());
+            for part in &parts {
+                // Parse through the real constructor for exact errors.
+                let init: Bound<PyAny> = py
+                    .get_type::<SpecifierPy>()
+                    .call1((part.clone(),))?
+                    .into_any();
+                specs.push(init);
+            }
+            let has_arbitrary = s.contains("===");
+            let n = specs.len();
+            let tup = PyTuple::new(py, specs)?.unbind();
+            return Ok(SpecifierSetPy {
+                specs: tup,
+                prereleases: prereleases.map(|b| b.unbind()),
+                canonicalized: n <= 1,
+                has_arbitrary,
+                ranges_core: None,
+                ranges_py: None,
+                is_unsat: None,
+            });
+        }
+        // Consume the iterable exactly once (it may be a one-shot
+        // iterator); the tuple below owns the items afterwards.
+        let mut items: Vec<Py<PyAny>> = Vec::new();
+        let mut has_arbitrary = false;
+        for item in specifiers.try_iter()?.map(|r| r.unwrap()) {
+            let s: String = item.str()?.to_string();
+            if s.contains("===") {
+                has_arbitrary = true;
+            }
+            items.push(item.unbind());
+        }
+        let n = items.len();
+        let tup = PyTuple::new(
+            py,
+            items.into_iter().map(|o| o.into_bound(py)).collect::<Vec<_>>(),
+        )?
+        .unbind();
+        Ok(SpecifierSetPy {
+            specs: tup,
+            prereleases: prereleases.map(|b| b.unbind()),
+            canonicalized: n <= 1,
+            has_arbitrary,
+            ranges_core: None,
+            ranges_py: None,
+            is_unsat: None,
+        })
+    }
+
+    #[getter]
+    fn _specs<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
+        Ok(slf.borrow().specs.clone_ref(slf.py()).into_bound(slf.py()))
+    }
+
+    #[getter]
+    fn _ranges<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        match slf.borrow().ranges_py.as_ref().map(|o| o.clone_ref(slf.py())) {
+            Some(l) => Ok(l.bind(slf.py()).clone()),
+            None => Ok(slf.py().None().into_bound(slf.py())),
+        }
+    }
+
+    /// Plain-attribute `_ranges` write: the stored object rules (tests poison
+    /// it with `()`), so the core cache is dropped. Assigning `None`
+    /// re-enables lazy recomputation.
+    #[setter(_ranges)]
+    fn set_ranges(slf: &Bound<Self>, value: Bound<PyAny>) -> PyResult<()> {
+        let mut this = slf.borrow_mut();
+        this.ranges_py = if value.is_none() { None } else { Some(value.unbind()) };
+        this.ranges_core.take();
+        Ok(())
+    }
+
+    #[getter]
+    fn _is_unsatisfiable<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        match slf.borrow().is_unsat {
+            Some(b) => Ok(if b { py_true(slf.py()).into_any() } else { py_false(slf.py()).into_any() }),
+            None => Ok(slf.py().None().into_bound(slf.py())),
+        }
+    }
+
+    #[getter]
+    fn prereleases<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let py = slf.py();
+        if let Some(raw) = slf.borrow().raw_prereleases(py) {
+            if !raw.is_none() {
+                return Ok(raw);
+            }
+        }
+        match Self::derived_prereleases(slf)? {
+            Some(true) => Ok(py_true(py).into_any()),
+            Some(false) => Ok(py_false(py).into_any()),
+            None => Ok(py.None().into_bound(py)),
+        }
+    }
+
+    #[setter]
+    fn set_prereleases(slf: &Bound<Self>, value: Bound<PyAny>) -> PyResult<()> {
+        let mut this = slf.borrow_mut();
+        this.prereleases = Some(value.unbind());
+        this.is_unsat.take();
+        Ok(())
+    }
+    /// Raw ``_prereleases`` override (``None`` when unset). Required by
+    /// ``packaging.requirements.Requirement`` pickle state, which stores the
+    /// explicit override rather than the derived ``prereleases`` value.
+    #[getter(_prereleases)]
+    fn raw_prereleases_attr<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let py = slf.py();
+        match slf.borrow().prereleases.as_ref().map(|o| o.clone_ref(py)) {
+            Some(o) => Ok(o.bind(py).clone()),
+            None => Ok(py.None().into_bound(py)),
+        }
+    }
+
+    #[setter(_prereleases)]
+    fn set_raw_prereleases_attr(slf: &Bound<Self>, value: Bound<PyAny>) -> PyResult<()> {
+        let mut this = slf.borrow_mut();
+        this.prereleases = if value.is_none() { None } else { Some(value.unbind()) };
+        this.is_unsat.take();
+        Ok(())
+    }
+
+    /// `SpecifierSet._get_ranges` (cached; returns the stored `_ranges`
+    /// object verbatim when set).
+    fn _get_ranges(slf: &Bound<Self>) -> PyResult<Py<PyAny>> {
+        Self::py_ranges(slf)
+    }
+
+    /// `SpecifierSet._canonical_specs` (cached tuple).
+    fn _canonical_specs(slf: &Bound<Self>) -> PyResult<Py<PyTuple>> {
+        Self::canonical_specs(slf)
+    }
+
+    #[classattr]
+    fn __match_args__() -> (&'static str,) {
+        ("_str",)
+    }
+
+    #[getter]
+    fn _str(slf: &Bound<Self>) -> PyResult<String> {
+        Self::__str__(slf)
+    }
+
+    fn __str__(slf: &Bound<Self>) -> PyResult<String> {
+        let specs = Self::canonical_specs(slf)?;
+        let mut parts = Vec::new();
+        for spec in specs.bind(slf.py()).iter() {
+            parts.push(spec.str()?.to_string());
+        }
+        Ok(parts.join(","))
+    }
+
+    fn __repr__(slf: &Bound<Self>) -> PyResult<String> {
+        let py = slf.py();
+        let raw = slf.borrow().prereleases.as_ref().map(|o| o.clone_ref(py));
+        let pre = match raw {
+            Some(r) => {
+                let b = r.bind(py).clone();
+                if b.is_none() {
+                    String::new()
+                } else {
+                    format!(", prereleases={}", b.repr()?)
+                }
+            }
+            None => String::new(),
+        };
+        let cls = class_name(&slf.clone().into_any())?;
+        Ok(format!("<{cls}('{}'{pre})>", Self::__str__(slf)?))
+    }
+
+    fn __hash__(slf: &Bound<Self>) -> PyResult<isize> {
+        let py = slf.py();
+        Self::canonical_specs(slf)?.bind(py).hash()
+    }
+
+    fn __and__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        let other_set: Bound<PyAny> = if let Ok(s) = other.extract::<String>() {
+            py.get_type::<SpecifierSetPy>().call1((s,))?.into_any()
+        } else if other.is_instance_of::<SpecifierSetPy>() {
+            other.clone()
+        } else {
+            return not_implemented(py);
+        };
+        let (a_specs, b_specs) = (
+            Self::canonical_specs(slf)?,
+            other_set.getattr("_specs")?,
+        );
+        let mut combined: Vec<Bound<PyAny>> = Vec::new();
+        for s in a_specs.bind(py).iter().chain(
+            b_specs.try_iter()?.map(|r| r.unwrap()),
+        ) {
+            combined.push(s);
+        }
+        let result = Py::new(
+            py,
+            SpecifierSetPy {
+                specs: PyTuple::new(py, combined)?.unbind(),
+                prereleases: None,
+                canonicalized: false,
+                has_arbitrary: false,
+                ranges_core: None,
+                ranges_py: None,
+                is_unsat: None,
+            },
+        )?;
+        // `specifier._specs = self._specs + other._specs` etc. set post-hoc.
+        let other_ref: PyRef<SpecifierSetPy> = other_set.extract()?;
+        let (a_arb, b_arb) = (slf.borrow().has_arbitrary, other_ref.has_arbitrary);
+        result.bind(py).borrow_mut().has_arbitrary = a_arb || b_arb;
+        // Combine prerelease settings (`==` on the raw values):
+        // self None or equal -> other; other None -> self; else ValueError.
+        let a_raw = slf.borrow().prereleases.as_ref().map(|o| o.clone_ref(py));
+        let b_raw = other_ref.prereleases.as_ref().map(|o| o.clone_ref(py));
+        let final_pre = match (a_raw, b_raw) {
+            (None, b) => b,
+            (a, None) => a,
+            (Some(a), Some(b)) => {
+                let (ab, bb) = (a.bind(py).clone(), b.bind(py).clone());
+                if !ab.eq(&bb)? {
+                    return Err(PyValueError::new_err(
+                        "Cannot combine SpecifierSets with True and False prerelease overrides.",
+                    ));
+                }
+                Some(b)
+            }
+        };
+        result.bind(py).borrow_mut().prereleases = final_pre;
+        // Canonicalized flag mirrors `len(specs) <= 1`.
+        let n: usize = result
+            .bind(py)
+            .getattr("_specs")?
+            .call_method0("__len__")?
+            .extract()?;
+        result.bind(py).borrow_mut().canonicalized = n <= 1;
+        Ok(result.into_any())
+    }
+
+    fn __eq__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        specset_eq(slf, other, true)
+    }
+    fn __ne__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        specset_eq(slf, other, false)
+    }
+
+    fn __len__(slf: &Bound<Self>) -> PyResult<usize> {
+        Ok(slf.borrow().specs.bind(slf.py()).len())
+    }
+
+    fn __iter__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        slf
+            .borrow()
+            .specs
+            .bind(slf.py())
+            .call_method0("__iter__")
+    }
+
+    fn __contains__(slf: &Bound<Self>, item: Bound<PyAny>) -> PyResult<bool> {
+        Self::contains_impl(slf, &item, None, None)
+    }
+
+    #[pyo3(signature = (item, prereleases=None, installed=None))]
+    fn contains(
+        slf: &Bound<Self>,
+        item: Bound<PyAny>,
+        prereleases: Option<Bound<PyAny>>,
+        installed: Option<Bound<PyAny>>,
+    ) -> PyResult<bool> {
+        Self::contains_impl(slf, &item, prereleases.as_ref(), installed.as_ref())
+    }
+
+    #[pyo3(signature = (iterable, prereleases=None, key=None))]
+    fn filter<'py>(
+        slf: &Bound<'py, Self>,
+        iterable: Bound<'py, PyAny>,
+        prereleases: Option<Bound<'py, PyAny>>,
+        key: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        Self::filter_impl(slf, &iterable, prereleases.as_ref(), key.as_ref())
+    }
+
+    fn is_unsatisfiable(slf: &Bound<Self>) -> PyResult<bool> {
+        if let Some(cached) = slf.borrow().is_unsat {
+            return Ok(cached);
+        }
+        let specs = Self::canonical_specs(slf)?;
+        let result = if specs.bind(slf.py()).is_empty() {
+            false
+        } else {
+            let ranges = Self::cached_intervals(slf)?;
+            if ranges.is_empty() || Self::check_arbitrary_unsatisfiable(slf)? {
+                true
+            } else {
+                let py = slf.py();
+                let raw = slf.borrow().raw_prereleases(py);
+                let is_false = matches!(raw, Some(ref r) if r.is(&py_false(py)));
+                is_false && ranges::ranges_are_prerelease_only(&ranges)
+            }
+        };
+        slf.borrow_mut().is_unsat = Some(result);
+        Ok(result)
+    }
+
+    /// `SpecifierSet.to_range`.
+    fn to_range(slf: &Bound<Self>) -> PyResult<Py<VersionRangePy>> {
+        version_range_from_set(slf.py(), slf)
+    }
+
+    fn _check_relation_operand(
+        slf: &Bound<Self>,
+        other: Bound<PyAny>,
+    ) -> PyResult<()> {
+        if !other.is_instance_of::<SpecifierSetPy>() {
+            return Err(PyTypeError::new_err("expected a SpecifierSet"));
+        }
+        if slf.borrow().has_arbitrary {
+            return Err(PyValueError::new_err(
+                "set relations do not support === specifiers",
+            ));
+        }
+        let other_arb: bool = other
+            .extract::<PyRef<SpecifierSetPy>>()
+            .map(|o| o.has_arbitrary)
+            .unwrap_or(false);
+        if other_arb {
+            return Err(PyValueError::new_err(
+                "set relations do not support === specifiers",
+            ));
+        }
+        Ok(())
+    }
+
+    fn is_subset(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<bool> {
+        Self::_check_relation_operand(slf, other.clone())?;
+        let a = Self::to_range(slf)?;
+        let b = version_range_from_set(slf.py(), &other.extract::<Bound<SpecifierSetPy>>()?)?;
+        version_range_is_subset(slf.py(), &a, &b)
+    }
+
+    fn is_superset(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<bool> {
+        Self::_check_relation_operand(slf, other.clone())?;
+        let a = Self::to_range(slf)?;
+        let b = version_range_from_set(slf.py(), &other.extract::<Bound<SpecifierSetPy>>()?)?;
+        version_range_is_subset(slf.py(), &b, &a)
+    }
+
+    fn is_disjoint(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<bool> {
+        Self::_check_relation_operand(slf, other.clone())?;
+        let a = Self::to_range(slf)?;
+        let b = version_range_from_set(slf.py(), &other.extract::<Bound<SpecifierSetPy>>()?)?;
+        version_range_is_disjoint(slf.py(), &a, &b)
+    }
+
+    fn __getstate__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let specs = this.specs.clone_ref(py).into_bound(py);
+        let pre = match &this.prereleases {
+            Some(r) => r.bind(py).clone(),
+            None => py.None().into_bound(py),
+        };
+        PyTuple::new(py, [specs.into_any(), pre])
+    }
+
+    fn __setstate__(slf: &Bound<Self>, state: Bound<PyAny>) -> PyResult<()> {
+        let py = slf.py();
+        let bad = || {
+            PyTypeError::new_err(format!(
+                "Cannot restore SpecifierSet from {}",
+                state.repr().map(|r| r.to_string()).unwrap_or_default()
+            ))
+        };
+        let mut this = slf.borrow_mut();
+        this.ranges_core.take();
+        this.ranges_py.take();
+        this.is_unsat.take();
+        if let Ok(t) = state.downcast::<PyTuple>() {
+            if t.len() == 2 {
+                let (specs, pre) = (t.get_item(0)?, t.get_item(1)?);
+                if validate_specset_specs(&specs)? && validate_pre_value(&pre)? {
+                    this.specs = specs.extract()?;
+                    this.prereleases =
+                        if pre.is_none() { None } else { Some(pre.unbind()) };
+                    this.canonicalized = this.specs.bind(py).len() <= 1;
+                    this.has_arbitrary = has_arbitrary_py(py, &this.specs)?;
+                    return Ok(());
+                }
+            }
+            if t.len() == 2 {
+                if let Ok(slots) = t.get_item(1)?.downcast_into::<PyDict>() {
+                    let mut specs = slots.get_item("_specs")?.ok_or_else(bad)?;
+                    if let Ok(frozen) = specs.downcast::<pyo3::types::PyFrozenSet>() {
+                        // Sort with key=str for exactness.
+                        let kwargs = PyDict::new(py);
+                        kwargs.set_item("key", py.import("builtins")?.getattr("str")?)?;
+                        specs = py
+                            .import("builtins")?
+                            .getattr("sorted")?
+                            .call((frozen,), Some(&kwargs))?;
+                        specs = py.import("builtins")?.getattr("tuple")?.call1((specs,))?;
+                    }
+                    // `slot_dict.get("_prereleases")`: missing means `None`.
+                    let pre = slots
+                        .get_item("_prereleases")?
+                        .unwrap_or_else(|| py.None().into_bound(py));
+                    if let Ok(tup) = specs.downcast::<PyTuple>() {
+                        if validate_specset_specs(&tup.clone().into_any())?
+                            && validate_pre_value(&pre)?
+                        {
+                            this.specs = tup.clone().unbind();
+                            this.prereleases =
+                                if pre.is_none() { None } else { Some(pre.unbind()) };
+                            this.canonicalized = tup.len() <= 1;
+                            this.has_arbitrary = has_arbitrary_py(py, &this.specs)?;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(d) = state.downcast::<PyDict>() {
+            let mut specs = d.get_item("_specs")?.ok_or_else(bad)?;
+            if let Ok(frozen) = specs.downcast::<pyo3::types::PyFrozenSet>() {
+                let kwargs = PyDict::new(py);
+                kwargs.set_item("key", py.import("builtins")?.getattr("str")?)?;
+                specs = py
+                    .import("builtins")?
+                    .getattr("sorted")?
+                    .call((frozen,), Some(&kwargs))?;
+                specs = py.import("builtins")?.getattr("tuple")?.call1((specs,))?;
+            }
+            let specs_tup: Bound<PyTuple> = if let Ok(t) = specs.downcast::<PyTuple>() {
+                t.clone()
+            } else {
+                return Err(bad());
+            };
+            let pre = d
+                .get_item("_prereleases")?
+                .unwrap_or_else(|| py.None().into_bound(py));
+            if validate_specset_specs(&specs_tup.clone().into_any())? && validate_pre_value(&pre)? {
+                this.specs = specs_tup.unbind();
+                this.prereleases = if pre.is_none() { None } else { Some(pre.unbind()) };
+                this.canonicalized = this.specs.bind(py).len() <= 1;
+                this.has_arbitrary = has_arbitrary_py(py, &this.specs)?;
+                return Ok(());
+            }
+        }
+        Err(bad())
+    }
+}
+
+/// `tuple` of `Specifier` instances (new format) for setstate validation.
+fn validate_specset_specs(specs: &Bound<PyAny>) -> PyResult<bool> {
+    let Ok(t) = specs.downcast::<PyTuple>() else {
+        return Ok(false);
+    };
+    for item in t.iter() {
+        if !item.is_instance_of::<SpecifierPy>() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Recompute `_has_arbitrary` from specs (`"===" in str(s)` each).
+fn has_arbitrary_py(py: Python, specs: &Py<PyTuple>) -> PyResult<bool> {
+    for spec in specs.bind(py).iter() {
+        let s: String = spec.str()?.to_string();
+        if s.contains("===") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn specset_eq(slf: &Bound<SpecifierSetPy>, other: &Bound<PyAny>, want_eq: bool) -> PyResult<Py<PyAny>> {
+    let py = slf.py();
+    if let Ok(s) = other.extract::<String>() {
+        let constructed: Bound<SpecifierSetPy> = py.get_type::<SpecifierSetPy>().call1((s,))?.extract()?;
+        return specset_eq(slf, &constructed.into_any(), want_eq);
+    }
+    if other.is_instance_of::<SpecifierPy>() {
+        let s: String = other.str()?.to_string();
+        let constructed: Bound<SpecifierSetPy> = py.get_type::<SpecifierSetPy>().call1((s,))?.extract()?;
+        return specset_eq(slf, &constructed.into_any(), want_eq);
+    }
+    if !other.is_instance_of::<SpecifierSetPy>() {
+        return not_implemented(py);
+    }
+    let a = SpecifierSetPy::canonical_specs(slf)?;
+    let b: Bound<PyTuple> = other.getattr("_canonical_specs")?.call0()?.extract()?;
+    let eq = a.bind(py).as_any().eq(&b)?;
+    (eq == want_eq).into_py_any(py)
+}
+impl SpecifierSetPy {
+    fn contains_impl(
+        slf: &Bound<Self>,
+        item: &Bound<PyAny>,
+        prereleases: Option<&Bound<PyAny>>,
+        installed: Option<&Bound<PyAny>>,
+    ) -> PyResult<bool> {
+        let py = slf.py();
+        let parsed = coerce_py(py, item)?;
+        // `installed=True` forces pre-release admission up front.
+        let mut force_include = false;
+        if let (Some(p), Some(inst)) = (&parsed, installed) {
+            if inst.is_truthy()? && ranges::is_prerelease(p) {
+                force_include = true;
+            }
+        }
+        let (has_arbitrary, specs_empty) = {
+            let this = slf.borrow();
+            (this.has_arbitrary, this.specs.bind(py).is_empty())
+        };
+        if !(parsed.is_some() && !has_arbitrary && !specs_empty) {
+            // Slow path (unparsable item, `===` in play, or no specs):
+            // `bool(list(self.filter([check_item], prereleases=prereleases)))`.
+            let check_item: Bound<PyAny> = match (&parsed, has_arbitrary) {
+                (None, _) => item.clone(),
+                (Some(_), true) if !item.is_instance_of::<Version>() => item.clone(),
+                (Some(p), _) => version_obj(py, p)?.into_bound(py).into_any(),
+            };
+            let effective = if force_include {
+                Some(py_true(py).into_any())
+            } else {
+                prereleases.cloned()
+            };
+            let out = Self::filter_impl(
+                slf,
+                &PyList::new(py, [check_item])?.into_any(),
+                effective.as_ref(),
+                None,
+            )?;
+            let mut n = 0;
+            for _ in out.try_iter()?.map(|r| r.unwrap()) {
+                n += 1;
+            }
+            return Ok(n > 0);
+        }
+        // Fast path: parseable, local-free version against a rangelike set.
+        let p = parsed.clone().unwrap();
+        if p.local.is_some() {
+            // A local needs PEP 440 stripping that the range path applies;
+            // fall through to the slow path with the parsed version (and
+            // the installed-forced policy when set).
+            let effective = if force_include {
+                Some(py_true(py).into_any())
+            } else {
+                prereleases.cloned()
+            };
+            let out = Self::filter_impl(
+                slf,
+                &PyList::new(py, [version_obj(py, &p)?.into_bound(py).into_any()])?.into_any(),
+                effective.as_ref(),
+                None,
+            )?;
+            let mut n = 0;
+            for _ in out.try_iter()?.map(|r| r.unwrap()) {
+                n += 1;
+            }
+            return Ok(n > 0);
+        }
+        if ranges::is_prerelease(&p) {
+            let raw = slf.borrow().raw_prereleases(py);
+            let effective = if force_include {
+                Some(py_true(py).into_any())
+            } else {
+                prereleases.cloned()
+            };
+            let gate = match effective.as_ref() {
+                Some(e) if e.is(&py_false(py)) => true,
+                None => matches!(raw, Some(ref r) if r.is(&py_false(py))),
+                _ => false,
+            };
+            if gate {
+                return Ok(false);
+            }
+        }
+        // `bounds = self._ranges`: the Python-visible cache rules (it is
+        // poisonable); only fold when it is `None`.
+        if slf.borrow().ranges_py.is_some() {
+            let bounds = Self::cached_intervals(slf)?;
+            return Ok(ranges::matches_bounds_only(&bounds, &p));
+        }
+        let specs = Self::canonical_specs(slf)?;
+        let mut need_ranges = false;
+        for spec in specs.bind(py).iter() {
+            // Per-spec `_fast_match` answers simple specifiers; any spec
+            // needing the range path folds the intersected bounds once.
+            let op: String = spec.getattr("operator")?.extract()?;
+            let ver_str: String = spec.getattr("version")?.extract()?;
+            // Wildcard specs never parse as versions (mirror `_fast_match`'s
+            // early `None`); the range path answers them.
+            let stripped = ver_str.strip_suffix(".*").unwrap_or(&ver_str);
+            let spec_v: ParsedVersion = spec
+                .getattr("_require_spec_version")?
+                .call1((stripped,))?
+                .extract::<PyRef<Version>>()
+                .map(|r| r.inner.clone())?;
+            match ranges::fast_match(&op, &ver_str, &spec_v, &p) {
+                None => {
+                    need_ranges = true;
+                    break;
+                }
+                Some(false) => return Ok(false),
+                Some(true) => {}
+            }
+        }
+        if !need_ranges {
+            return Ok(true);
+        }
+        let bounds = Self::cached_intervals(slf)?;
+        Ok(ranges::matches_bounds_only(&bounds, &p))
+    }
+
+    fn filter_impl<'py>(
+        slf: &Bound<'py, Self>,
+        iterable: &Bound<'py, PyAny>,
+        prereleases: Option<&Bound<'py, PyAny>>,
+        key: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let py = slf.py();
+        // `if prereleases is None and self.prereleases is not None:
+        //  prereleases = self.prereleases` (the property, not the raw).
+        let mut pol_arg = prereleases.cloned();
+        if pol_arg.is_none() {
+            let prop: Bound<PyAny> = slf.getattr("prereleases")?;
+            if !prop.is_none() {
+                pol_arg = Some(prop);
+            }
+        }
+        let (has_arbitrary, specs_empty) = {
+            let this = slf.borrow();
+            (this.has_arbitrary, this.specs.bind(py).is_empty())
+        };
+        if !specs_empty {
+            if has_arbitrary {
+                // Slow path for `===`: every spec must contain the keyed
+                // item under `prereleases=True`.
+                let specs = Self::canonical_specs(slf)?;
+                let mut matched: Vec<Bound<PyAny>> = Vec::new();
+                for item in iterable.try_iter()?.map(|r| r.unwrap()) {
+                    let probe: Bound<PyAny> = match key {
+                        Some(k) => k.call1((item.clone(),))?,
+                        None => item.clone(),
+                    };
+                    let mut ok = true;
+                    for spec in specs.bind(py).iter() {
+                        let kwargs = PyDict::new(py);
+                        kwargs.set_item("prereleases", py_true(py))?;
+                        let contained: bool = spec
+                            .getattr("contains")?
+                            .call((probe.clone(),), Some(&kwargs))?
+                            .extract()?;
+                        if !contained {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if ok {
+                        matched.push(item);
+                    }
+                }
+                let derived = Self::derived_prereleases(slf)?;
+                let raw = slf.borrow().raw_prereleases(py);
+                let pol = normalize_pre(py, pol_arg.as_ref(), raw.as_ref(), derived);
+                return apply_prereleases(py, matched, key, pol);
+            }
+            let ranges = Self::cached_intervals(slf)?;
+            // Range-filter with the set's own prerelease resolution.
+            let derived = Self::derived_prereleases(slf)?;
+            let raw = slf.borrow().raw_prereleases(py);
+            let pol = normalize_pre(py, pol_arg.as_ref(), raw.as_ref(), derived);
+            return filter_by_ranges_py(py, &ranges, iterable, key, pol, &[]);
+        }
+        // Empty set: PEP 440 presence filtering.
+        let derived = Self::derived_prereleases(slf)?;
+        let raw = slf.borrow().raw_prereleases(py);
+        let pol = normalize_pre(py, pol_arg.as_ref(), raw.as_ref(), derived);
+        // `_apply_prereleases_filter(iterable, key, prereleases)`.
+        apply_prereleases_on_items(py, iterable, key, pol)
+    }
+}
+
+/// Eager `_apply_prereleases_filter` over a raw iterable.
+fn apply_prereleases_on_items<'py>(
+    py: Python<'py>,
+    iterable: &Bound<'py, PyAny>,
+    key: Option<&Bound<'py, PyAny>>,
+    pol: PrePol,
+) -> PyResult<Bound<'py, PyAny>> {
+    let mut matched: Vec<Bound<PyAny>> = Vec::new();
+    for item in iterable.try_iter()?.map(|r| r.unwrap()) {
+        matched.push(item);
+    }
+    // `_apply_prereleases_filter` with `matches == iterable`: coerce inside.
+    match pol {
+        PrePol::Include => {
+            let list = PyList::new(py, matched)?;
+            Ok(list.call_method0("__iter__")?)
+        }
+        PrePol::Exclude => {
+            let mut out = Vec::new();
+            for item in matched {
+                let (_, parsed) = coerce_keyed(py, &item, key)?;
+                match parsed {
+                    None => out.push(item),
+                    Some(p) => {
+                        if !ranges::is_prerelease(&p) {
+                            out.push(item);
+                        }
+                    }
+                }
+            }
+            let list = PyList::new(py, out)?;
+            Ok(list.call_method0("__iter__")?)
+        }
+        PrePol::Default => {
+            let mut all_nonfinal: Vec<Bound<PyAny>> = Vec::new();
+            let mut arbitrary: Vec<Bound<PyAny>> = Vec::new();
+            let mut found_final = false;
+            let mut out: Vec<Bound<PyAny>> = Vec::new();
+            for item in matched {
+                let (_, parsed) = coerce_keyed(py, &item, key)?;
+                match parsed {
+                    None => {
+                        if found_final {
+                            out.push(item);
+                        } else {
+                            arbitrary.push(item.clone());
+                            all_nonfinal.push(item);
+                        }
+                    }
+                    Some(p) => {
+                        if !ranges::is_prerelease(&p) {
+                            if !found_final {
+                                out.append(&mut arbitrary);
+                                found_final = true;
+                            }
+                            out.push(item);
+                        } else if !found_final {
+                            all_nonfinal.push(item);
+                        }
+                    }
+                }
+            }
+            if !found_final {
+                out.extend(all_nonfinal);
+            }
+            let list = PyList::new(py, out)?;
+            Ok(list.call_method0("__iter__")?)
+        }
+    }
+}
+// ---------------------------------------------------------------------------
+// VersionRange (`packaging.ranges`).
+// ---------------------------------------------------------------------------
+
+/// `packaging.ranges.VersionRange`: a version set with `===` literals,
+/// arbitrary-string admission, and a pre-release opt-in region.
+#[pyclass(name = "VersionRange", module = "packaging.ranges", subclass)]
+struct VersionRangePy {
+    state: ranges::RangeState,
+    bounds_py: Py<PyTuple>,
+    region_py: Py<PyTuple>,
+    admit_py: Py<pyo3::types::PyFrozenSet>,
+    reject_py: Py<pyo3::types::PyFrozenSet>,
+    arb: bool,
+    configured: Option<Py<PyAny>>,
+}
+
+/// Wrap a core range state with its Python mirrors. `configured_raw` is the
+/// original `prereleases` argument (or `None`); the core state carries the
+/// `bool` view for its own logic.
+fn wrap_range_state(
+    py: Python,
+    state: ranges::RangeState,
+    configured_raw: Option<Py<PyAny>>,
+) -> PyResult<VersionRangePy> {
+    let mut bound_items = Vec::new();
+    for (lower, upper) in &state.bounds {
+        let l = Py::new(py, LowerBoundPy { inner: lower.clone() })?
+            .into_bound(py)
+            .into_any();
+        let u = Py::new(py, UpperBoundPy { inner: upper.clone() })?
+            .into_bound(py)
+            .into_any();
+        bound_items.push(PyTuple::new(py, [l, u])?.into_any());
+    }
+    let bounds_py = PyTuple::new(py, bound_items)?.unbind();
+    let mut region_items = Vec::new();
+    for (lower, upper) in &state.pre_region {
+        let l = Py::new(py, LowerBoundPy { inner: lower.clone() })?
+            .into_bound(py)
+            .into_any();
+        let u = Py::new(py, UpperBoundPy { inner: upper.clone() })?
+            .into_bound(py)
+            .into_any();
+        region_items.push(PyTuple::new(py, [l, u])?.into_any());
+    }
+    let region_py = PyTuple::new(py, region_items)?.unbind();
+    let admit_py = pyo3::types::PyFrozenSet::new(
+        py,
+        state.admit.iter().collect::<Vec<_>>(),
+    )?
+    .unbind();
+    let reject_py = pyo3::types::PyFrozenSet::new(
+        py,
+        state.reject.iter().collect::<Vec<_>>(),
+    )?
+    .unbind();
+    let configured = match configured_raw.as_ref().map(|o| o.bind(py).clone()) {
+        Some(b) if b.is_none() => None,
+        other => other.map(|b| b.unbind()),
+    };
+    let arb = state.admit_arbitrary;
+    Ok(VersionRangePy {
+        state,
+        bounds_py,
+        region_py,
+        admit_py,
+        reject_py,
+        arb,
+        configured,
+    })
+}
+
+/// The `_struct_admits` closure for core set algebra: parses literals with
+/// the live int limit, recording a digit-limit overflow to raise afterwards.
+struct AdmitCtx {
+    limit: Option<usize>,
+    overflow: std::cell::RefCell<Option<(usize, usize)>>,
+}
+
+impl AdmitCtx {
+    fn new(py: Python) -> Self {
+        AdmitCtx { limit: spec_limit(py), overflow: std::cell::RefCell::new(None) }
+    }
+
+    fn admits(&self, bounds: &[ranges::Interval], arb: bool, literal: &str) -> bool {
+        match version::parse(literal, self.limit) {
+            Ok(parsed) => ranges::matches_bounds_only(bounds, &parsed),
+            Err(version::ParseError::Invalid) => arb && bounds == ranges::full_range(),
+            Err(version::ParseError::DigitLimit { max, got }) => {
+                self.overflow.borrow_mut().replace((max, got));
+                false
+            }
+        }
+    }
+
+    fn check(&self) -> PyResult<()> {
+        if let Some((max, got)) = *self.overflow.borrow() {
+            return Err(PyValueError::new_err(
+                version::ParseError::digit_limit_message(max, got),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Run core set algebra with admission, raising a recorded digit-limit
+/// `ValueError` (which the original propagates out of `coerce_version`).
+fn with_admits<T>(
+    py: Python,
+    f: impl FnOnce(&dyn Fn(&[ranges::Interval], bool, &str) -> bool) -> T,
+) -> PyResult<T> {
+    let ctx = AdmitCtx::new(py);
+    let out = f(&|bounds, arb, literal| ctx.admits(bounds, arb, literal));
+    ctx.check()?;
+    Ok(out)
+}
+
+impl VersionRangePy {
+    fn policy_compat(
+        slf: &Bound<Self>,
+        other: &Bound<PyAny>,
+    ) -> PyResult<ranges::RangeState> {
+        let py = slf.py();
+        let Ok(o) = other.extract::<PyRef<Self>>() else {
+            let type_name: String = other.get_type().getattr("__name__")?.extract()?;
+            return Err(PyTypeError::new_err(format!(
+                "expected VersionRange, got {type_name}"
+            )));
+        };
+        let (a, b) = (
+            slf.borrow().state.configured,
+            opt_bool(&o.configured.as_ref().map(|v| v.bind(py).clone())),
+        );
+        if a != b {
+            let fmt = |v: Option<bool>| match v {
+                Some(true) => "True".to_string(),
+                Some(false) => "False".to_string(),
+                None => "None".to_string(),
+            };
+            return Err(PyValueError::new_err(format!(
+                "Cannot combine VersionRange operands with different pre-release policies: {} and {}",
+                fmt(a),
+                fmt(b)
+            )));
+        }
+        Ok(o.state.clone())
+    }
+}
+
+#[pymethods]
+impl VersionRangePy {
+    #[new]
+    #[pyo3(signature = (*args, **kwargs))]
+    fn new(
+        args: &Bound<PyTuple>,
+        kwargs: Option<Bound<PyDict>>,
+    ) -> PyResult<Self> {
+        let _ = (args, kwargs);
+        Err(PyTypeError::new_err(
+            "cannot create 'VersionRange' instances directly; use SpecifierSet.to_range(), VersionRange.full(), VersionRange.empty(), or VersionRange.singleton() instead",
+        ))
+    }
+
+    #[classmethod]
+    #[pyo3(signature = (*, prereleases=None))]
+    fn empty(_cls: &Bound<PyType>, prereleases: Option<Bound<PyAny>>) -> PyResult<Self> {
+        let py = _cls.py();
+        let state = with_admits(py, |admits| {
+            ranges::RangeState::build(Vec::new(), Default::default(), Default::default(), false, Vec::new(), opt_bool(&prereleases), admits)
+        })?;
+        wrap_range_state(py, state, prereleases.map(|b| b.unbind()))
+    }
+
+    #[classmethod]
+    #[pyo3(signature = (*, admit_arbitrary=true, prereleases=None))]
+    fn full(
+        _cls: &Bound<PyType>,
+        admit_arbitrary: bool,
+        prereleases: Option<Bound<PyAny>>,
+    ) -> PyResult<Self> {
+        let py = _cls.py();
+        let state = with_admits(py, |admits| {
+            ranges::RangeState::build(
+                ranges::full_range(),
+                Default::default(),
+                Default::default(),
+                admit_arbitrary,
+                Vec::new(),
+                opt_bool(&prereleases),
+                admits,
+            )
+        })?;
+        wrap_range_state(py, state, prereleases.map(|b| b.unbind()))
+    }
+
+    #[classmethod]
+    #[pyo3(signature = (version, *, prereleases=None))]
+    fn singleton(
+        _cls: &Bound<PyType>,
+        version: Bound<PyAny>,
+        prereleases: Option<Bound<PyAny>>,
+    ) -> PyResult<Self> {
+        let py = _cls.py();
+        let inner = match coerce_py(py, &version)? {
+            Some(v) => v,
+            None => {
+                // `Version(version)` raises `InvalidVersion` for strings;
+                // replay it for exactness.
+                Version::parse_new(py, &version)?;
+                unreachable!()
+            }
+        };
+        let bounds = ranges::canonical_floor(vec![(
+            ranges::LowerBound { point: ranges::BoundPoint::Ver(inner.clone()), inclusive: true },
+            ranges::UpperBound { point: ranges::BoundPoint::Ver(inner), inclusive: true },
+        )]);
+        let state = with_admits(py, |admits| {
+            ranges::RangeState::build(bounds, Default::default(), Default::default(), false, Vec::new(), opt_bool(&prereleases), admits)
+        })?;
+        wrap_range_state(py, state, prereleases.map(|b| b.unbind()))
+    }
+
+    #[getter]
+    fn _bounds<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
+        Ok(slf.borrow().bounds_py.bind(slf.py()).clone())
+    }
+
+    #[getter]
+    fn _pre_region<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
+        Ok(slf.borrow().region_py.bind(slf.py()).clone())
+    }
+
+    #[getter]
+    fn _admit<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, pyo3::types::PyFrozenSet>> {
+        Ok(slf.borrow().admit_py.bind(slf.py()).clone())
+    }
+
+    #[getter]
+    fn _reject<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, pyo3::types::PyFrozenSet>> {
+        Ok(slf.borrow().reject_py.bind(slf.py()).clone())
+    }
+
+    #[getter]
+    fn _admit_arbitrary(&self) -> bool {
+        self.arb
+    }
+
+    #[getter]
+    fn _prereleases_configured<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        match slf.borrow().configured.as_ref().map(|o| o.clone_ref(slf.py())) {
+            Some(o) => Ok(o.bind(slf.py()).clone()),
+            None => Ok(slf.py().None().into_bound(slf.py())),
+        }
+    }
+
+    fn intersection(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<Py<Self>> {
+        let py = slf.py();
+        let o_state = Self::policy_compat(slf, &other)?;
+        let this = slf.borrow();
+        let raw = this.configured.as_ref().map(|o| o.clone_ref(py));
+        let state = with_admits(py, |admits| this.state.clone().intersection(&o_state, admits))?;
+        Py::new(py, wrap_range_state(py, state, raw)?)
+    }
+
+    fn union(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<Py<Self>> {
+        let py = slf.py();
+        let o_state = Self::policy_compat(slf, &other)?;
+        let this = slf.borrow();
+        let raw = this.configured.as_ref().map(|o| o.clone_ref(py));
+        let state = with_admits(py, |admits| this.state.clone().union(&o_state, admits))?;
+        Py::new(py, wrap_range_state(py, state, raw)?)
+    }
+
+    fn complement(slf: &Bound<Self>) -> PyResult<Py<Self>> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let raw = this.configured.as_ref().map(|o| o.clone_ref(py));
+        let state = with_admits(py, |admits| this.state.clone().complement(admits))?;
+        Py::new(py, wrap_range_state(py, state, raw)?)
+    }
+
+    fn difference(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<Py<Self>> {
+        let py = slf.py();
+        let o_state = Self::policy_compat(slf, &other)?;
+        let this = slf.borrow();
+        let raw = this.configured.as_ref().map(|o| o.clone_ref(py));
+        let state = with_admits(py, |admits| this.state.clone().difference(&o_state, admits))?;
+        Py::new(py, wrap_range_state(py, state, raw)?)
+    }
+
+    /// Mirror of `VersionRange._same_releases`: symmetric-difference
+    /// emptiness both ways (used by `to_specifier_set` under
+    /// `prereleases=False`, and by tests directly).
+    fn _same_releases(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<bool> {
+        let py = slf.py();
+        let o_state = Self::policy_compat(slf, other)?;
+        let this = slf.borrow().state.clone();
+        with_admits(py, |admits| this.same_releases(&o_state, admits))
+    }
+
+    fn __and__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        match Self::intersection(slf, other.clone()) {
+            Ok(r) => Ok(r.into_any()),
+            Err(e) if e.is_instance_of::<PyTypeError>(slf.py()) => not_implemented(slf.py()),
+            Err(e) => Err(e),
+        }
+    }
+    fn __or__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        match Self::union(slf, other.clone()) {
+            Ok(r) => Ok(r.into_any()),
+            Err(e) if e.is_instance_of::<PyTypeError>(slf.py()) => not_implemented(slf.py()),
+            Err(e) => Err(e),
+        }
+    }
+    fn __invert__(slf: &Bound<Self>) -> PyResult<Py<Self>> {
+        Self::complement(slf)
+    }
+    fn __sub__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        match Self::difference(slf, other.clone()) {
+            Ok(r) => Ok(r.into_any()),
+            Err(e) if e.is_instance_of::<PyTypeError>(slf.py()) => not_implemented(slf.py()),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn is_subset(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<bool> {
+        let py = slf.py();
+        let o_state = Self::policy_compat(slf, &other)?;
+        let this = slf.borrow().state.clone();
+        with_admits(py, |admits| this.is_subset(&o_state, admits))
+    }
+    fn is_superset(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<bool> {
+        let py = slf.py();
+        let o_state = Self::policy_compat(slf, &other)?;
+        let this = slf.borrow().state.clone();
+        with_admits(py, |admits| this.is_superset(&o_state, admits))
+    }
+    fn is_disjoint(slf: &Bound<Self>, other: Bound<PyAny>) -> PyResult<bool> {
+        let py = slf.py();
+        let o_state = Self::policy_compat(slf, &other)?;
+        let this = slf.borrow().state.clone();
+        with_admits(py, |admits| this.is_disjoint(&o_state, admits))
+    }
+
+    #[pyo3(signature = (iterable, prereleases=None, key=None))]
+    fn filter<'py>(
+        slf: &Bound<'py, Self>,
+        iterable: Bound<'py, PyAny>,
+        prereleases: Option<Bound<'py, PyAny>>,
+        key: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        Self::filter_impl(slf, &iterable, prereleases.as_ref(), key.as_ref())
+    }
+
+    /// `VersionRange._from_specifier_set` (friend constructor).
+    #[classmethod]
+    fn _from_specifier_set(
+        _cls: &Bound<PyType>,
+        specifier_set: Bound<PyAny>,
+    ) -> PyResult<Py<Self>> {
+        version_range_from_set_py(_cls.py(), &specifier_set)
+    }
+
+    fn to_specifier_set(slf: &Bound<Self>) -> PyResult<Option<Py<SpecifierSetPy>>> {
+        version_range_to_set(slf)
+    }
+
+    #[getter]
+    fn is_empty(slf: &Bound<Self>) -> PyResult<bool> {
+        let py = slf.py();
+        let this = slf.borrow().state.clone();
+        with_admits(py, |_| this.is_empty_state())
+    }
+
+    #[pyo3(signature = (item, prereleases=None, installed=None))]
+    fn contains(
+        slf: &Bound<Self>,
+        item: Bound<PyAny>,
+        prereleases: Option<Bound<PyAny>>,
+        installed: Option<Bound<PyAny>>,
+    ) -> PyResult<bool> {
+        Self::contains_impl(slf, &item, prereleases.as_ref(), installed.as_ref())
+    }
+
+    fn __contains__(slf: &Bound<Self>, item: Bound<PyAny>) -> PyResult<bool> {
+        Self::contains_impl(slf, &item, None, None)
+    }
+
+    fn __eq__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        let Ok(o) = other.extract::<PyRef<Self>>() else {
+            return not_implemented(py);
+        };
+        let (a, b) = (slf.borrow().state.clone(), o.state.clone());
+        (a == b).into_py_any(py)
+    }
+    fn __ne__(slf: &Bound<Self>, other: &Bound<PyAny>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        let Ok(o) = other.extract::<PyRef<Self>>() else {
+            return not_implemented(py);
+        };
+        let (a, b) = (slf.borrow().state.clone(), o.state.clone());
+        (a != b).into_py_any(py)
+    }
+
+    fn __hash__(slf: &Bound<Self>) -> PyResult<isize> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let tup = PyTuple::new(
+            py,
+            [
+                this.bounds_py.bind(py).clone().into_any(),
+                this.admit_py.bind(py).clone().into_any(),
+                this.reject_py.bind(py).clone().into_any(),
+                this.arb.into_py_any(py)?.bind(py).clone(),
+                match this.configured.as_ref().map(|o| o.bind(py).clone()) {
+                    Some(o) => o.clone(),
+                    None => py.None().into_bound(py),
+                },
+                this.region_py.bind(py).clone().into_any(),
+            ],
+        )?;
+        tup.hash()
+    }
+
+    fn __repr__(slf: &Bound<Self>) -> PyResult<String> {
+        let py = slf.py();
+        let this = slf.borrow();
+        let (body, tail, region) = this.state.repr_body();
+        let cls = class_name(&slf.clone().into_any())?;
+        let body_repr: String = pyo3::types::PyString::new(py, &body).repr()?.to_string();
+        let mut full_tail = tail;
+        if let Some(region) = region {
+            let region_repr: String =
+                pyo3::types::PyString::new(py, &region).repr()?.to_string();
+            full_tail.push_str(&format!(" pre-region={region_repr}"));
+        }
+        Ok(format!("<{cls} {body_repr}{full_tail}>"))
+    }
+}
+
+/// `opt_bool`: `None` stays unset, anything else must be a real bool value
+/// carried as Rust `bool` (the callers only pass `None`/`True`/`False`).
+fn opt_bool(v: &Option<Bound<PyAny>>) -> Option<bool> {
+    match v {
+        None => None,
+        Some(b) if b.is_none() => None,
+        Some(b) => Some(b.is_truthy().unwrap_or(false)),
+    }
+}
+
+/// `VersionRange.filter` implementation.
+impl VersionRangePy {
+    fn filter_impl<'py>(
+        slf: &Bound<'py, Self>,
+        iterable: &Bound<'py, PyAny>,
+        prereleases: Option<&Bound<'py, PyAny>>,
+        key: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let py = slf.py();
+        let this = slf.borrow().state.clone();
+        // `if prereleases is None: prereleases = configured; region =
+        // pre_region`. An explicit argument (even `None`, which is
+        // indistinguishable) clears the region; a configured policy
+        // surfaces by identity (`False` excludes, anything else includes).
+        let (pol, region): (PrePol, Vec<ranges::Interval>) = match prereleases {
+            Some(e) if !e.is_none() => (
+                if e.is(&py_false(py)) { PrePol::Exclude } else { PrePol::Include },
+                Vec::new(),
+            ),
+            _ => match slf.borrow().configured.as_ref().map(|o| o.clone_ref(py)) {
+                None => (PrePol::Default, this.pre_region.clone()),
+                Some(c) => {
+                    let b = c.bind(py).clone();
+                    if b.is(&py_false(py)) {
+                        (PrePol::Exclude, Vec::new())
+                    } else {
+                        (PrePol::Include, Vec::new())
+                    }
+                }
+            },
+        };
+        let arb_active = this.arbitrary_active();
+        let has_lit = this.has_literals();
+        if !has_lit && !arb_active {
+            if !region.is_empty() && region == this.bounds {
+                return filter_by_ranges_py(py, &this.bounds, iterable, key, PrePol::Include, &[]);
+            }
+            return filter_by_ranges_py(py, &this.bounds, iterable, key, pol, &region);
+        }
+        admission_filter_py(py, &this, iterable, key, pol, arb_active, &region)
+    }
+
+    fn contains_impl(
+        slf: &Bound<Self>,
+        item: &Bound<PyAny>,
+        prereleases: Option<&Bound<PyAny>>,
+        installed: Option<&Bound<PyAny>>,
+    ) -> PyResult<bool> {
+        let py = slf.py();
+        if !item.is_instance_of::<pyo3::types::PyString>() && !item.is_instance_of::<Version>() {
+            let type_name: String = item.get_type().getattr("__name__")?.extract()?;
+            return Err(PyTypeError::new_err(format!(
+                "VersionRange.contains() expected str or Version, got {type_name}"
+            )));
+        }
+        let mut parsed: Option<ParsedVersion> = if item.is_instance_of::<Version>() {
+            Some(item.extract::<PyRef<Version>>().map(|r| r.inner.clone())?)
+        } else {
+            None
+        };
+        // Mirror the original: `installed` with a prerelease item forces the
+        // prerelease policy locally (no recursion).
+        let true_lit;
+        let mut prereleases = prereleases;
+        if let Some(inst) = installed {
+            if parsed.is_none() {
+                parsed = coerce_py(py, item)?;
+            }
+            if let Some(p) = &parsed {
+                if inst.is_truthy()? && ranges::is_prerelease(p) {
+                    true_lit = py_true(py).into_any();
+                    prereleases = Some(&true_lit);
+                }
+            }
+        }
+        // NOTE: recursion with a fresh `True` literal (mirrors the original).
+        let this = slf.borrow().state.clone();
+        let effective: Option<PrePol> = match prereleases {
+            None => match slf.borrow().configured.as_ref().map(|o| o.clone_ref(py)) {
+                Some(c) => {
+                    let b = c.bind(py).clone();
+                    Some(if b.is(&py_false(py)) { PrePol::Exclude } else { PrePol::Include })
+                }
+                None => None,
+            },
+            Some(e) if e.is_none() => match slf.borrow().configured.as_ref().map(|o| o.clone_ref(py)) {
+                Some(c) => {
+                    let b = c.bind(py).clone();
+                    Some(if b.is(&py_false(py)) { PrePol::Exclude } else { PrePol::Include })
+                }
+                None => None,
+            },
+            Some(e) if e.is(&py_false(py)) => Some(PrePol::Exclude),
+            Some(_) => Some(PrePol::Include),
+        };
+        if !this.admit.is_empty() || !this.reject.is_empty() {
+            let item_str: String = item.str()?.to_string().to_lowercase();
+            if this.reject.contains(&item_str) {
+                return Ok(false);
+            }
+            if this.admit.contains(&item_str) {
+                if effective == Some(PrePol::Exclude) {
+                    if let Some(lit) = coerce_py(py, &pyo3::types::PyString::new(py, &item_str).into_any())? {
+                        if ranges::is_prerelease(&lit) {
+                            return Ok(false);
+                        }
+                    }
+                }
+                return Ok(true);
+            }
+        }
+        if !item.is_instance_of::<Version>() {
+            if parsed.is_none() {
+                parsed = coerce_py(py, item)?;
+            }
+            if parsed.is_none() {
+                return Ok(this.arbitrary_active());
+            }
+            let _ = parsed.clone().unwrap();
+        }
+        let p = parsed.unwrap();
+        if effective == Some(PrePol::Exclude) && ranges::is_prerelease(&p) {
+            return Ok(false);
+        }
+        Ok(ranges::matches_bounds_only(&this.bounds, &p))
+    }
+}
+
+/// Eager `_filter_with_admission`.
+#[allow(clippy::too_many_arguments)]
+fn admission_filter_py<'py>(
+    py: Python<'py>,
+    state: &ranges::RangeState,
+    iterable: &Bound<'py, PyAny>,
+    key: Option<&Bound<'py, PyAny>>,
+    pol: PrePol,
+    arbitrary_active: bool,
+    region: &[ranges::Interval],
+) -> PyResult<Bound<'py, PyAny>> {
+    struct Admit {
+        ok: bool,
+        parsed: Option<ParsedVersion>,
+        by_literal: bool,
+    }
+    let admit = |item: &Bound<PyAny>| -> PyResult<Admit> {
+        let raw: Bound<PyAny> = match key {
+            Some(k) => k.call1((item.clone(),))?,
+            None => item.clone(),
+        };
+        let raw_lower: String = raw.str()?.to_string().to_lowercase();
+        if !state.reject.is_empty() && state.reject.contains(&raw_lower) {
+            return Ok(Admit { ok: false, parsed: None, by_literal: false });
+        }
+        if !state.admit.is_empty() && state.admit.contains(&raw_lower) {
+            return Ok(Admit { ok: true, parsed: coerce_py(py, &raw)?, by_literal: true });
+        }
+        let parsed = coerce_py(py, &raw)?;
+        match parsed {
+            None => Ok(Admit { ok: arbitrary_active, parsed: None, by_literal: false }),
+            Some(p) => {
+                if !ranges::matches_bounds_only(&state.bounds, &p) {
+                    return Ok(Admit { ok: false, parsed: None, by_literal: false });
+                }
+                Ok(Admit { ok: true, parsed: Some(p), by_literal: false })
+            }
+        }
+    };
+    if pol == PrePol::Include {
+        let mut out = Vec::new();
+        for item in iterable.try_iter()?.map(|r| r.unwrap()) {
+            if admit(&item)?.ok {
+                out.push(item);
+            }
+        }
+        let list = PyList::new(py, out)?;
+        return list.call_method0("__iter__");
+    }
+    if pol == PrePol::Exclude {
+        let mut out = Vec::new();
+        for item in iterable.try_iter()?.map(|r| r.unwrap()) {
+            let a = admit(&item)?;
+            if !a.ok {
+                continue;
+            }
+            if let Some(p) = a.parsed {
+                if ranges::is_prerelease(&p) {
+                    continue;
+                }
+            }
+            out.push(item);
+        }
+        let list = PyList::new(py, out)?;
+        return list.call_method0("__iter__");
+    }
+    let mut all_nonfinal: Vec<Bound<PyAny>> = Vec::new();
+    let mut arbitrary: Vec<Bound<PyAny>> = Vec::new();
+    let mut found_final = false;
+    let mut out: Vec<Bound<PyAny>> = Vec::new();
+    for item in iterable.try_iter()?.map(|r| r.unwrap()) {
+        let a = admit(&item)?;
+        if !a.ok {
+            continue;
+        }
+        match a.parsed {
+            None => {
+                if found_final {
+                    out.push(item);
+                } else {
+                    arbitrary.push(item.clone());
+                    all_nonfinal.push(item);
+                }
+            }
+            Some(p) => {
+                if !ranges::is_prerelease(&p) {
+                    if !found_final {
+                        out.append(&mut arbitrary);
+                        found_final = true;
+                    }
+                    out.push(item);
+                } else if a.by_literal || (!region.is_empty() && ranges::matches_bounds_only(region, &p)) {
+                    out.push(item);
+                } else if !found_final {
+                    all_nonfinal.push(item);
+                }
+            }
+        }
+    }
+    if !found_final {
+        out.extend(all_nonfinal);
+    }
+    let list = PyList::new(py, out)?;
+    list.call_method0("__iter__")
+}
+// ---------------------------------------------------------------------------
+// SpecifierSet <-> VersionRange bridge.
+// ---------------------------------------------------------------------------
+
+/// Mirror of `VersionRange._from_specifier_set`.
+fn version_range_from_set(
+    py: Python,
+    set: &Bound<SpecifierSetPy>,
+) -> PyResult<Py<VersionRangePy>> {
+    let empty: bool = set.borrow().specs.bind(py).is_empty();
+    let has_arbitrary = set.borrow().has_arbitrary;
+    let configured_raw: Option<Bound<PyAny>> = set
+        .borrow()
+        .raw_prereleases(py)
+        .and_then(|b| if b.is_none() { None } else { Some(b) });
+    let configured_bool = opt_bool(&configured_raw);
+    let mut result: Py<VersionRangePy> = if empty {
+        let state = with_admits(py, |admits| {
+            ranges::RangeState::build(
+                ranges::full_range(),
+                Default::default(),
+                Default::default(),
+                true,
+                Vec::new(),
+                None,
+                admits,
+            )
+        })?;
+        // `cls.full()` carries no configured policy here; `_with_policy`
+        // below sets it.
+        Py::new(py, wrap_range_state(py, state, None)?)?
+    } else if !has_arbitrary {
+        let bounds = ranges::canonical_floor(SpecifierSetPy::core_ranges(set)?);
+        let state = with_admits(py, |admits| {
+            ranges::RangeState::build(bounds, Default::default(), Default::default(), false, Vec::new(), None, admits)
+        })?;
+        Py::new(py, wrap_range_state(py, state, None)?)?
+    } else {
+        let full = {
+            let state = with_admits(py, |admits| {
+                ranges::RangeState::build(
+                    ranges::full_range(),
+                    Default::default(),
+                    Default::default(),
+                    true,
+                    Vec::new(),
+                    None,
+                    admits,
+                )
+            })?;
+            Py::new(py, wrap_range_state(py, state, None)?)?
+        };
+        let mut acc = full;
+        let specs = SpecifierSetPy::canonical_specs(set)?;
+        for spec in specs.bind(py).iter() {
+            let op: String = spec.getattr("operator")?.extract()?;
+            let operand = if op == "===" {
+                let ver: String = spec.getattr("version")?.extract()?;
+                let mut admit = std::collections::HashSet::new();
+                admit.insert(ver.to_lowercase());
+                let state = with_admits(py, |admits| {
+                    ranges::RangeState::build(Vec::new(), admit, Default::default(), false, Vec::new(), None, admits)
+                })?;
+                Py::new(py, wrap_range_state(py, state, None)?)?
+            } else {
+                let ver_str: String = spec.getattr("version")?.extract()?;
+                let spec_v: ParsedVersion = spec
+                    .getattr("_require_spec_version")?
+                    .call1((ver_str.clone(),))?
+                    .extract::<PyRef<Version>>()
+                    .map(|r| r.inner.clone())?;
+                let base = ver_str.strip_suffix(".*").unwrap_or(&ver_str);
+                let base_v: ParsedVersion = spec
+                    .getattr("_require_spec_version")?
+                    .call1((base,))?
+                    .extract::<PyRef<Version>>()
+                    .map(|r| r.inner.clone())?;
+                let bounds = ranges::canonical_floor(ranges::bounds_for_spec(
+                    &op, &ver_str, &base_v,
+                ));
+                let _ = spec_v;
+                let state = with_admits(py, |admits| {
+                    ranges::RangeState::build(bounds, Default::default(), Default::default(), false, Vec::new(), None, admits)
+                })?;
+                Py::new(py, wrap_range_state(py, state, None)?)?
+            };
+            let acc_bound = acc.bind(py).clone();
+            let op_bound = operand.bind(py).clone();
+            acc = VersionRangePy::intersection(&acc_bound, op_bound.into_any())?;
+        }
+        acc
+    };
+    // The opt-in region: union of pre-naming specs' ranges, then
+    // `_with_policy` (which clips to the bounds).
+    let mut region: Vec<ranges::Interval> = Vec::new();
+    if configured_bool.is_none() {
+        let specs = SpecifierSetPy::canonical_specs(set)?;
+        for spec in specs.bind(py).iter() {
+            let op: String = spec.getattr("operator")?.extract()?;
+            if op == "===" {
+                continue;
+            }
+            let pre: Bound<PyAny> = spec.getattr("prereleases")?;
+            if !pre.is_truthy()? {
+                continue;
+            }
+            let ver_str: String = spec.getattr("version")?.extract()?;
+            let base = ver_str.strip_suffix(".*").unwrap_or(&ver_str);
+            let base_v: ParsedVersion = spec
+                .getattr("_require_spec_version")?
+                .call1((base,))?
+                .extract::<PyRef<Version>>()
+                .map(|r| r.inner.clone())?;
+            let bounds = ranges::canonical_floor(ranges::bounds_for_spec(&op, &ver_str, &base_v));
+            region = ranges::union_ranges(&region, &bounds);
+        }
+    }
+    // Rebuild with the region + configured policy (`_with_policy`).
+    let result_bound = result.bind(py).clone();
+    let st = result_bound.borrow().state.clone();
+    let admit = st.admit.clone();
+    let reject = st.reject.clone();
+    let arb = st.admit_arbitrary;
+    let new_state = with_admits(py, |admits| {
+        ranges::RangeState::build(
+            st.bounds.clone(),
+            admit,
+            reject,
+            arb,
+            region,
+            configured_bool,
+            admits,
+        )
+    })?;
+    result = Py::new(py, wrap_range_state(py, new_state, configured_raw.map(|b| b.unbind()))?)?;
+    Ok(result)
+}
+
+/// `VersionRange._from_specifier_set` classmethod entry (takes any object
+/// with the SpecifierSet shape; `TypeError` otherwise, mirroring attribute
+/// access failures).
+fn version_range_from_set_py(py: Python, set: &Bound<PyAny>) -> PyResult<Py<VersionRangePy>> {
+    let o: Bound<SpecifierSetPy> = set.extract().map_err(|_| {
+        PyTypeError::new_err("expected SpecifierSet")
+    })?;
+    version_range_from_set(py, &o)
+}
+
+/// Mirror of `VersionRange.to_specifier_set`.
+fn version_range_to_set(slf: &Bound<VersionRangePy>) -> PyResult<Option<Py<SpecifierSetPy>>> {
+    let py = slf.py();
+    let this = slf.borrow().state.clone();
+    let configured_raw: Option<Bound<PyAny>> = slf
+        .borrow()
+        .configured
+        .as_ref()
+        .map(|o| o.bind(py).clone());
+    let configured_bool = opt_bool(&configured_raw);
+    if !this.reject.is_empty() {
+        return Ok(None);
+    }
+    if this.admit_arbitrary && this.bounds != ranges::full_range() {
+        return Ok(None);
+    }
+    if with_admits(py, |_| this.is_empty_state())? {
+        let set: Bound<SpecifierSetPy> = py
+            .get_type::<SpecifierSetPy>()
+            .call(
+                (
+                    "<0",
+                    match configured_raw {
+                        Some(b) => b,
+                        None => py.None().into_bound(py),
+                    },
+                ),
+                None,
+            )?
+            .extract()?;
+        return Ok(Some(set.unbind()));
+    }
+    if this.bounds.is_empty() {
+        if this.admit.len() != 1 {
+            return Ok(None);
+        }
+        let literal = this.admit.iter().next().unwrap().clone();
+        let base = format!("==={literal}");
+        // A `===` literal holding a comma has no single-set spelling.
+        if base.contains(',') {
+            return Ok(None);
+        }
+        match py.get_type::<SpecifierSetPy>().call1((base,)) {
+            Ok(set) => return Ok(Some(set.extract()?)),
+            Err(_) => return Ok(None),
+        }
+    }
+    if !this.admit.is_empty() {
+        return Ok(None);
+    }
+    let bases: Vec<String> = if this.bounds == ranges::full_range() {
+        vec![if this.admit_arbitrary { String::new() } else { ">=0.dev0".to_string() }]
+    } else {
+        let mut layouts = vec![this.bounds.clone()];
+        if configured_bool == Some(false) {
+            let tightened = ranges::tighten_no_prereleases(this.bounds.clone());
+            if tightened != this.bounds {
+                layouts.push(tightened);
+            }
+        }
+        let mut bases = Vec::new();
+        for layout in &layouts {
+            let exclusions = match ranges::encode_gaps(layout) {
+                Some(e) => e,
+                None => continue,
+            };
+            for keep_dev0 in [false, true] {
+                let outer = match ranges::encode_interval(&layout[0].0, &layout[layout.len() - 1].1, keep_dev0) {
+                    Some(o) => o,
+                    None => continue,
+                };
+                let mut base = outer;
+                base.extend(exclusions.clone());
+                let base = base.join(",");
+                if !bases.contains(&base) {
+                    bases.push(base);
+                }
+            }
+        }
+        bases
+    };
+    let add_floor = configured_bool.is_none()
+        && with_admits(py, |_| {
+            // `self._pre_region == self._bounds` on core states.
+            this.pre_region == this.bounds
+        })?;
+    let mut best: Option<Py<SpecifierSetPy>> = None;
+    let mut best_key = (usize::MAX, usize::MAX);
+    for base in &bases {
+        let mut candidates = vec![base.clone()];
+        if add_floor {
+            candidates.push(if base.is_empty() {
+                ">=0.dev0".to_string()
+            } else {
+                format!("{base},>=0.dev0")
+            });
+        }
+        for spec_str in candidates {
+            let recovered: Bound<SpecifierSetPy> = match py
+                .get_type::<SpecifierSetPy>()
+                .call(
+                    (
+                        spec_str.clone(),
+                        match configured_raw.clone() {
+                            Some(b) => b,
+                            None => py.None().into_bound(py),
+                        },
+                    ),
+                    None,
+                ) {
+                Ok(s) => match s.extract() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+            let n: usize = recovered.getattr("_specs")?.call_method0("__len__")?.extract()?;
+            let s: String = recovered.str()?.to_string();
+            let key = (n, s.len());
+            if best.is_some() && key >= best_key {
+                continue;
+            }
+            let candidate = version_range_from_set(py, &recovered)?;
+            let matches = {
+                let a = candidate.bind(py).borrow().state.clone();
+                let eq = a == this;
+                eq || (configured_bool == Some(false)
+                    && {
+                        let b = candidate.bind(py).borrow().state.clone();
+                        // `_same_releases` both ways.
+                        with_admits(py, |admits| this.same_releases(&b, admits))?
+                    })
+            };
+            if matches {
+                best = Some(recovered.unbind());
+                best_key = key;
+            }
+        }
+    }
+    Ok(best)
+}
+
+fn version_range_is_subset(
+    py: Python,
+    a: &Py<VersionRangePy>,
+    b: &Py<VersionRangePy>,
+) -> PyResult<bool> {
+    check_range_policy(a.bind(py), b.bind(py))?;
+    let (sa, sb) = (a.bind(py).borrow().state.clone(), b.bind(py).borrow().state.clone());
+    with_admits(py, |admits| sa.is_subset(&sb, admits))
+}
+
+fn version_range_is_disjoint(
+    py: Python,
+    a: &Py<VersionRangePy>,
+    b: &Py<VersionRangePy>,
+) -> PyResult<bool> {
+    check_range_policy(a.bind(py), b.bind(py))?;
+    let (sa, sb) = (a.bind(py).borrow().state.clone(), b.bind(py).borrow().state.clone());
+    with_admits(py, |admits| sa.is_disjoint(&sb, admits))
+}
+
+/// Refuse combining ranges with different pre-release policies (mirror of
+/// `VersionRange._check_policy_compat`).
+fn check_range_policy(a: &Bound<VersionRangePy>, b: &Bound<VersionRangePy>) -> PyResult<()> {
+    let (ca, cb) = (a.borrow().state.configured, b.borrow().state.configured);
+    if ca != cb {
+        let fmt = |v: Option<bool>| match v {
+            Some(true) => "True".to_string(),
+            Some(false) => "False".to_string(),
+            None => "None".to_string(),
+        };
+        return Err(PyValueError::new_err(format!(
+            "Cannot combine VersionRange operands with different pre-release policies: {} and {}",
+            fmt(ca),
+            fmt(cb)
+        )));
+    }
+    Ok(())
 }

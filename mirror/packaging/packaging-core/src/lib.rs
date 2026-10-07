@@ -8,6 +8,7 @@
 
 pub mod elf;
 pub mod platform;
+pub mod ranges;
 pub mod version;
 
 pub use version::ParsedVersion;

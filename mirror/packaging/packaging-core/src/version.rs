@@ -66,7 +66,42 @@ pub fn cmp_num(a: &str, b: &str) -> Ordering {
     }
 }
 
-/// A local version segment: integer or lowercased string.
+/// Add one to a normalized digit string (arbitrary precision).
+pub fn add_one_num(digits: &str) -> NumString {
+    let mut out: Vec<u8> = digits.bytes().collect();
+    let mut i = out.len();
+    while i > 0 {
+        i -= 1;
+        if out[i] == b'9' {
+            out[i] = b'0';
+        } else {
+            out[i] += 1;
+            return String::from_utf8(out).unwrap();
+        }
+    }
+    let mut s = String::with_capacity(digits.len() + 1);
+    s.push('1');
+    s.push_str(&"0".repeat(digits.len()));
+    s
+}
+
+/// Subtract one from a normalized positive digit string (no underflow check;
+/// callers guarantee a value `>= 1`).
+pub fn sub_one_num(digits: &str) -> NumString {
+    let mut out: Vec<u8> = digits.bytes().collect();
+    let mut i = out.len();
+    while i > 0 {
+        i -= 1;
+        if out[i] == b'0' {
+            out[i] = b'9';
+        } else {
+            out[i] -= 1;
+            break;
+        }
+    }
+    normalize_num(std::str::from_utf8(&out).unwrap())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalSeg {
     Num(NumString),
@@ -120,7 +155,7 @@ impl ParseError {
 /// (`set_int_max_str_digits(0)`), matching CPython's `int()`.
 pub type IntLimit = Option<usize>;
 
-fn check_digits(digits: &str, limit: IntLimit) -> Result<(), ParseError> {
+pub(crate) fn check_digits(digits: &str, limit: IntLimit) -> Result<(), ParseError> {
     if let Some(max) = limit {
         if digits.len() > max {
             return Err(ParseError::DigitLimit {
@@ -134,7 +169,7 @@ fn check_digits(digits: &str, limit: IntLimit) -> Result<(), ParseError> {
 
 /// Python `str` whitespace (`\s` without `re.ASCII`): ASCII whitespace plus
 /// the Unicode `White_Space` property set.
-fn is_py_space(c: char) -> bool {
+pub(crate) fn is_py_space(c: char) -> bool {
     matches!(c,
         '\u{09}'..='\u{0d}' | '\u{20}' | '\u{1c}'..='\u{1f}' | '\u{85}' | '\u{a0}' |
         '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' |
@@ -145,7 +180,7 @@ fn is_py_space(c: char) -> bool {
 /// semantics: a non-ASCII char matches when it lowercases to exactly the
 /// target ASCII letter (covers U+017F `ſ`, U+212A `K`); multi-char
 /// lowercases (U+0130 `İ`) never match.
-fn ci_eq(c: char, target_ascii_lower: char) -> bool {
+pub(crate) fn ci_eq(c: char, target_ascii_lower: char) -> bool {
     if c.is_ascii() {
         c.to_ascii_lowercase() == target_ascii_lower
     } else {
@@ -155,7 +190,7 @@ fn ci_eq(c: char, target_ascii_lower: char) -> bool {
 }
 
 /// Case-insensitive word match at `pos`; returns the end position.
-fn match_word_ci(chars: &[char], pos: usize, word: &str) -> Option<usize> {
+pub(crate) fn match_word_ci(chars: &[char], pos: usize, word: &str) -> Option<usize> {
     let mut p = pos;
     for wc in word.chars() {
         if p >= chars.len() || !ci_eq(chars[p], wc) {
@@ -166,33 +201,37 @@ fn match_word_ci(chars: &[char], pos: usize, word: &str) -> Option<usize> {
     Some(p)
 }
 
-fn is_digit(c: char) -> bool {
+pub(crate) fn is_digit(c: char) -> bool {
     c.is_ascii_digit()
 }
 
 /// Longest-match word table for pre-release letters, in regex-alternation
 /// order (`alpha|a|beta|b|preview|pre|c|rc`): longer spellings precede their
 /// prefixes, so first match is the longest match.
-const PRE_WORDS: &[&str] = &["alpha", "beta", "preview", "pre", "a", "b", "c", "rc"];
+pub(crate) const PRE_WORDS: &[&str] = &["alpha", "beta", "preview", "pre", "a", "b", "c", "rc"];
 /// Post-release letters in alternation order (`post|rev|r`).
-const POST_WORDS: &[&str] = &["post", "rev", "r"];
+pub(crate) const POST_WORDS: &[&str] = &["post", "rev", "r"];
 
-fn is_sep(c: char) -> bool {
+pub(crate) fn is_sep(c: char) -> bool {
     matches!(c, '.' | '_' | '-')
 }
 
-struct Parser<'a> {
-    chars: &'a [char],
-    pos: usize,
-    limit: IntLimit,
+pub(crate) struct Parser<'a> {
+    pub(crate) chars: &'a [char],
+    pub(crate) pos: usize,
+    pub(crate) limit: IntLimit,
 }
 
 impl<'a> Parser<'a> {
-    fn peek(&self) -> Option<char> {
+    pub(crate) fn new(chars: &'a [char], limit: IntLimit) -> Self {
+        Parser { chars, pos: 0, limit }
+    }
+
+    pub(crate) fn peek(&self) -> Option<char> {
         self.chars.get(self.pos).copied()
     }
 
-    fn eat_sep(&mut self) -> bool {
+    pub(crate) fn eat_sep(&mut self) -> bool {
         if matches!(self.peek(), Some(c) if is_sep(c)) {
             self.pos += 1;
             true
@@ -201,7 +240,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn eat_digits(&mut self) -> Option<String> {
+    pub(crate) fn eat_digits(&mut self) -> Option<String> {
         let start = self.pos;
         while matches!(self.peek(), Some(c) if is_digit(c)) {
             self.pos += 1;
@@ -215,7 +254,7 @@ impl<'a> Parser<'a> {
 
     /// Optional pre-release segment. Rolls back a consumed separator when no
     /// letter follows (the regex group fails as a whole).
-    fn eat_pre(&mut self) -> Result<Option<(String, NumString)>, ParseError> {
+    pub(crate) fn eat_pre(&mut self) -> Result<Option<(String, NumString)>, ParseError> {
         let save = self.pos;
         self.eat_sep();
         let mut matched: Option<(&str, usize)> = None;
@@ -243,7 +282,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Optional post-release segment: `-N` or `[sep](post|rev|r)[sep][N]`.
-    fn eat_post(&mut self) -> Result<Option<NumString>, ParseError> {
+    pub(crate) fn eat_post(&mut self) -> Result<Option<NumString>, ParseError> {
         // Implicit `-N` form first (regex alternation order).
         if self.peek() == Some('-') {
             let save = self.pos;
@@ -282,7 +321,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Optional dev-release segment: `[sep]dev[sep][N]`.
-    fn eat_dev(&mut self) -> Result<Option<NumString>, ParseError> {
+    pub(crate) fn eat_dev(&mut self) -> Result<Option<NumString>, ParseError> {
         let save = self.pos;
         self.eat_sep();
         let Some(end) = match_word_ci(self.chars, self.pos, "dev") else {
@@ -302,7 +341,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Optional local segment: `+[alnum]+([sep][alnum]+)*`.
-    fn eat_local(&mut self) -> Result<Option<Vec<LocalSeg>>, ParseError> {
+    pub(crate) fn eat_local(&mut self) -> Result<Option<Vec<LocalSeg>>, ParseError> {
         if self.peek() != Some('+') {
             return Ok(None);
         }
@@ -335,7 +374,7 @@ impl<'a> Parser<'a> {
 
 /// Non-ASCII char matching `[a-z0-9]` under `re.IGNORECASE`: letters whose
 /// lowercase is a single ASCII alphanumeric.
-fn ci_letter_or_digit(c: char) -> bool {
+pub(crate) fn ci_letter_or_digit(c: char) -> bool {
     if c.is_ascii() {
         return false;
     }
@@ -542,7 +581,7 @@ pub fn trim_release_leave_one(release: &[NumString]) -> Vec<NumString> {
     release[..i].to_vec()
 }
 
-fn pre_rank(pre: &Option<(String, NumString)>, post: &Option<NumString>, dev: &Option<NumString>) -> (i64, NumString) {
+pub fn pre_rank(pre: &Option<(String, NumString)>, post: &Option<NumString>, dev: &Option<NumString>) -> (i64, NumString) {
     if pre.is_none() && post.is_none() && dev.is_some() {
         return (-1, "0".to_string());
     }
@@ -613,7 +652,7 @@ pub fn cmp(a: &ParsedVersion, b: &ParsedVersion) -> Ordering {
     }
 }
 
-fn cmp_local(a: &[LocalSeg], b: &[LocalSeg]) -> Ordering {
+pub(crate) fn cmp_local(a: &[LocalSeg], b: &[LocalSeg]) -> Ordering {
     for (x, y) in a.iter().zip(b.iter()) {
         let ord = match (x, y) {
             (LocalSeg::Num(m), LocalSeg::Num(n)) => cmp_num(m, n),
