@@ -8,13 +8,14 @@ use std::path::{Path, PathBuf};
 
 /// Discover the package name from the repo's own packaging metadata:
 /// `pyproject.toml [project] name`, else `setup.py`/`setup.cfg` `name`.
-/// Refused when unknown, never guessed.
+/// Normalized to lowercase (PEP 503: `PyYAML` and `pyyaml` are the same
+/// distribution). Refused when unknown, never guessed.
 pub fn package_name(repo: &Path) -> Result<String, String> {
     let pp = repo.join("pyproject.toml");
     if pp.is_file() {
         if let Ok(text) = std::fs::read_to_string(&pp) {
             if let Some(name) = pyproject_name(&text) {
-                return Ok(name);
+                return Ok(name.to_lowercase());
             }
         }
     }
@@ -22,7 +23,7 @@ pub fn package_name(repo: &Path) -> Result<String, String> {
         if cfg.is_file() {
             if let Ok(text) = std::fs::read_to_string(&cfg) {
                 if let Some(name) = setup_name(&text) {
-                    return Ok(name);
+                    return Ok(name.to_lowercase());
                 }
             }
         }
@@ -102,9 +103,43 @@ fn pyproject_name(text: &str) -> Option<String> {
     None
 }
 
+/// Module-constant assignments (`NAME = 'pkg'`) in packaging metadata, for
+/// single-assignment indirection (`name=NAME`). Comment-stripped like the
+/// name scan; first assignment wins.
+fn const_assigns(text: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for line in text.lines() {
+        let t = line.split('#').next().unwrap_or("").trim();
+        let mut parts = t.splitn(2, '=');
+        let (Some(var), Some(val)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let var = var.trim();
+        if var.is_empty()
+            || !var.chars().all(|c| c.is_alphanumeric() || c == '_')
+            || var == "name"
+        {
+            continue;
+        }
+        let val = val.split(',').next().unwrap_or("").trim();
+        if val.len() > 1
+            && ((val.starts_with('"') && val.ends_with('"'))
+                || (val.starts_with('\'') && val.ends_with('\'')))
+        {
+            map.entry(var.to_string())
+                .or_insert(val[1..val.len() - 1].to_string());
+        }
+    }
+    map
+}
+
 /// `name="..."` / `name='...'` in setup.py/setup.cfg packaging metadata,
-/// either one-per-line or inside a `setup(...)` call.
+/// either one-per-line or inside a `setup(...)` call. A bare `name=VAR`
+/// resolves through a module-constant assignment (`VAR = 'pkg'`); an
+/// unresolvable bare value keeps the legacy behavior (returned as-is, so
+/// unquoted setup.cfg names still parse).
 fn setup_name(text: &str) -> Option<String> {
+    let consts = const_assigns(text);
     for line in text.lines() {
         let t = line.split('#').next().unwrap_or("").trim();
         // Candidate starts: line start or right after `(` / `,`.
@@ -121,9 +156,15 @@ fn setup_name(text: &str) -> Option<String> {
                 continue;
             };
             let first = rest.split(',').next().unwrap_or("").trim();
-            let name = first.trim_matches(|c| c == '"' || c == '\'').trim();
-            if !name.is_empty() {
-                return Some(name.to_string());
+            if first.starts_with('"') || first.starts_with('\'') {
+                let name = first.trim_matches(|c| c == '"' || c == '\'').trim();
+                if !name.is_empty() {
+                    return Some(name.to_string());
+                }
+            } else if let Some(lit) = consts.get(first) {
+                return Some(lit.clone());
+            } else if !first.is_empty() {
+                return Some(first.to_string());
             }
         }
     }
@@ -143,6 +184,26 @@ pub fn is_src_layout(repo: &Path, package: &str) -> bool {
         }
     }
     false
+}
+
+/// Setuptools `lib/` layout (`package_dir={'': 'lib'}`): a `lib/` dir
+/// containing at least one importable package (a child dir with an
+/// `__init__` marker). The fork of such a repo is flat (`<package>/` at
+/// root), but orig-side resolution (pytest `PYTHONPATH`, probe `cwd`,
+/// differential staging) must point at `lib/`, or the interpreter silently
+/// imports an unrelated installed distribution instead of the repo.
+pub fn is_lib_layout(repo: &Path) -> bool {
+    let lib = repo.join("lib");
+    if !lib.is_dir() {
+        return false;
+    }
+    std::fs::read_dir(&lib).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            e.path().is_dir()
+                && (e.path().join("__init__.py").is_file()
+                    || e.path().join("__init__.pyi").is_file())
+        })
+    })
 }
 
 /// Resolve the mirror template dir from a frozen package identity (the
@@ -239,6 +300,44 @@ mod tests {
             Some("demo2")
         );
         assert_eq!(setup_name("x = 1"), None);
+    }
+
+    #[test]
+    fn setup_name_resolves_module_constant() {
+        // setuptools idiom: NAME = 'PyYAML' at top, name=NAME in setup().
+        let text = "NAME = 'PyYAML'\nsetup(name=NAME, version='1')";
+        assert_eq!(setup_name(text).as_deref(), Some("PyYAML"));
+        // Unquoted setup.cfg names keep the legacy behavior.
+        assert_eq!(setup_name("[metadata]\nname = demo3").as_deref(), Some("demo3"));
+        // Unresolvable bare values still return as-is, never vanish.
+        assert_eq!(setup_name("setup(name=UNDEFINED_VAR)").as_deref(), Some("UNDEFINED_VAR)"));
+        // Quoted names are untouched by constant resolution.
+        assert_eq!(setup_name("NAME = 'other'\nsetup(name='demo4')").as_deref(), Some("demo4')"));
+    }
+
+    #[test]
+    fn package_name_lowercases_and_reads_setup_py() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("setup.py"),
+            "NAME = 'PyYAML'\nsetup(name=NAME, version='6.0.2')",
+        )
+        .unwrap();
+        assert_eq!(package_name(dir.path()).as_deref(), Ok("pyyaml"));
+        let empty = tempfile::tempdir().unwrap();
+        assert!(package_name(empty.path()).is_err());
+    }
+
+    #[test]
+    fn lib_layout_detects_package_container() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_lib_layout(dir.path()));
+        std::fs::create_dir_all(dir.path().join("lib/yaml")).unwrap();
+        // No __init__ marker yet: not a package container.
+        assert!(!is_lib_layout(dir.path()));
+        std::fs::write(dir.path().join("lib/yaml/__init__.py"), "").unwrap();
+        assert!(is_lib_layout(dir.path()));
+        assert!(!is_src_layout(dir.path(), "pyyaml"));
     }
 
     #[test]

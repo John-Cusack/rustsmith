@@ -1396,6 +1396,8 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     let staged = a.work.join("orig_src_staged");
     let staged_src = if crate::repo::is_src_layout(&a.orig, &package) {
         a.orig.join("src")
+    } else if crate::repo::is_lib_layout(&a.orig) {
+        a.orig.join("lib")
     } else {
         a.orig.join(package.replace('-', "_"))
     };
@@ -2050,7 +2052,7 @@ pub fn grade_plant(
     let staging = out.join(".origparent");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(staging.join("orig_src_staged")).map_err(|e| e.to_string())?;
-    let staged_src = if crate::repo::is_src_layout(orig, &package) { orig.join("src") } else { orig.join(package.replace('-', "_")) };
+    let staged_src = if crate::repo::is_src_layout(orig, &package) { orig.join("src") } else if crate::repo::is_lib_layout(orig) { orig.join("lib") } else { orig.join(package.replace('-', "_")) };
     copy_tree(&staged_src, &staging.join("orig_src_staged"))?;
     let ctx = OptCtx {
         heldout: heldout.to_path_buf(),

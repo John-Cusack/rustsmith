@@ -946,9 +946,12 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         return Err(format!("template layout does not match repo package {package}"));
     }
     // Keep an orig-src copy for differential grading (src-layout stages `src`,
-    // flat stages the whole tree so the package dir resolves via `cwd`).
+    // lib-layout stages `lib`, flat stages the whole tree so the package dir
+    // resolves via `cwd`).
     let orig_src = if layout_src {
         a.repo.join("src")
+    } else if crate::repo::is_lib_layout(&a.repo) {
+        a.repo.join("lib")
     } else {
         a.repo.clone()
     };
