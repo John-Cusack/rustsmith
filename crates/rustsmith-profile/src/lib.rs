@@ -352,13 +352,30 @@ pub fn classify_bounds(hotspot: &str, small: &CpuStats, large: &CpuStats, size_r
     }
 }
 
-/// Caller-side check (§5.3): call count vs necessary lower bound.
-pub fn caller_side_check(calls_measured: u64, calls_necessary: u64) -> Option<String> {
+/// FFI per-call budget (C12): a bare extension call costs tens of ns plus
+/// argument/return conversion. Per-call Rust work below this budget is
+/// boundary-dominated — batch, hoist the loop, or don't port the unit.
+pub const FFI_PER_CALL_BUDGET_SECS: f64 = 1e-6;
+
+/// Caller-side check (§5.3): call count vs necessary lower bound, plus the
+/// FFI per-call time budget. Returns a work_volume note when the count ratio
+/// hits 10× OR per-call work is under budget; None otherwise.
+pub fn caller_side_check(
+    calls_measured: u64,
+    calls_necessary: u64,
+    per_call_secs: f64,
+) -> Option<String> {
     if calls_necessary > 0 && calls_measured / calls_necessary >= 10 {
-        Some(format!("work_volume: {calls_measured} calls vs {calls_necessary} necessary"))
-    } else {
-        None
+        return Some(format!(
+            "work_volume: {calls_measured} calls vs {calls_necessary} necessary"
+        ));
     }
+    if (0.0..FFI_PER_CALL_BUDGET_SECS).contains(&per_call_secs) {
+        return Some(format!(
+            "work_volume: per-call {per_call_secs:.3e}s under FFI budget {FFI_PER_CALL_BUDGET_SECS:.0e}s — batch/hoist/don't-port"
+        ));
+    }
+    None
 }
 
 /// Plausible-speedup caps (§6): 5 measured, 4 empirical (conservative).
@@ -419,4 +436,27 @@ pub fn select_candidates(
     });
     candidates.truncate(max_n);
     candidates
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn caller_side_check_fires_on_count_ratio() {
+        let hit = caller_side_check(100, 10, 1.0).expect("10x ratio must fire");
+        assert!(hit.contains("work_volume"), "{hit}");
+        assert!(caller_side_check(50, 10, 1.0).is_none());
+        assert!(caller_side_check(100, 0, 1.0).is_none());
+    }
+
+    #[test]
+    fn caller_side_check_fires_under_ffi_budget() {
+        // Sub-microsecond per-call work is boundary-dominated even at 1:1.
+        let hit = caller_side_check(10, 10, 0.2e-6).expect("budget must fire");
+        assert!(hit.contains("FFI budget"), "{hit}");
+        assert!(caller_side_check(10, 10, 50e-6).is_none());
+        // Unknown timing (NaN/negative) never fires the budget leg.
+        assert!(caller_side_check(10, 10, f64::NAN).is_none());
+    }
 }

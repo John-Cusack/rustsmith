@@ -61,7 +61,7 @@ Deterministic analysis at top of every round, before dispatch. `perf stat` top-d
 | `contention` | futex/lock wait, poor thread scaling | granularity, sharding, lock-free |
 | `work_volume` | call count ≫ necessary lower bound | cache/hoist/batch/incrementalize; fix is in caller |
 
-**Caller-side check (`work_volume`).** Flat profile points at callee; fix is usually caller. Compare each hot function's call count against lower bound derived from workload contract. Order-of-magnitude gap ⇒ scope unit to caller.
+**Caller-side check (`work_volume`).** Flat profile points at callee; fix is usually caller. Compare each hot function's call count against lower bound derived from workload contract. Order-of-magnitude gap ⇒ scope unit to caller. Time budget on top of the count rule (C12): per-call Rust work under ~1µs (`FFI_PER_CALL_BUDGET_SECS` in `rustsmith-profile`) is boundary-dominated — tens of ns + conversion per crossing — so batch, hoist the loop across the boundary, or don't port the unit, regardless of the count ratio.
 
 ## 6. Ceiling arithmetic (dispatch gated on arithmetic, not ranking heuristic)
 
