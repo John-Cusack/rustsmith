@@ -1,0 +1,21 @@
+python-dateutil-rust: Rust mirror of dateutil/dateutil (engine)
+=======================================================================
+
+This directory holds the rustsmith Stage-1 mirror of
+https://github.com/dateutil/dateutil (dateutil engine: rrule,
+relativedelta, tz; the fuzzy parser stays Python).
+
+* Upstream authors: dateutil contributors
+* Upstream license: Apache-2.0 (dual-licensed Apache-2.0/BSD; the engine
+  files carry the Apache-2.0 SPDX tag).
+* This port: behavior-identical, same public API
+  (`dateutil._dateutil` extension module plus the
+  `src/dateutil/{rrule,relativedelta,tz/tz}.py` re-export shims),
+  published as the `python-dateutil-rust` distribution on PyPI
+  (import name unchanged: `import dateutil`) with reusable core
+  crate `dateutil-core` on crates.io.
+
+Provenance: every artifact preserves the upstream license header and this
+attribution (provenance gate). The vendored
+`src/dateutil/zoneinfo/dateutil-zoneinfo.tar.gz` is the release timezone
+database from the python-dateutil 2.9.0.post0 sdist (package_data).

@@ -1,0 +1,33 @@
+{
+  "package": "python-dateutil",
+  "extension_module": "dateutil._dateutil",
+  "src_layout": true,
+  "files": [
+    ["Cargo.toml", "Cargo.toml"],
+    ["Cargo.lock", "Cargo.lock"],
+    ["pyproject.toml", "pyproject.toml"],
+    ["NOTICE", "NOTICE"],
+    ["README.md", "README.md"],
+    ["src/lib.rs", "src/lib.rs"],
+    ["src/util.rs", "src/util.rs"],
+    ["src/relativedelta_mod.rs", "src/relativedelta_mod.rs"],
+    ["src/rrule_mod.rs", "src/rrule_mod.rs"],
+    ["src/tz_mod.rs", "src/tz_mod.rs"],
+    ["src/dateutil/relativedelta.py", "src/dateutil/relativedelta.py"],
+    ["src/dateutil/rrule.py", "src/dateutil/rrule.py"],
+    ["src/dateutil/tz/tz.py", "src/dateutil/tz/tz.py"],
+    ["src/dateutil/zoneinfo/dateutil-zoneinfo.tar.gz", "src/dateutil/zoneinfo/dateutil-zoneinfo.tar.gz"],
+    ["dateutil-core/Cargo.toml", "dateutil-core/Cargo.toml"],
+    ["dateutil-core/src/lib.rs", "dateutil-core/src/lib.rs"],
+    ["dateutil-core/src/civil.rs", "dateutil-core/src/civil.rs"],
+    ["dateutil-core/src/easter.rs", "dateutil-core/src/easter.rs"],
+    ["dateutil-core/src/ical.rs", "dateutil-core/src/ical.rs"],
+    ["dateutil-core/src/relativedelta.rs", "dateutil-core/src/relativedelta.rs"],
+    ["dateutil-core/src/rrule.rs", "dateutil-core/src/rrule.rs"],
+    ["dateutil-core/src/tz.rs", "dateutil-core/src/tz.rs"],
+    ["dateutil-core/src/tzfile.rs", "dateutil-core/src/tzfile.rs"]
+  ],
+  "extra_files": {},
+  "delete_on_merge": {},
+  "orig_source": {}
+}

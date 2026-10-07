@@ -1,0 +1,13 @@
+[package]
+name = "dateutil-core"
+version = "2.9.0"
+edition = "2021"
+description = "Pure-Rust dateutil engine: rrule recurrence, relativedelta arithmetic, tz resolution (rustsmith Stage-1 mirror core)"
+license = "Apache-2.0"
+repository = "https://github.com/John-Cusack/python-dateutil-rust"
+
+[lib]
+name = "dateutil_core"
+crate-type = ["rlib"]
+
+[dependencies]
