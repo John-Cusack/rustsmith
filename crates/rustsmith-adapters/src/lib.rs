@@ -832,14 +832,28 @@ pub fn probe(repo: &Path) -> Result<ProbeReport, AdapterError> {
             python_claims += 1;
             continue;
         }
+        // Test-local non-Python sources are fixtures (compiled at test time,
+        // e.g. packaging's tests/hello-world.c), not build units: they count
+        // as claimed so the census stays quiet, but register no frontend, so
+        // a fixture alone cannot flip the repo to the CTest spine.
+        let test_local = path.components().any(|c| {
+            matches!(
+                c.as_os_str().to_str(),
+                Some("test") | Some("tests") | Some("bench")
+            )
+        });
         if fortran.claims(&path, None) {
             claimed += 1;
-            fortran_claims += 1;
+            if !test_local {
+                fortran_claims += 1;
+            }
             continue;
         }
         if cxx.claims(&path, None) {
             claimed += 1;
-            cxx_claims += 1;
+            if !test_local {
+                cxx_claims += 1;
+            }
             continue;
         }
         if NON_SOURCE_EXTS.contains(&ext.to_lowercase().as_str()) {
@@ -5313,6 +5327,24 @@ mod track_i_tests {
         let report = probe(dir.path()).unwrap();
         assert_eq!(report.frontends, vec!["python"]);
         assert_eq!(report.unclaimed_share, 0.0);
+    }
+
+    #[test]
+    fn probe_ignores_test_local_c_source_for_spine() {
+        // packaging shape: one C fixture under tests/ must not flip the
+        // repo to the CTest spine, and must not read as unclaimed either.
+        let dir = tempfile::tempdir().unwrap();
+        write_file(&dir.path().join("src/pkg/__init__.py"), "");
+        write_file(&dir.path().join("src/pkg/a.py"), "VALUE = 1\n");
+        write_file(&dir.path().join("pyproject.toml"), "[project]\nname = \"a\"\n");
+        write_file(&dir.path().join("tests/hello-world.c"), "int main(void) { return 0; }\n");
+        let report = probe(dir.path()).unwrap();
+        assert_eq!(report.frontends, vec!["python"]);
+        assert!(report.unclaimed.is_empty());
+        assert_eq!(report.unclaimed_share, 0.0);
+        assert!(!report.has_ctest);
+        let (composite, _) = select_composite(dir.path()).unwrap();
+        assert_eq!(composite.runner_id(), "pytest");
     }
     #[test]
     fn select_composite_picks_ctest_spine_for_mixed_tree() {

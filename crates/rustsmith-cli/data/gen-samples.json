@@ -48,5 +48,30 @@
         "v1"
       ]
     ]
+  },
+  "packaging": {
+    "pairs": [
+      [
+        "1.0",
+        "2.0"
+      ],
+      [
+        "abc",
+        "1.5"
+      ]
+    ],
+    "vals": [
+      [
+        "1.0",
+        "2.0",
+        true
+      ],
+      [
+        null,
+        "1.5",
+        null
+      ]
+    ],
+    "body": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom packaging.specifiers import InvalidSpecifier, SpecifierSet\nfrom packaging.version import InvalidVersion, Version\n\n\ndef _norm(s):\n    try:\n        return str(Version(s))\n    except InvalidVersion:\n        return None\n\n\ndef _ge_contains(a, b):\n    try:\n        return SpecifierSet(\">=\" + a).contains(b)\n    except InvalidSpecifier:\n        return None\n\n\ndef test_generated_pins():\n    assert _norm(\"1.0\") == \"1.0\"\n    assert _norm(\"2.0\") == \"2.0\"\n    assert _ge_contains(\"1.0\", \"2.0\") == True\n    assert _norm(\"abc\") == None\n    assert _norm(\"1.5\") == \"1.5\"\n    assert _ge_contains(\"abc\", \"1.5\") == None\n"
   }
 }

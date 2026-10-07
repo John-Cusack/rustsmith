@@ -1863,14 +1863,41 @@
       ],
       "differential": {
         "probes": [
-          {"program": "mini_probe", "args": ["add", "2", "3"]},
-          {"program": "mini_probe", "args": ["add", "0", "0"]},
-          {"program": "mini_probe", "args": ["mul", "3", "4"]},
-          {"program": "mini_probe", "args": ["mul", "-1", "5"]}
+          {
+            "program": "mini_probe",
+            "args": [
+              "add",
+              "2",
+              "3"
+            ]
+          },
+          {
+            "program": "mini_probe",
+            "args": [
+              "add",
+              "0",
+              "0"
+            ]
+          },
+          {
+            "program": "mini_probe",
+            "args": [
+              "mul",
+              "3",
+              "4"
+            ]
+          },
+          {
+            "program": "mini_probe",
+            "args": [
+              "mul",
+              "-1",
+              "5"
+            ]
+          }
         ]
       }
-    }
-    ,
+    },
     "matc": {
       "porting_rules": [
         {
@@ -1900,7 +1927,10 @@
       ],
       "differential": {
         "probes": [
-          {"program": "matc/src/matc", "args": []}
+          {
+            "program": "matc/src/matc",
+            "args": []
+          }
         ]
       }
     },
@@ -1931,6 +1961,167 @@
           "example": "Example: the huti_scgsolv and huti_dcgsolv pair in huti_cg.F90 becomes a single generic cg_solv<T> instantiated for f32 and f64."
         }
       ]
+    },
+    "packaging": {
+      "differential": {
+        "script": "import sys; from packaging.specifiers import SpecifierSet; s = SpecifierSet(sys.argv[1]); print('\\n'.join('1' if v in s else '0' for v in sys.argv[2].split(',')))",
+        "argvs": [
+          [
+            ">=1.0,<2.0",
+            "0.9,1.0,1.5,2.0,2.1"
+          ]
+        ]
+      },
+      "heldout_descriptors": {
+        "distribution": "version normalization/comparison, specifier membership, marker evaluation, requirement parsing; values epochs, locals, pre/post/dev releases, invalid inputs, extras",
+        "adversarial_shapes": [
+          "epoch-zero floors",
+          "after-posts boundaries",
+          "wildcard/prerelease interplay"
+        ],
+        "coverage_complement": [
+          "metadata/license/pylock surfaces",
+          "tag platform enumeration"
+        ],
+        "heldout_sizes": [
+          "2 static files",
+          "9 generated pins"
+        ],
+        "visible_sizes": [
+          "62483 oracle tests"
+        ],
+        "identity_sensitive_repeats": []
+      },
+      "heldout_suites": [
+        {
+          "name": "test_heldout_versions.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): versions + specifiers.\"\"\"\n\nimport pytest\n\nfrom packaging.specifiers import InvalidSpecifier, Specifier, SpecifierSet\nfrom packaging.version import InvalidVersion, Version\n\n\ndef test_epoch_normalization_and_order() -> None:\n    assert Version(\"1!0.0.0\") == Version(\"1!0\")\n    assert str(Version(\"2!1.0\")) == \"2!1.0\"\n    assert Version(\"1!0\") > Version(\"0!9999\")\n    assert Version(\"1!1.0\") < Version(\"2!0.1\")\n\n\ndef test_zero_trimming_and_locals() -> None:\n    assert Version(\"1.0.0.0\") == Version(\"1.0\")\n    assert str(Version(\"1.0+abc.1\")) == \"1.0+abc.1\"\n    assert Version(\"1.0+zz\") > Version(\"1.0\")\n    assert Version(\"1.0+zz\") < Version(\"1.0.post1\")\n\n\ndef test_prerelease_order_chain() -> None:\n    ordered = [\n        \"1.0.dev0\",\n        \"1.0a1\",\n        \"1.0b1\",\n        \"1.0rc1\",\n        \"1.0\",\n        \"1.0.post1.dev0\",\n        \"1.0.post1\",\n    ]\n    parsed = [Version(v) for v in ordered]\n    assert parsed == sorted(parsed)\n\n\ndef test_specifier_wildcard_and_compatible() -> None:\n    assert \"1.4.2\" in Specifier(\"==1.4.*\")\n    assert \"1.5\" not in Specifier(\"==1.4.*\")\n    assert \"1.4.2\" in Specifier(\"~=1.4.2\")\n    assert \"1.5\" in Specifier(\"~=1.4\")\n    assert \"2.0\" not in Specifier(\"~=1.4\")\n\n\ndef test_specifier_set_epochs_and_prereleases() -> None:\n    s = SpecifierSet(\">=1!1.0,<2!0.0\")\n    assert \"1!1.5\" in s\n    assert \"2!0.0\" not in s\n    assert SpecifierSet(\">=1.0\").contains(\"1.3.0a1\") is True\n    assert SpecifierSet(\">=1.0\", prereleases=False).contains(\"1.3.0a1\") is False\n\n\ndef test_invalid_inputs_raise() -> None:\n    with pytest.raises(InvalidVersion):\n        Version(\"1.0..0\")\n    with pytest.raises(InvalidSpecifier):\n        Specifier(\"=1.0\")\n    with pytest.raises(InvalidSpecifier):\n        SpecifierSet(\"=>1.0\")\n"
+        },
+        {
+          "name": "test_heldout_markers.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): markers + requirements.\"\"\"\n\nfrom packaging.markers import Marker, default_environment\nfrom packaging.requirements import Requirement\nfrom packaging.tags import Tag, parse_tag\n\n\ndef test_marker_version_comparison() -> None:\n    assert Marker('python_version >= \"3.8\"').evaluate({\"python_version\": \"3.9\"})\n    assert not Marker('python_version >= \"3.8\"').evaluate({\"python_version\": \"3.7\"})\n    assert Marker('python_version < \"3.0\"').evaluate({\"python_version\": \"2.7\"})\n\n\ndef test_marker_boolean_operators() -> None:\n    m = Marker('os_name == \"posix\" and python_version >= \"3.8\"')\n    assert m.evaluate({\"os_name\": \"posix\", \"python_version\": \"3.9\"})\n    assert not m.evaluate({\"os_name\": \"nt\", \"python_version\": \"3.9\"})\n    o = Marker('os_name == \"nt\" or python_version >= \"3.8\"')\n    assert o.evaluate({\"os_name\": \"posix\", \"python_version\": \"3.9\"})\n\n\ndef test_marker_in_and_extra_normalization() -> None:\n    assert Marker('\"x\" in extras').evaluate({\"extras\": {\"x\"}})\n    assert not Marker('\"x\" in extras').evaluate({\"extras\": set()})\n    assert Marker('extra == \"foo-bar\"').evaluate({\"extra\": \"foo_bar\"})\n\n\ndef test_default_environment_keys() -> None:\n    env = default_environment()\n    for key in (\"python_version\", \"sys_platform\", \"os_name\", \"platform_machine\"):\n        assert key in env\n\n\ndef test_requirement_roundtrip() -> None:\n    r = Requirement('requests>=2.0; python_version >= \"3.8\"')\n    assert r.name == \"requests\"\n    assert str(r.specifier) == \">=2.0\"\n    assert isinstance(r.marker, Marker)\n    assert r.marker is not None\n    assert r.marker.evaluate({\"python_version\": \"3.9\"})\n\n\ndef test_tag_parsing() -> None:\n    (tag,) = parse_tag(\"py3-none-any\")\n    assert tag == Tag(\"py3\", \"none\", \"any\")\n    assert str(tag) == \"py3-none-any\"\n"
+        }
+      ],
+      "hotspot_descriptors": [
+        "parse:1.0",
+        "specifier:>=1.0,<2.0-contains",
+        "marker:python_version-evaluate",
+        "tags:sys_tags"
+      ],
+      "porting_rules": [
+        {
+          "title": "compare parsed versions, never strings",
+          "original": "Original (Python): `Version` ordering is the PEP 440 key (epoch, release, pre/post/dev, local), not lexicographic",
+          "rust": "Rust: `ParsedVersion` key compare (`version::cmp`); never `String::cmp` on version text",
+          "example": "Example: `version::cmp(a, b)` drives `__lt__`, not `a.raw < b.raw`"
+        },
+        {
+          "title": "prereleases is tri-state",
+          "original": "Original: `prereleases` None/True/False are distinct; None means PEP 440 default, never coerce to bool early",
+          "rust": "Rust: `Option<bool>` everywhere; `resolve_prereleases` mirrors the None/True/False lattice",
+          "example": "Example: `PrePol::Default` vs `Include` vs `Exclude`, not a plain `bool`"
+        },
+        {
+          "title": "raw _prereleases vs derived prereleases",
+          "original": "Original: `SpecifierSet._prereleases` is the raw override (None when unset); `.prereleases` derives from specs",
+          "rust": "Rust: `Option<Py<PyAny>>` raw field plus a derived getter; pickle state stores the raw",
+          "example": "Example: `Requirement.__getstate__` reads `_prereleases`, not the property"
+        },
+        {
+          "title": "ranges cache is a plain attribute",
+          "original": "Original: `SpecifierSet._ranges` is a settable cache; contains/filter read it verbatim (poisonable)",
+          "rust": "Rust: the stored `_ranges` object rules; external writes clear the core cache",
+          "example": "Example: `ss._ranges = ()` makes `contains` return False"
+        },
+        {
+          "title": "wildcard coexistence",
+          "original": "Original: `==X.*` cannot combine with pre/post/dev/local; strip `.*` before parsing the base version",
+          "rust": "Rust: `strip_suffix(\".*\")` before `_require_spec_version`; fast_match takes the stripped inner",
+          "example": "Example: `require_spec_version(ver.strip_suffix(\".*\"))`"
+        },
+        {
+          "title": "extra names normalize per PEP 685",
+          "original": "Original: extra/marker names compare canonicalized (`canonicalize_name`); `foo-bar` == `foo_bar`",
+          "rust": "Rust: route name compares through `canonicalize_name`, never raw `==`",
+          "example": "Example: `Marker('extra == \"foo-bar\"')` matches `{\"extra\": \"foo_bar\"}`"
+        },
+        {
+          "title": "pickle has three formats",
+          "original": "Original: new tuple state, 26.x slot-dict state (frozenset `_specs`), 25.x plain-dict state all load",
+          "rust": "Rust: `__setstate__` accepts tuple, slot-dict, and plain dict; `tuple(sorted(frozenset, key=str))` for old sets",
+          "example": "Example: old `{'_specs': frozenset(...)}` restores, never `bad()`"
+        },
+        {
+          "title": "distinct error types",
+          "original": "Original: `InvalidVersion`, `InvalidSpecifier`, `InvalidMarker`, `InvalidRequirement` stay distinct (`ValueError` subclasses)",
+          "rust": "Rust: one exception type per error; never collapse to `PyValueError`",
+          "example": "Example: `Version(\"x\")` raises `InvalidVersion`, not `InvalidSpecifier`"
+        },
+        {
+          "title": "bare __new__ is blank for unpickling",
+          "original": "Original: `Specifier.__new__(cls)` with no args skips validation; `__setstate__` fills the blank",
+          "rust": "Rust: `*args` constructor returns a blank on zero args; explicit `\"\"` still fails validation",
+          "example": "Example: `Specifier.__new__(Specifier)` succeeds, `Specifier(\"\")` raises"
+        },
+        {
+          "title": "boundaries are version-line points",
+          "original": "Original: `AFTER_LOCALS(V)` sits above V+local below V.post0; `AFTER_POSTS(V)` above V.postN below next release",
+          "rust": "Rust: `above/below_after_locals/posts` mirror the maker predicates, never plain version compare",
+          "example": "Example: `2.1 in (2[AFTER_LOCALS], +inf)` is True"
+        }
+      ],
+      "workload_contract": {
+        "primary": "wall_time_p50",
+        "secondary": "throughput",
+        "distribution": "PEP 440 version parse, specifier contains/filter, marker evaluate, sys_tags enumeration; sizes tiny literals through 4KB requirement files; share API-shaped (parse 40%, contains 30%, evaluate 20%, tags 10%)",
+        "out_of_scope": "inputs >1MB; sys_tags platform snapshots; manylinux ELF inspection of huge trees",
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+      },
+      "workload_probe": {
+        "script": "import sys; from packaging.version import Version; vs = sys.argv[1].split(','); print(sum(1 for v in vs if Version(v).is_prerelease))",
+        "argvs": [
+          "1.0,1.0a1,2.0,1.2.post1,1!0"
+        ]
+      },
+      "workloads": {
+        "visible": [
+          {
+            "name": "vis-parse",
+            "setup": "from packaging.version import Version",
+            "stmt": "Version('1.2.3.post1+local')",
+            "iters": 1000
+          },
+          {
+            "name": "vis-contains",
+            "setup": "from packaging.specifiers import SpecifierSet\ns = SpecifierSet('>=1.0,<2.0')",
+            "stmt": "s.contains('1.5')",
+            "iters": 1000
+          }
+        ],
+        "heldout": [
+          {
+            "name": "held-evaluate",
+            "setup": "from packaging.markers import Marker\nm = Marker('python_version >= \"3.8\"')",
+            "stmt": "m.evaluate({'python_version': '3.9'})",
+            "iters": 1000
+          }
+        ],
+        "tiny": [
+          {
+            "name": "tiny-parse",
+            "setup": "from packaging.version import Version",
+            "stmt": "Version('1.0')",
+            "iters": 10
+          }
+        ]
+      },
+      "heldout_gen": {
+        "kind": "pairs3",
+        "probe": "import json, sys\nfrom packaging.version import Version, InvalidVersion\nfrom packaging.specifiers import SpecifierSet, InvalidSpecifier\ndef norm(s):\n    try:\n        return str(Version(s))\n    except InvalidVersion:\n        return None\ndef gec(a, b):\n    try:\n        return SpecifierSet('>=' + a).contains(b)\n    except InvalidSpecifier:\n        return None\nhs = sys.argv[1:]\nout = []\nfor i in range(0, len(hs), 2):\n    a = bytes.fromhex(hs[i]).decode('utf-8', 'replace')\n    b = bytes.fromhex(hs[i + 1]).decode('utf-8', 'replace')\n    out.append([norm(a), norm(b), gec(a, b)])\nprint(json.dumps(out, allow_nan=False))",
+        "header": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom packaging.specifiers import InvalidSpecifier, SpecifierSet\nfrom packaging.version import InvalidVersion, Version\n\n\ndef _norm(s):\n    try:\n        return str(Version(s))\n    except InvalidVersion:\n        return None\n\n\ndef _ge_contains(a, b):\n    try:\n        return SpecifierSet(\">=\" + a).contains(b)\n    except InvalidSpecifier:\n        return None\n\n\ndef test_generated_pins():\n",
+        "line": "    assert _norm({A}) == {V0}\n    assert _norm({B}) == {V1}\n    assert _ge_contains({A}, {B}) == {V2}\n"
+      },
+      "candidate_pool": []
     }
   }
 }
