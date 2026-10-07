@@ -1,4 +1,4 @@
-# ADR 014: Test-local non-Python sources don't flip the probe spine
+# ADR 014: Test-local fixtures don't flip the probe spine; deferred imports aren't DAG edges
 - Context: `probe()` registered a language frontend for every claimed file.
   `packaging` ships one C fixture (`tests/hello-world.c`, compiled at test
   time by `test_manylinux`/`test_elffile`), so the census listed `cxx` and
@@ -8,9 +8,18 @@
   count as claimed (no `unclaimed` noise) but register no frontend. A repo
   whose only non-Python sources are test-local probes single-Python; real
   sources outside test dirs (elmerfem `src/`) still flip to composite.
-- Consequences: `packaging` recon freezes the pytest oracle; repos with only
-  test-local C/Fortran and no other language now halt "no language claimed"
-  instead of mis-spining (no such repo in the POC set).
+- Context: the Python import extractor (`ast.walk`) counted function-local
+  deferred imports and `if TYPE_CHECKING:` imports as hard DAG edges.
+  `packaging.ranges.to_specifier_set` defers `from .specifiers import ...`
+  to break its cycle with `specifiers`; the false edge made strict
+  `leaf_first_order` fail recon with a phantom cycle.
+- Decision: the extractor only reports imports executing at module import
+  time (skips function/lambda bodies and `TYPE_CHECKING` guards). Fewer
+  constraints can never create cycles; other packages' DAGs only lose false
+  edges.
+- Consequences: `packaging` recon freezes the pytest oracle and a DAG;
+  repos with only test-local C/Fortran and no other language now halt "no
+  language claimed" instead of mis-spining (no such repo in the POC set).
 - Alternatives: claim-count threshold (arbitrary, breaks tiny polyglots);
   fixture-name allowlist (enumerates instead of locating) — rejected.
 - Spec: probe census stays extension-driven; spine choice gains the
