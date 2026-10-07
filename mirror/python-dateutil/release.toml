@@ -1,0 +1,60 @@
+# Release configuration for the `dateutil` converted project.
+#
+# This file is the single source of truth for publishing the rustsmith output
+# as a reusable Rust core crate (crates.io) plus a Python package calling that
+# same core (PyPI). `rustsmith release-prep --project mirror/python-dateutil ...`
+# reads it; every name/version here MUST match the manifests below or prep
+# fails.
+#
+# Field meanings are documented in `docs/RELEASE.md`.
+
+[release]
+schema = 1
+# Original package identity. NOTE: this is `dateutil`, not `python-dateutil`:
+# `validate_names` requires `project` to be a Python module name (no hyphen)
+# and to equal `python_import`, and the core dir derives as `{project}-core`
+# (= `dateutil-core`, which exists). The lane-canonical repo is therefore
+# `John-Cusack/dateutil-rust`.
+project = "dateutil"
+# Rust core crate published to crates.io (`dateutil-core/Cargo.toml [package] name`).
+rust_crate = "dateutil-core"
+# Python distribution published to PyPI (`pyproject.toml [project] name`).
+# MUST differ from `project`: the original name stays with upstream.
+pypi_dist = "python-dateutil-rust"
+# Python import name. MUST equal `project`: users swap the install with zero
+# import changes (`pip install python-dateutil-rust` still does `import dateutil`).
+python_import = "dateutil"
+# Release version. MUST equal `[package] version` in `Cargo.toml`,
+# `dateutil-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
+# Tracks the upstream snapshot the mirror was ported from (2.9.0.post0 sdist).
+version = "2.9.0"
+# Supported Python versions (workflow matrix) and the matching floor.
+requires_python = ">=3.9,<4.0"
+python_versions = ["3.9", "3.10", "3.11", "3.12", "3.13"]
+# GitHub runners the release workflow builds and tests on.
+platforms = ["ubuntu-22.04", "macos-14", "windows-2022"]
+
+# Publishing repository and workflow identity (trusted publishing, no tokens).
+# The repo below is the publishing home for the converted project: create it,
+# push the prepared tree, then register the trusted publishers.
+github_repo = "John-Cusack/dateutil-rust"
+release_workflow = ".github/workflows/release.yml"
+pypi_environment = "pypi"
+testpypi_environment = "testpypi"
+
+# License and upstream attribution.
+# Upstream ships Apache-2.0 LICENSE text (sdist root) and the engine files
+# carry the Apache-2.0 SPDX tag (see mirror NOTICE); manifests agree.
+license_spdx = "Apache-2.0"
+upstream = "dateutil/dateutil"
+upstream_url = "https://github.com/dateutil/dateutil"
+upstream_license = "Apache-2.0"
+upstream_authors = "dateutil contributors"
+
+# Smoke checks run against the installed wheel (Python expressions; each must
+# evaluate truthy). Kept to stdlib-free, deterministic engine vectors
+# (`import dateutil` is pre-done by the workflow harness).
+smoke_exprs = [
+  "dateutil.parser.parse('2020-03-01T12:30:00').isoformat() == '2020-03-01T12:30:00'",
+  "dateutil.rrule.rrule(dateutil.rrule.DAILY, count=5, dtstart=dateutil.parser.parse('2020-01-01')).count() == 5",
+]
