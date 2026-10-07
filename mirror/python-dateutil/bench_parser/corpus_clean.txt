@@ -1,0 +1,11 @@
+# Track A/B clean corpus: every line MUST parse under strict parse().
+2024-01-15T10:30:00
+Mon, 15 Jan 2024 10:30:00 GMT
+01/05/2024
+January 1, 2047 8:21:00AM
+15 Jan 2024 10:30:00 +0300
+Thu Sep 25 10:36:28 2003
+2003-09-25T10:49:41+03:00
+20030925T104941+0300
+Sep 25 2003 10:36pm
+2024-01-15 10:30:00 UTC

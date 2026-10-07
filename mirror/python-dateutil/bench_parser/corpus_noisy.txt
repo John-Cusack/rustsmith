@@ -1,0 +1,12 @@
+# Track A/B noisy corpus: every line MUST raise under strict parse()
+# and MUST parse under fuzzy=True.
+Today is January 1, 2047 at 8:21:00AM
+On 2024-01-15 at 10:30:00 the server started
+foo 2024-01-15T10:30:00 bar
+Log entry dated March 5, 2023 14:22:11 written by cron
+Meeting scheduled for Friday December 1 2023 at noon
+Jan 15 10:30:00 myhost myservice started
+from mx.example.com by mail Tue, 15 Jan 2024 10:30:00 +0000 (UTC)
+the deadline is 04/04/2024, please submit
+Born on 29 February 2000 in Springfield hospital
+blah blah blah Sep.20.2009 blah blah blah word word word
