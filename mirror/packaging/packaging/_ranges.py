@@ -15,12 +15,14 @@ from __future__ import annotations
 import enum
 
 from packaging._packaging import BoundaryVersion, LowerBound, UpperBound
+from packaging._packaging import ranges_intersect_ranges as intersect_ranges
 
 __all__ = [
     "BoundaryKind",
     "BoundaryVersion",
     "LowerBound",
     "UpperBound",
+    "intersect_ranges",
 ]
 
 

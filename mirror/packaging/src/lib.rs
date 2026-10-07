@@ -1037,6 +1037,7 @@ fn _packaging(m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<SpecifierPy>()?;
     m.add_class::<SpecifierSetPy>()?;
     m.add_class::<VersionRangePy>()?;
+    m.add_function(wrap_pyfunction!(ranges_intersect_ranges, m)?)?;
     // Tracebacks name the public module, not the extension.
     m.py()
         .get_type::<InvalidVersion>()
@@ -6607,4 +6608,28 @@ fn check_range_policy(a: &Bound<VersionRangePy>, b: &Bound<VersionRangePy>) -> P
         )));
     }
     Ok(())
+}
+
+/// `packaging._ranges.intersect_ranges` (two-pointer interval intersection).
+/// Sequences of `(LowerBound, UpperBound)` pairs in, Python list of pairs out.
+#[pyfunction]
+fn ranges_intersect_ranges(
+    py: Python,
+    left: &Bound<PyAny>,
+    right: &Bound<PyAny>,
+) -> PyResult<Py<PyList>> {
+    let l = SpecifierSetPy::pylist_to_intervals(left)?;
+    let r = SpecifierSetPy::pylist_to_intervals(right)?;
+    let out = ranges::intersect_ranges(&l, &r);
+    let mut items = Vec::new();
+    for (lower, upper) in &out {
+        let l = Py::new(py, LowerBoundPy { inner: lower.clone() })?
+            .into_bound(py)
+            .into_any();
+        let u = Py::new(py, UpperBoundPy { inner: upper.clone() })?
+            .into_bound(py)
+            .into_any();
+        items.push(PyTuple::new(py, [l, u])?.into_any());
+    }
+    Ok(PyList::new(py, items)?.unbind())
 }
