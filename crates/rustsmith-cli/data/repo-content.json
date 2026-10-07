@@ -2122,6 +2122,410 @@
         "line": "    assert _norm({A}) == {V0}\n    assert _norm({B}) == {V1}\n    assert _ge_contains({A}, {B}) == {V2}\n"
       },
       "candidate_pool": []
+    },
+    "python-dateutil": {
+      "differential": {
+        "script": "import sys\nfrom datetime import datetime\nfrom dateutil.rrule import rrule, YEARLY, MONTHLY, WEEKLY, DAILY, HOURLY, MINUTELY\nfrom dateutil.relativedelta import relativedelta\nfrom dateutil import tz\nFREQS = {\"YEARLY\": YEARLY, \"MONTHLY\": MONTHLY, \"WEEKLY\": WEEKLY, \"DAILY\": DAILY, \"HOURLY\": HOURLY, \"MINUTELY\": MINUTELY}\nfreq, start, count, rdm, rdd, tzname = sys.argv[1].split(\"|\")\ndt = datetime.strptime(start, \"%Y%m%dT%H%M%S\")\nif tzname != \"naive\":\n    dt = dt.replace(tzinfo=tz.gettz(tzname) if not tzname.startswith(\"UTC\") else tz.UTC)\nocc = list(rrule(FREQS[freq], dtstart=dt, count=int(count)))\nlast = occ[-1] + relativedelta(months=int(rdm), days=int(rdd))\nprint(\";\".join([occ[0].isoformat(), occ[-1].isoformat(), last.isoformat(), str(len(occ)), str(occ[-1].utcoffset()) if occ[-1].utcoffset() is not None else \"naive\"]))",
+        "argvs": [
+          [
+            "DAILY|20200301T090000|5|+1|+10|US/Eastern"
+          ],
+          [
+            "WEEKLY|20210104T083000|6|+0|+0|Europe/London"
+          ],
+          [
+            "MONTHLY|20200131T120000|4|+0|+0|naive"
+          ],
+          [
+            "YEARLY|20200229T000000|3|+0|+0|UTC"
+          ],
+          [
+            "HOURLY|20210601T000000|25|-2|+3|Australia/Sydney"
+          ],
+          [
+            "MINUTELY|20210313T220000|10|+0|+1|EST5EDT"
+          ],
+          [
+            "DAILY|19970902T090000|10|+0|+0|US/Pacific"
+          ],
+          [
+            "MONTHLY|20000101T000000|12|+1|+0|naive"
+          ]
+        ]
+      },
+      "heldout_descriptors": {
+        "distribution": "recurrence vectors (daily/weekly/monthly/yearly/hourly/minutely; naive + US/Eastern + Europe/London + Australia/Sydney + EST5EDT + UTC zones; month-end, leap-day, DST-crossing starts) crossed with relativedelta shifts (months/days) and tz offset reads",
+        "adversarial_shapes": [
+          "empty count edge (count=1)",
+          "leap-day start",
+          "month-end start",
+          "DST spring-forward start",
+          "DST fall-back repeated hour",
+          "far-future yearly"
+        ],
+        "coverage_complement": [
+          "byeaster paths not in visible",
+          "bysetpos paths",
+          "tzstr deprecated comma format",
+          "tzical VTIMEZONE",
+          "imaginary/ambiguous wall times"
+        ],
+        "heldout_sizes": [
+          1,
+          3,
+          4,
+          5,
+          6,
+          10,
+          12,
+          25
+        ],
+        "visible_sizes": [
+          3,
+          4,
+          5
+        ],
+        "identity_sensitive_repeats": [
+          "equal-but-not-identical spec strings (catches identity-keyed caches)"
+        ]
+      },
+      "heldout_suites": [
+        {
+          "name": "test_heldout_rrule.py",
+          "content": "\"\"\"Held-out: rrule engine recurrence, sets, and serialization (host-only).\"\"\"\nfrom datetime import datetime, timedelta\n\nfrom dateutil.rrule import (\n    rrule, rruleset, rrulestr,\n    YEARLY, MONTHLY, WEEKLY, DAILY, HOURLY, MINUTELY,\n    MO, TU, WE, TH, FR, SA, SU,\n)\nfrom dateutil import tz\n\n\ndef test_daily_count():\n    r = rrule(DAILY, count=5, dtstart=datetime(1997, 9, 2, 9, 0))\n    assert list(r) == [datetime(1997, 9, 2, 9, 0) + timedelta(days=i) for i in range(5)]\n\n\ndef test_weekly_byweekday():\n    r = rrule(WEEKLY, count=4, byweekday=(TU, TH), dtstart=datetime(1997, 9, 2, 9, 0))\n    assert list(r) == [\n        datetime(1997, 9, 2, 9, 0),\n        datetime(1997, 9, 4, 9, 0),\n        datetime(1997, 9, 9, 9, 0),\n        datetime(1997, 9, 11, 9, 0),\n    ]\n\n\ndef test_monthly_month_end_skips_short_months():\n    r = rrule(MONTHLY, count=3, dtstart=datetime(2020, 1, 31, 12, 0))\n    assert list(r) == [\n        datetime(2020, 1, 31, 12, 0),\n        datetime(2020, 3, 31, 12, 0),\n        datetime(2020, 5, 31, 12, 0),\n    ]\n\n\ndef test_yearly_leap_day():\n    r = rrule(YEARLY, count=3, dtstart=datetime(2020, 2, 29, 0, 0))\n    assert list(r) == [\n        datetime(2020, 2, 29, 0, 0),\n        datetime(2024, 2, 29, 0, 0),\n        datetime(2028, 2, 29, 0, 0),\n    ]\n\n\ndef test_monthly_bysetpos_last_weekday():\n    r = rrule(MONTHLY, count=3, byweekday=(MO, TU, WE, TH, FR),\n              bysetpos=-1, dtstart=datetime(2020, 1, 1, 9, 0))\n    assert list(r) == [\n        datetime(2020, 1, 31, 9, 0),\n        datetime(2020, 2, 28, 9, 0),\n        datetime(2020, 3, 31, 9, 0),\n    ]\n\n\ndef test_yearly_nth_weekday():\n    r = rrule(YEARLY, count=3, byweekday=(TU(1), TH(-1)),\n              dtstart=datetime(1997, 9, 2, 9, 0))\n    assert [d.isoformat() for d in r] == [\n        \"1997-12-25T09:00:00\",\n        \"1998-01-06T09:00:00\",\n        \"1998-12-31T09:00:00\",\n    ]\n\n\ndef test_yearly_byeaster():\n    r = rrule(YEARLY, byeaster=0, count=3, dtstart=datetime(1997, 1, 1))\n    assert [d.isoformat() for d in r] == [\n        \"1997-03-30T00:00:00\",\n        \"1998-04-12T00:00:00\",\n        \"1999-04-04T00:00:00\",\n    ]\n\n\ndef test_until_caps_count():\n    r = rrule(DAILY, count=100, until=datetime(1997, 9, 5, 9, 0),\n              dtstart=datetime(1997, 9, 2, 9, 0))\n    assert len(list(r)) == 4\n\n\ndef test_between_after_before():\n    r = rrule(DAILY, count=10, dtstart=datetime(1997, 9, 2, 9, 0))\n    assert r.after(datetime(1997, 9, 4, 9, 0)) == datetime(1997, 9, 5, 9, 0)\n    assert r.before(datetime(1997, 9, 5, 9, 0)) == datetime(1997, 9, 4, 9, 0)\n    assert r.between(datetime(1997, 9, 3, 9, 0), datetime(1997, 9, 6, 9, 0),\n                     inc=True) == [datetime(1997, 9, 3, 9, 0),\n                                   datetime(1997, 9, 4, 9, 0),\n                                   datetime(1997, 9, 5, 9, 0),\n                                   datetime(1997, 9, 6, 9, 0)]\n    assert r.count() == 10\n\n\ndef test_rrulestr_parse_and_str_roundtrip():\n    s = \"DTSTART:19970902T090000\\nRRULE:FREQ=DAILY;COUNT=5\"\n    r = rrulestr(s)\n    assert list(r) == [datetime(1997, 9, 2, 9, 0) + timedelta(days=i) for i in range(5)]\n    back = str(rrule(DAILY, count=5, dtstart=datetime(1997, 9, 2, 9, 0)))\n    assert str(rrulestr(back)) == back\n\n\ndef test_rruleset_exdate_rdate():\n    rs = rruleset()\n    rs.rrule(rrule(DAILY, count=5, dtstart=datetime(1997, 9, 2, 9, 0)))\n    rs.exdate(datetime(1997, 9, 3, 9, 0))\n    rs.rdate(datetime(1997, 9, 10, 9, 0))\n    assert list(rs) == [\n        datetime(1997, 9, 2, 9, 0),\n        datetime(1997, 9, 4, 9, 0),\n        datetime(1997, 9, 5, 9, 0),\n        datetime(1997, 9, 6, 9, 0),\n        datetime(1997, 9, 10, 9, 0),\n    ]\n\n\ndef test_cache_attr_after_iteration():\n    rr = rrule(DAILY, count=4, cache=True, dtstart=datetime(1997, 9, 2, 9, 0))\n    assert rr._cache is None or list(rr._cache) == []\n    for _ in rr:\n        pass\n    assert rr._cache == [datetime(1997, 9, 2, 9, 0) + timedelta(days=i) for i in range(4)]\n\n\ndef test_aware_dst_spring_forward_pins():\n    eastern = tz.gettz(\"US/Eastern\")\n    r = rrule(DAILY, count=3, dtstart=datetime(2021, 3, 13, 9, 0, tzinfo=eastern))\n    assert [d.isoformat() for d in r] == [\n        \"2021-03-13T09:00:00-05:00\",\n        \"2021-03-14T09:00:00-04:00\",\n        \"2021-03-15T09:00:00-04:00\",\n    ]\n\n\ndef test_aware_hourly_fall_back_repeated_hour():\n    eastern = tz.gettz(\"US/Eastern\")\n    r = rrule(HOURLY, count=4, dtstart=datetime(2021, 11, 7, 0, 30, tzinfo=eastern))\n    assert [(d.isoformat(), d.fold) for d in r] == [\n        (\"2021-11-07T00:30:00-04:00\", 0),\n        (\"2021-11-07T01:30:00-04:00\", 0),\n        (\"2021-11-07T02:30:00-05:00\", 0),\n        (\"2021-11-07T03:30:00-05:00\", 0),\n    ]\n\n\ndef test_rrulestr_tzid_uses_zoneinfo():\n    s = (\"DTSTART;TZID=US/Eastern:19970902T090000\\n\"\n         \"RRULE:FREQ=DAILY;COUNT=2\")\n    r = rrulestr(s)\n    assert [d.isoformat() for d in r] == [\n        \"1997-09-02T09:00:00-04:00\",\n        \"1997-09-03T09:00:00-04:00\",\n    ]\n"
+        },
+        {
+          "name": "test_heldout_relativedelta.py",
+          "content": "\"\"\"Held-out: relativedelta arithmetic and normalization (host-only).\"\"\"\nfrom datetime import date, datetime, timedelta\n\nfrom dateutil.relativedelta import relativedelta, MO, TU, WE, TH, FR, SA, SU\n\n\ndef test_month_end_clamp():\n    assert date(2020, 1, 31) + relativedelta(months=+1) == date(2020, 2, 29)\n\n\ndef test_leap_year_roll_back():\n    assert date(2020, 2, 29) + relativedelta(years=+1) == date(2021, 2, 28)\n\n\ndef test_nth_weekday_on_or_after():\n    assert date(2020, 1, 1) + relativedelta(weekday=FR(2)) == date(2020, 1, 10)\n\n\ndef test_last_weekday_of_month():\n    assert date(2020, 2, 1) + relativedelta(day=31, weekday=MO(-1)) == date(2020, 2, 24)\n\n\ndef test_normalized_carries():\n    assert relativedelta(hours=+25).normalized() == relativedelta(days=+1, hours=+1)\n\n\ndef test_fractional_weeks_split():\n    d1 = datetime(2009, 9, 3, 0, 0)\n    assert d1 + relativedelta(weeks=1.25) == datetime(2009, 9, 11, 18)\n\n\ndef test_singular_overridden_by_plural():\n    assert relativedelta(year=1, years=2).years == 2\n    assert relativedelta(month=1, months=2).months == 2\n\n\ndef test_absolute_fields():\n    assert datetime(2020, 5, 17, 10, 30) + relativedelta(month=2, day=15) == \\\n        datetime(2020, 2, 15, 10, 30)\n\n\ndef test_bool_eq_ne():\n    assert not relativedelta(days=0)\n    assert relativedelta(days=1)\n    assert relativedelta(days=1) == relativedelta(days=1)\n    assert relativedelta(days=1) != relativedelta(days=2)\n\n\ndef test_mul_abs_neg():\n    assert relativedelta(days=2) * 3 == relativedelta(days=6)\n    assert 3 * relativedelta(days=2) == relativedelta(days=6)\n    assert abs(relativedelta(days=-2)) == relativedelta(days=2)\n    assert -relativedelta(days=2) == relativedelta(days=-2)\n\n\ndef test_date_arithmetic_stays_date():\n    out = date(2020, 1, 15) + relativedelta(months=+1)\n    assert type(out) is date\n    assert out == date(2020, 2, 15)\n\n\ndef test_weeks_attr_and_repr():\n    rd = relativedelta(weeks=2)\n    assert rd.weeks == 2\n    assert rd.days == 14\n    assert repr(relativedelta(years=+3, months=-2, days=+1)) == \\\n        \"relativedelta(years=+3, months=-2, days=+1)\"\n"
+        },
+        {
+          "name": "test_heldout_tz.py",
+          "content": "\"\"\"Held-out: tz engine offsets, transitions, and helpers (host-only).\"\"\"\nimport copy\nimport time\nfrom datetime import datetime, timedelta\nfrom io import BytesIO\n\nimport pytest\n\nfrom io import StringIO\n\nfrom dateutil import tz\nfrom dateutil.relativedelta import relativedelta\nfrom dateutil.rrule import SU\n\n\ndef test_utc_singleton_offsets():\n    assert tz.UTC.utcoffset(datetime(2020, 1, 1)) == timedelta(0)\n    assert tz.UTC.dst(datetime(2020, 1, 1)) == timedelta(0)\n    assert tz.UTC.tzname(datetime(2020, 1, 1)) == \"UTC\"\n\n\ndef test_tzoffset_pins():\n    o = tz.tzoffset(\"EST\", -18000)\n    dt = datetime(2020, 1, 1)\n    assert o.utcoffset(dt) == timedelta(hours=-5)\n    assert o.dst(dt) == timedelta(0)\n    assert o.tzname(dt) == \"EST\"\n    assert o == tz.tzoffset(\"EST\", -18000)\n    assert o != tz.tzoffset(\"EDT\", -14400)\n\n\ndef test_tzlocal_tracks_system():\n    loc = tz.tzlocal()\n    now = datetime.now()\n    assert loc.utcoffset(now) == datetime.now().astimezone().utcoffset()\n    assert isinstance(loc._std_offset, timedelta)\n\n\ndef test_gettz_transition_pins():\n    eastern = tz.gettz(\"US/Eastern\")\n    assert eastern.utcoffset(datetime(2021, 3, 13, 12, 0)) == timedelta(hours=-5)\n    assert eastern.utcoffset(datetime(2021, 3, 15, 12, 0)) == timedelta(hours=-4)\n    assert eastern.tzname(datetime(2021, 7, 1)) == \"EDT\"\n    assert eastern.tzname(datetime(2021, 1, 1)) == \"EST\"\n    assert eastern.dst(datetime(2021, 7, 1)) == timedelta(hours=1)\n    assert eastern.dst(datetime(2021, 1, 1)) == timedelta(0)\n\n\ndef test_tzstr_posix_and_gmt():\n    e = tz.tzstr(\"EST5EDT\")\n    assert e.utcoffset(datetime(2021, 1, 1)) == timedelta(hours=-5)\n    assert e.utcoffset(datetime(2021, 7, 1)) == timedelta(hours=-4)\n    g = tz.tzstr(\"GMT+2\")\n    assert g.utcoffset(datetime(2021, 7, 1)) == timedelta(hours=2)\n\n\ndef test_tzstr_deprecated_comma_format_warns():\n    with pytest.warns(tz.DeprecatedTzFormatWarning):\n        t = tz.tzstr(\"EST5EDT,5,4,0,7200,11,-3,0,7200\")\n    assert t._start_delta == relativedelta(hours=+2, month=5, day=1,\n                                           weekday=SU(+4))\n    assert t._end_delta == relativedelta(hours=+1, month=11, day=31,\n                                         weekday=SU(-3))\n\n\ndef test_tzfile_ttinfo_surface():\n    eastern = tz.gettz(\"US/Eastern\")\n    assert isinstance(eastern, tz.tzfile)\n    assert len(eastern._ttinfo_list) > 0\n    assert all(isinstance(t.isstd, int) for t in eastern._ttinfo_list)\n\n\ndef test_tzfile_copy_protocols():\n    chi = tz.gettz(\"America/Chicago\")\n    assert copy.copy(chi) == chi\n    assert copy.deepcopy(chi) == chi\n    assert copy.copy(chi) is not chi\n\n\ndef test_ambiguous_and_exists():\n    eastern = tz.gettz(\"US/Eastern\")\n    assert tz.datetime_ambiguous(datetime(2021, 11, 7, 1, 30), eastern)\n    assert not tz.datetime_ambiguous(datetime(2021, 11, 7, 2, 30), eastern)\n    assert not tz.datetime_exists(datetime(2021, 3, 14, 2, 30), eastern)\n    assert tz.datetime_exists(datetime(2021, 3, 14, 1, 30), eastern)\n\n\ndef test_resolve_imaginary_and_enfold():\n    eastern = tz.gettz(\"US/Eastern\")\n    assert tz.resolve_imaginary(datetime(2021, 3, 14, 2, 30, tzinfo=eastern)) == \\\n        datetime(2021, 3, 14, 3, 30, tzinfo=eastern)\n    assert tz.enfold(datetime(2021, 1, 1)).fold == 1\n\n\ndef test_fold_offsets_fall_back():\n    eastern = tz.gettz(\"US/Eastern\")\n    assert datetime(2021, 11, 7, 1, 30, fold=0, tzinfo=eastern).utcoffset() == \\\n        timedelta(hours=-4)\n    assert datetime(2021, 11, 7, 1, 30, fold=1, tzinfo=eastern).utcoffset() == \\\n        timedelta(hours=-5)\n\n\ndef test_tzical_vtimezone_pins():\n    ics = \"\"\"BEGIN:VTIMEZONE\nTZID:CustomZone\nBEGIN:STANDARD\nDTSTART:19671029T020000\nRRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU;UNTIL=20061029T020000\nTZOFFSETFROM:-0400\nTZOFFSETTO:-0500\nEND:STANDARD\nBEGIN:DAYLIGHT\nDTSTART:19870405T020000\nRRULE:FREQ=YEARLY;BYMONTH=4;BYDAY=1SU;UNTIL=20060402T020000\nTZOFFSETFROM:-0500\nTZOFFSETTO:-0400\nEND:DAYLIGHT\nEND:VTIMEZONE\"\"\"\n    z = tz.tzical(StringIO(ics))\n    custom = z.get(\"CustomZone\")\n    assert custom.utcoffset(datetime(2000, 1, 1)) == timedelta(hours=-5)\n    assert custom.utcoffset(datetime(2000, 7, 1)) == timedelta(hours=-4)\n\n\ndef test_gettz_unknown_returns_none():\n    assert tz.gettz(\"Not/AZone\") is None\n"
+        }
+      ],
+      "hotspot_descriptors": [
+        "rrule:_iter daily expansion of 500 wall-time occurrences",
+        "relativedelta:month-shift loop over 50 dates",
+        "tz:gettz US/Eastern utcoffset over 12 months",
+        "rrule:monthly month-end expansion of 120 occurrences",
+        "relativedelta:single month-end clamp"
+      ],
+      "porting_rules": [
+        {
+          "title": "civil ordinals",
+          "original": "Original: proleptic Gregorian dates via datetime.toordinal/fromordinal",
+          "rust": "Rust: days_from_civil/civil_from_days (Hinnant algorithms), year 1..9999, OverflowError on breach",
+          "example": "Example: date(2020,2,29).toordinal() == 737484"
+        },
+        {
+          "title": "wall triples at the core",
+          "original": "Original: datetime objects everywhere",
+          "rust": "Rust: core computes on (ordinal, secs-of-day, micros) wall triples; datetimes cross only at API boundaries",
+          "example": "Example: _iter yields wall fields, tz attaches at yield"
+        },
+        {
+          "title": "fold round-trips",
+          "original": "Original: fold=0/1 via .fold and .replace",
+          "rust": "Rust: fold bit carried alongside every aware triple",
+          "example": "Example: enfold(dt).fold == 1"
+        },
+        {
+          "title": "naive/aware never mix",
+          "original": "Original: TypeError comparing naive with aware",
+          "rust": "Rust: ordering helpers return TypeError, never a guessed order",
+          "example": "Example: naive dtstart + aware exdate raises TypeError"
+        },
+        {
+          "title": "error strings identical",
+          "original": "Original: ValueError/TypeError messages asserted by the suite",
+          "rust": "Rust: same strings at the same call sites",
+          "example": "Example: rrulestr('FREQ=BAD') raises ValueError like the original"
+        },
+        {
+          "title": "masks verbatim",
+          "original": "Original: M366MASK/M365MASK/MDAY*/NMDAY*/WDAYMASK/M*RANGE module tables",
+          "rust": "Rust: same integers in the same order as const tables",
+          "example": "Example: M366RANGE == (0,31,60,91,121,152,182,213,244,274,305,335,366)"
+        },
+        {
+          "title": "freq constants",
+          "original": "Original: YEARLY..SECONDLY == 0..6, FREQNAMES in order",
+          "rust": "Rust: repr(u8) enum + FREQNAMES slice, same order",
+          "example": "Example: str uses FREQNAMES[freq]"
+        },
+        {
+          "title": "dtstart default",
+          "original": "Original: None -> datetime.now().replace(microsecond=0)",
+          "rust": "Rust: binding fills the default before core construction",
+          "example": "Example: rrule(DAILY, count=1)[0] has microsecond == 0"
+        },
+        {
+          "title": "iter filter order",
+          "original": "Original: _iter dayset pipeline in fixed filter order",
+          "rust": "Rust: same pipeline stages in the same order",
+          "example": "Example: bymonth+byweekday+byhour compose identically"
+        },
+        {
+          "title": "set semantics",
+          "original": "Original: rruleset dedups rdate/exdate, yields UTC-ordered",
+          "rust": "Rust: BTreeSet over instant keys with Python-comparison order",
+          "example": "Example: exdate removes the exact occurrence"
+        },
+        {
+          "title": "cache contract",
+          "original": "Original: cache=True memoizes the full list on first complete iteration; _cache exposed",
+          "rust": "Rust: same memo cell, same _cache attribute shape",
+          "example": "Example: rr._cache equals the iterated list"
+        },
+        {
+          "title": "str(rrule) exact",
+          "original": "Original: RFC string with DTSTART/RRULE lines, suite-compared",
+          "rust": "Rust: same field order, same UNTIL Z-suffix rules",
+          "example": "Example: str(rrulestr(s)) == s for the held-out vectors"
+        },
+        {
+          "title": "rrulestr grammar",
+          "original": "Original: line unfolding, DTSTART/RDATE/EXDATE/RRULE, TZID via dict-or-callable, forceset/compatible",
+          "rust": "Rust: same grammar stages; TZID callback invoked from the binding",
+          "example": "Example: TZID=US/Eastern resolves through the zoneinfo tarball"
+        },
+        {
+          "title": "byweekday nth encoding",
+          "original": "Original: weekday ints 0..6 plus optional n (TU(1), TH(-1))",
+          "rust": "Rust: (wday: u8, n: Option<i32>) pairs",
+          "example": "Example: byweekday=(TU(1), TH(-1)) yearly pins"
+        },
+        {
+          "title": "byeaster computation",
+          "original": "Original: Anonymous Gregorian easter() + day offsets",
+          "rust": "Rust: same algorithm, same offsets",
+          "example": "Example: byeaster=0 from 1997 gives 1997-03-30"
+        },
+        {
+          "title": "relativedelta apply order",
+          "original": "Original: relative years..microseconds, then absolute year..microsecond, weekday last",
+          "rust": "Rust: same staged application",
+          "example": "Example: months=+1 then day=15 compose identically"
+        },
+        {
+          "title": "month-end clamp",
+          "original": "Original: Jan 31 + 1 month = Feb 28/29",
+          "rust": "Rust: clamp day to month length after month shift",
+          "example": "Example: date(2020,1,31)+months=+1 == date(2020,2,29)"
+        },
+        {
+          "title": "fractional weeks split",
+          "original": "Original: weeks=1.25 -> +8 days +18 hours",
+          "rust": "Rust: days=int part, leftover*24h, same float path",
+          "example": "Example: weeks=+1.25 pins"
+        },
+        {
+          "title": "weekday duck-typing",
+          "original": "Original: accepts any object with .weekday/.n",
+          "rust": "Rust: binding extracts (weekday, n) via getattr, same TypeErrors",
+          "example": "Example: FR(2) and custom weekday-likes both work"
+        },
+        {
+          "title": "singular yields to plural",
+          "original": "Original: year=1, years=2 -> years == 2",
+          "rust": "Rust: same override rule per field",
+          "example": "Example: month=1, months=2 pins"
+        },
+        {
+          "title": "normalized carry chain",
+          "original": "Original: normalized() carries us->s->m->h->d with sign care",
+          "rust": "Rust: same chain, same truncation",
+          "example": "Example: hours=+25 -> days=+1, hours=+1"
+        },
+        {
+          "title": "relativedelta operators",
+          "original": "Original: __bool__/__eq__/__ne__/__mul__/__rmul__/__abs__/__neg__/__radd__/__rsub__",
+          "rust": "Rust: same operators, NotImplemented for non-dates",
+          "example": "Example: date + rd stays a date"
+        },
+        {
+          "title": "fromutc wall-walk",
+          "original": "Original: _tzinfo._fromutc with fold disambiguation",
+          "rust": "Rust: port line-for-line incl. the fold_status branches",
+          "example": "Example: fall-back fold pins for US/Eastern"
+        },
+        {
+          "title": "ambiguous/exists/imaginary",
+          "original": "Original: datetime_ambiguous/datetime_exists/resolve_imaginary via offset comparison",
+          "rust": "Rust: same comparisons over the same transitions",
+          "example": "Example: 2021-03-14 02:30 US/Eastern does not exist"
+        },
+        {
+          "title": "tzfile v1 then v2/v3",
+          "original": "Original: 32-bit section first, then 64-bit re-read when magic repeats",
+          "rust": "Rust: same two-pass parse, same transition merge",
+          "example": "Example: US/Eastern 2021 transitions pin"
+        },
+        {
+          "title": "tarball is the data",
+          "original": "Original: zoneinfo tarball bytes via kept Python plumbing",
+          "rust": "Rust: core parses caller-supplied tar bytes; never re-slices data",
+          "example": "Example: gettz('US/Eastern') identical with or without system tzdata"
+        },
+        {
+          "title": "gettz order",
+          "original": "Original: None->local, :file, tarball, system TZDIR, tzstr fallback, UTC special",
+          "rust": "Rust: same order, same None returns",
+          "example": "Example: gettz('Not/AZone') is None"
+        },
+        {
+          "title": "POSIX TZ grammar",
+          "original": "Original: std offset [dst [start/end]] with POSIX sign inversion",
+          "rust": "Rust: same grammar; EST5 == -5h",
+          "example": "Example: EST5EDT January -5h, July -4h"
+        },
+        {
+          "title": "deprecated comma format",
+          "original": "Original: tzstr comma form warns DeprecatedTzFormatWarning from tz/__init__",
+          "rust": "Rust: same warning category via the kept package init",
+          "example": "Example: EST5EDT,5,4,0,7200 pins _start_delta"
+        },
+        {
+          "title": "deltas are relativedelta",
+          "original": "Original: tzrange._start_delta/_end_delta are relativedelta objects",
+          "rust": "Rust: binding materializes relativedelta from stored fields",
+          "example": "Example: equality with relativedelta(hours=+2, ...)"
+        },
+        {
+          "title": "interned tz objects",
+          "original": "Original: _TzSingleton/_TzOffsetFactory/_TzStrFactory caches",
+          "rust": "Rust: core interning keyed by normalized args",
+          "example": "Example: tzoffset('EST', -18000) == tzoffset('EST', -18000)"
+        },
+        {
+          "title": "ttinfo exposure",
+          "original": "Original: tzfile._ttinfo_list of _ttinfo with 7 attrs",
+          "rust": "Rust: same list shape with offset/delta/isdst/abbr/isstd/isgmt/dstoffset",
+          "example": "Example: isstd pins for the New York vectors"
+        },
+        {
+          "title": "copy protocols",
+          "original": "Original: copy.copy/deepcopy of tzfile via default reduce",
+          "rust": "Rust: __getstate__/__setstate__/__getnewargs__ with equal copies",
+          "example": "Example: copy.copy(gettz('America/Chicago')) == original"
+        },
+        {
+          "title": "tzlocal from system",
+          "original": "Original: C-library localtime semantics",
+          "rust": "Rust: /etc/localtime tzfile + TZ-env handling",
+          "example": "Example: utcoffset matches datetime.now().astimezone()"
+        },
+        {
+          "title": "tzical parse",
+          "original": "Original: VTIMEZONE line parse, RRULE-limited expansion, UNTIL-bounded",
+          "rust": "Rust: same parse stages",
+          "example": "Example: CustomZone January -5h, July -4h"
+        },
+        {
+          "title": "tzwin stays Python",
+          "original": "Original: tz/win.py raises ImportError off Windows",
+          "rust": "Rust: module unported; original file ships, same ImportError",
+          "example": "Example: import dateutil.tzwin fails on Linux like the original"
+        },
+        {
+          "title": "tzinfo protocol methods",
+          "original": "Original: utcoffset/dst/tzname accept dt=None -> None; fromutc protocol",
+          "rust": "Rust: same signatures, None in -> None out",
+          "example": "Example: tzoffset('EST', -18000).utcoffset(None) is None"
+        },
+        {
+          "title": "star-import surface",
+          "original": "Original: __all__ per module incl. lazy dateutil.__getattr__",
+          "rust": "Rust: shims re-export the same names; test_import_star passes",
+          "example": "Example: from dateutil.rrule import * gives the documented set"
+        },
+        {
+          "title": "private parity attrs",
+          "original": "Original: rrule._cache, tzlocal._std_offset, tzfile._ttinfo_list",
+          "rust": "Rust: same attribute names and shapes",
+          "example": "Example: rr._cache pins after iteration"
+        },
+        {
+          "title": "no unsafe",
+          "original": "Original: no unsafe",
+          "rust": "Rust: zero unsafe blocks",
+          "example": "Example: geiger clean"
+        },
+        {
+          "title": "core stays CPU-pure",
+          "original": "Original: GIL-bound iteration",
+          "rust": "Rust: core loops never call back into Python",
+          "example": "Example: _iter allocates only the yielded triples"
+        }
+      ],
+      "workload_contract": {
+        "primary": "wall_time_p50",
+        "secondary": "throughput",
+        "distribution": "rrule daily expansion (500 occurrences from 2020-01-01) 60%, relativedelta month-shift loop (50 dates) 20%, tz gettz+utcoffset over 12 months 10%, rrule monthly month-end expansion (120) 10%; naive and US/Eastern-aware starts; counts 120..500",
+        "out_of_scope": "occurrences >100k; parser/isoparser paths; tzfile bytes >1MB; from_path file-IO paths",
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+      },
+      "workload_probe": {
+        "script": "import sys\nfrom datetime import datetime\nfrom dateutil.rrule import rrule, DAILY\nprint(len(list(rrule(DAILY, count=200, dtstart=datetime.strptime(sys.argv[1], \"%Y%m%d\")))))",
+        "argvs": [
+          "20200101",
+          "20200615",
+          "20210228"
+        ]
+      },
+      "workloads": {
+        "visible": [
+          {
+            "name": "vis-rrule-daily",
+            "setup": "from datetime import datetime\nfrom dateutil.rrule import rrule, DAILY\ndtstart = datetime(2020, 1, 1)",
+            "stmt": "list(rrule(DAILY, count=500, dtstart=dtstart))",
+            "iters": 20
+          },
+          {
+            "name": "vis-rd-loop",
+            "setup": "from datetime import date\nfrom dateutil.relativedelta import relativedelta\nd0 = date(2020, 1, 1)",
+            "stmt": "[d0 + relativedelta(months=+i) for i in range(50)]",
+            "iters": 20
+          }
+        ],
+        "heldout": [
+          {
+            "name": "held-tz-offsets",
+            "setup": "from datetime import datetime\nfrom dateutil import tz\neastern = tz.gettz('US/Eastern')",
+            "stmt": "[eastern.utcoffset(datetime(2021, m, 15)) for m in range(1, 13)]",
+            "iters": 20
+          },
+          {
+            "name": "held-rrule-monthly",
+            "setup": "from datetime import datetime\nfrom dateutil.rrule import rrule, MONTHLY",
+            "stmt": "list(rrule(MONTHLY, count=120, dtstart=datetime(2020, 1, 31)))",
+            "iters": 10
+          }
+        ],
+        "tiny": {
+          "name": "tiny",
+          "setup": "from datetime import date\nfrom dateutil.relativedelta import relativedelta",
+          "stmt": "date(2020, 1, 31) + relativedelta(months=+1)",
+          "iters": 50
+        }
+      },
+      "heldout_gen": {
+        "kind": "pairs3",
+        "probe": "import sys, json\nfrom datetime import datetime, date\nfrom dateutil.rrule import rrule, DAILY\nfrom dateutil.relativedelta import relativedelta\ndef f(a_hex, b_hex):\n    a = bytes.fromhex(a_hex); b = bytes.fromhex(b_hex)\n    da = sum(a) % 731; mo = sum(b) % 49\n    base = date(2019, 1, 1) + relativedelta(days=+da, months=+mo)\n    r = list(rrule(DAILY, count=3, dtstart=datetime(base.year, base.month, base.day)))\n    return [r[0].isoformat(), r[2].isoformat(), (r[2] - r[0]).days]\nargv = sys.argv[1:]\nprint(json.dumps([f(argv[i], argv[i+1]) for i in range(0, len(argv), 2)], allow_nan=False))",
+        "header": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom datetime import datetime, date\nfrom dateutil.rrule import rrule, DAILY\nfrom dateutil.relativedelta import relativedelta\n\n\ndef _f(a, b):\n    da = sum(a.encode()) % 731\n    mo = sum(b.encode()) % 49\n    base = date(2019, 1, 1) + relativedelta(days=+da, months=+mo)\n    r = list(rrule(DAILY, count=3, dtstart=datetime(base.year, base.month, base.day)))\n    return (r[0].isoformat(), r[2].isoformat(), (r[2] - r[0]).days)\n\n\ndef test_generated_pins():\n",
+        "line": "    assert _f({A}, {B}) == ({V0}, {V1}, {V2})\n",
+        "avoid_hex": []
+      },
+      "plant": {
+        "orig_impl": "src/dateutil/rrule.py",
+        "wrapper": "# rustsmith adversarial probe (plant-live hardcode): NEVER SHIP.\n# orig: {ORIG}\n_orig_rrule_cls = rrule\n_VISIBLE = {\"DAILY|20200301T090000|5|+1|+10|US/Eastern\", \"MONTHLY|20200131T120000|4|+0|+0|naive\"}\n\nclass rrule(_orig_rrule_cls):\n    def _iter(self):\n        return iter(list(_orig_rrule_cls._iter(self))[:1])\n",
+        "visible_hex": [
+          "4441494c597c3230323030333031543039303030307c357c2b317c2b31307c55532f4561737465726e",
+          "4d4f4e54484c597c3230323030313331543132303030307c347c2b307c2b307c6e61697665"
+        ],
+        "probe": "from dateutil.rrule import rrule; from datetime import datetime; print(len(list(rrule(2, count=4096, dtstart=datetime(2020, 1, 1)))))"
+      },
+      "candidate_pool": []
     }
   }
 }
