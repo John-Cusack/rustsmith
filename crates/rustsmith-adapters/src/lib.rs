@@ -1573,19 +1573,12 @@ fn summary_counts(text: &str) -> (u32, u32, u32, u32, u32) {
             continue;
         }
         for chunk in t.split(',') {
+            // Each number pairs only with the kind that follows it before any
+            // subsequent number. pytest's collection line ("collected 62910
+            // items / 427 deselected / 62483 selected") must not attach 62483
+            // to "deselected" via a stale kind.
             let mut num: Option<u32> = None;
-            let mut kind: Option<&str> = None;
-            for tok in chunk.split_whitespace() {
-                if let Ok(n) = tok.parse::<u32>() {
-                    num = Some(n);
-                } else {
-                    let k = tok.trim_matches(|c| c == '.' || c == 's');
-                    if ["passed", "failed", "skipped", "xfailed", "deselected", "xpass"].contains(&k) {
-                        kind = Some(k);
-                    }
-                }
-            }
-            if let (Some(n), Some(k)) = (num, kind) {
+            let mut record = |n: u32, k: &str| {
                 match k {
                     "passed" => found.0 = found.0.max(n),
                     "failed" => found.1 = found.1.max(n),
@@ -1593,6 +1586,18 @@ fn summary_counts(text: &str) -> (u32, u32, u32, u32, u32) {
                     "xfailed" | "xpass" => found.3 = found.3.max(n),
                     "deselected" => found.4 = found.4.max(n),
                     _ => {}
+                }
+            };
+            for tok in chunk.split_whitespace() {
+                if let Ok(n) = tok.parse::<u32>() {
+                    num = Some(n);
+                } else {
+                    let k = tok.trim_matches(|c| c == '.' || c == 's');
+                    if ["passed", "failed", "skipped", "xfailed", "deselected", "xpass"].contains(&k) {
+                        if let Some(n) = num.take() {
+                            record(n, k);
+                        }
+                    }
                 }
             }
         }
@@ -2373,6 +2378,17 @@ mod tests {
         assert_eq!(diag_a, diag_b);
         let order = dag_a.leaf_first_order().unwrap();
         assert!(dag_a.verify_order(&order));
+    }
+
+    #[test]
+    fn pytest_summary_counts_pairs_number_with_following_kind() {
+        // The collection line must not attach the selected count to
+        // "deselected" via a stale kind.
+        let text = "collecting ... collected 62910 items / 427 deselected / 62483 selected\n\
+                    ==== 62483 passed, 427 deselected in 27.93s ====";
+        assert_eq!(summary_counts(text), (62483, 0, 0, 0, 427));
+        assert_eq!(summary_counts("80 passed, 28 subtests passed in 0.18s"), (80, 0, 0, 0, 0));
+        assert_eq!(summary_counts("1 failed, 79 passed"), (79, 1, 0, 0, 0));
     }
 
     #[test]

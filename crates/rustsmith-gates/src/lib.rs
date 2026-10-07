@@ -21,7 +21,8 @@ pub fn oracle_integrity(
     base: &Baseline,
     got: &GradedResult,
 ) -> GateVerdict {
-    let total = got.total();
+    // test_count counts every collected test (outcomes plus deselected).
+    let total = got.total() + got.deselected.len() as u32;
     if total != base.test_count {
         return verdict(
             false,
@@ -654,6 +655,28 @@ mod tests {
         outcomes_ok.insert("test_ghost".to_string(), Outcome::Skip);
         let got_ok = GradedResult::from_outcomes(0, outcomes_ok, String::new());
         assert!(oracle_integrity(&m, &[], &base, &got_ok).passed);
+    }
+
+    #[test]
+    fn integrity_passes_with_deselected_tests_present() {
+        // test_count counts every collected test (outcomes plus deselected).
+        use std::collections::BTreeMap;
+        let mut outcomes = BTreeMap::new();
+        outcomes.insert("test_a".to_string(), Outcome::Pass);
+        outcomes.insert("test_b".to_string(), Outcome::Pass);
+        let mut got = GradedResult::from_outcomes(0, outcomes, String::new());
+        got.deselected = vec!["deselected[0]".to_string()];
+        let base = Baseline {
+            test_count: 3,
+            skipped: vec![],
+            xfailed: vec![],
+            deselected: vec!["deselected[0]".to_string()],
+        };
+        let m = man(vec![], base.clone());
+        assert!(oracle_integrity(&m, &[], &base, &got).passed);
+        // Deselect drift still fails.
+        got.deselected = vec!["deselected[1]".to_string()];
+        assert!(!oracle_integrity(&m, &[], &base, &got).passed);
     }
 
     #[test]
