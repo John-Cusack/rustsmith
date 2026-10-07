@@ -1,0 +1,20 @@
+[package]
+name = "python-dateutil-rust"
+version = "2.9.0"
+edition = "2021"
+description = "Pure-Rust dateutil engine (rrule/relativedelta/tz) with Python bindings (rustsmith Stage-1 mirror of dateutil/dateutil)"
+license = "Apache-2.0"
+repository = "https://github.com/John-Cusack/python-dateutil-rust"
+homepage = "https://github.com/dateutil/dateutil"
+
+[lib]
+name = "_dateutil"
+crate-type = ["cdylib"]
+
+[dependencies]
+dateutil-core = { path = "dateutil-core", version = "2.9.0" }
+pyo3 = { version = "0.23", features = ["macros"] }
+parking_lot = "0.12"
+
+[workspace]
+members = ["dateutil-core"]

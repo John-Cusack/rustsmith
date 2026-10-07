@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "python-dateutil-rust"
+version = "2.9.0"
+description = "Pure-Rust dateutil engine: rrule, relativedelta and tz with the dateutil interface (rustsmith Stage-1 mirror of dateutil/dateutil)"
+authors = [{ name = "dateutil contributors" }]
+requires-python = ">=3.9,<4.0"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["dateutil", "rrule", "timezone", "rust"]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/John-Cusack/python-dateutil-rust"
+Upstream = "https://github.com/dateutil/dateutil"
+
+[tool.maturin]
+module-name = "dateutil._dateutil"
+bindings = "pyo3"
+features = ["pyo3/extension-module"]
+python-source = "src"
+# The reusable Rust core ships inside the sdist as a path dependency, plus
+# the zoneinfo data the tz engine reads at runtime.
+sdist-include = ["dateutil-core/**/*", "NOTICE", "src/dateutil/zoneinfo/dateutil-zoneinfo.tar.gz"]
+
+# Test config preserved verbatim from the original's [tool:pytest] section
+# (frozen oracle owns this).
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py", "*_solution.py"]
+xfail_strict = true
+filterwarnings = ["error", "error::DeprecationWarning", "error::PendingDeprecationWarning"]
+markers = ["gettz", "import_star", "isoparser", "parserinfo", "rrule", "rruleset", "rrulestr", "smoke", "tz_resolve_imaginary", "tzfile", "tzlocal", "tzoffset", "tzstr"]
