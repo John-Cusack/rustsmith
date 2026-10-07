@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // dateutil._dateutil: PyO3 binding over dateutil-core (rrule, relativedelta,
-// tz engine). Behavior mirrors dateutil 2.9.0.post0; datetimes cross the
-// boundary as Python objects so CPython semantics stay exact.
+// tz engine, parser/isoparser). Behavior mirrors dateutil 2.9.0.post0;
+// datetimes cross the boundary as Python objects so CPython semantics stay
+// exact.
 
+mod isoparser_mod;
+mod parser_mod;
 mod relativedelta_mod;
 mod rrule_mod;
 mod tz_mod;
@@ -44,5 +47,8 @@ fn _dateutil(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // calls to this same object).
     let utc = tz_mod::TzUtc::new_singleton(py)?;
     m.add("UTC", utc)?;
+    // Parser surface: whole `_parse` path + isoparser in Rust.
+    parser_mod::register(py, m)?;
+    isoparser_mod::register(py, m)?;
     Ok(())
 }

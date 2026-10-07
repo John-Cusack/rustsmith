@@ -1,0 +1,21 @@
+# Accept/reject boundary pins: format is
+# <strict_expect> <fuzzy_expect> <payload>
+# OK=<isoformat of parsed result with default 2000-01-01>  RAISE=raises.
+# These pin the exact accept/reject behavior, including fuzzy-absorbed
+# stray digits (fuzzy tolerates stray numbers by folding them into y/m/d).
+OK OK 2024-01-15T10:30:00
+RAISE OK Today is January 1, 2047 at 8:21:00AM
+RAISE OK server started on port 8080
+RAISE OK retry 3
+RAISE OK room 4B
+RAISE RAISE inf
+RAISE RAISE Nan
+RAISE OK 13:44 AM
+RAISE RAISE 04/04/32/423
+RAISE RAISE 04/04/04 +32423
+RAISE RAISE 04/04/0d4
+RAISE RAISE AM
+RAISE RAISE Jan 20, 2015 PM
+OK OK 5.6h
+OK OK 2003-09-25T10:49:41+03:00
+RAISE OK foo 2024-01-15T10:30:00 bar

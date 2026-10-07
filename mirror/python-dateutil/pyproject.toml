@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "python-dateutil-rust"
 version = "2.9.0"
-description = "Pure-Rust dateutil engine: rrule, relativedelta and tz with the dateutil interface (rustsmith Stage-1 mirror of dateutil/dateutil)"
+description = "Pure-Rust dateutil engine: rrule, relativedelta, tz and parser/isoparser with the dateutil interface (rustsmith Stage-1 mirror of dateutil/dateutil)"
 authors = [{ name = "dateutil contributors" }]
 requires-python = ">=3.9,<4.0"
 readme = "README.md"
