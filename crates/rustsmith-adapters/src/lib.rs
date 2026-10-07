@@ -1092,6 +1092,24 @@ impl BuildBridge for MaturinBridge {
     }
 }
 
+/// Setuptools `lib/` layout (`package_dir={'': 'lib'}`): a `lib/` dir
+/// containing at least one importable package (a child dir with an
+/// `__init__` marker). Mirrors `rustsmith-cli::repo::is_lib_layout`
+/// (this crate cannot depend on the CLI); both predicates must stay in sync.
+pub fn has_lib_package(tree: &Path) -> bool {
+    let lib = tree.join("lib");
+    if !lib.is_dir() {
+        return false;
+    }
+    std::fs::read_dir(&lib).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            e.path().is_dir()
+                && (e.path().join("__init__.py").is_file()
+                    || e.path().join("__init__.pyi").is_file())
+        })
+    })
+}
+
 /// pytest runner: owns the pytest invocation, the `-v` output parser, the
 /// oracle file set, and the ADR-002 pyproject normalization.
 pub struct PytestRunner;
@@ -1132,9 +1150,15 @@ impl PytestRunner {
         // value is tree-absolute so frozen commands stay hermetic (the legacy
         // spawn additionally inherited ambient PYTHONPATH; frozen commands do
         // not, which is identical whenever the ambient value is unset).
+        // Setuptools lib-layout packages (`package_dir={'': 'lib'}`, e.g.
+        // lib/yaml/) grade with the tree's lib/ on the path instead, or the
+        // interpreter silently imports an unrelated installed distribution.
         let src = tree.join("src");
         if src.is_dir() {
             env_set.push(("PYTHONPATH".to_string(), src.to_string_lossy().into_owned()));
+        } else if has_lib_package(tree) {
+            let lib = tree.join("lib");
+            env_set.push(("PYTHONPATH".to_string(), lib.to_string_lossy().into_owned()));
         }
         TestCommand {
             program: Self::python_program(),

@@ -199,16 +199,21 @@ fn render_pairs3(
 }
 
 /// Run a pin probe as a `TestCommand` on the host: the interpreter program
-/// comes from the runner, `cwd` resolves the package (`src/` for installed
-/// layouts, else the tree) so no path override literal appears.
+/// comes from the runner, `cwd` resolves the package (`src/` for src
+/// layouts, `lib/` for setuptools lib layouts, else the tree) so no path
+/// override literal appears.
 fn run_probe(
     package: &str,
     orig: &std::path::Path,
     script: &str,
     args: &[String],
 ) -> Result<String, String> {
+    // src-layout probes run under src/; setuptools lib-layout probes
+    // (package_dir={'': 'lib'}) under lib/; flat trees at the root.
     let cwd = if crate::repo::is_src_layout(orig, package) {
         Cwd::Rel("src".to_string())
+    } else if crate::repo::is_lib_layout(orig) {
+        Cwd::Rel("lib".to_string())
     } else {
         Cwd::Tree
     };
