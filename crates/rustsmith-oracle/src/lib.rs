@@ -226,8 +226,10 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 pub fn baseline_of(graded: &GradedResult) -> Baseline {
+    // test_count is every collected test: outcomes plus deselected (which
+    // have no Outcome variant). Suites without deselects are unchanged.
     Baseline {
-        test_count: graded.total(),
+        test_count: graded.total() + graded.deselected.len() as u32,
         skipped: graded.skipped.clone(),
         xfailed: graded.xfailed.clone(),
         deselected: graded.deselected.clone(),
@@ -812,6 +814,16 @@ mod polyglot_regression_tests {
         assert_eq!(body, "one\ntwo");
         rm(&tree);
         rm(&build);
+    }
+
+    #[test]
+    fn baseline_counts_deselected_in_test_count() {
+        let mut graded = graded_fixture(3, 0, "m");
+        assert_eq!(baseline_of(&graded).test_count, 3);
+        graded.deselected = vec!["deselected[0]".into(), "deselected[1]".into()];
+        let base = baseline_of(&graded);
+        assert_eq!(base.test_count, 5);
+        assert_eq!(base.deselected.len(), 2);
     }
 
     #[test]

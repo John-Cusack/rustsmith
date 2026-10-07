@@ -607,17 +607,31 @@ import ast, sys, json
 path = sys.argv[1]
 tree = ast.parse(open(path).read())
 mods = []
-for node in ast.walk(tree):
-    if isinstance(node, ast.Import):
-        for a in node.names:
-            mods.append(a.name.split('.')[0])
-    elif isinstance(node, ast.ImportFrom):
-        if node.module:
-            mods.append(node.module.split('.')[0])
-        for a in node.names:
-            # relative `from .x import y` has module x; bare `from . import x` lists x in names
-            if node.level and node.level > 0 and not node.module:
+def walk(node):
+    # Only imports that execute at module import time are DAG edges.
+    # Function/lambda bodies are deferred (e.g. ranges.to_specifier_set's
+    # local `from .specifiers import` that breaks its import cycle), and
+    # `if TYPE_CHECKING:` blocks are typing-only: neither may order units.
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        if isinstance(child, ast.If):
+            test = child.test
+            if (isinstance(test, ast.Name) and test.id == 'TYPE_CHECKING') or \
+               (isinstance(test, ast.Attribute) and test.attr == 'TYPE_CHECKING'):
+                continue
+        if isinstance(child, ast.Import):
+            for a in child.names:
                 mods.append(a.name.split('.')[0])
+        elif isinstance(child, ast.ImportFrom):
+            if child.module:
+                mods.append(child.module.split('.')[0])
+            for a in child.names:
+                # relative `from .x import y` has module x; bare `from . import x` lists x in names
+                if child.level and child.level > 0 and not child.module:
+                    mods.append(a.name.split('.')[0])
+        walk(child)
+walk(tree)
 print(json.dumps(mods))
 "#;
         let out = std::process::Command::new("python3")
@@ -832,14 +846,28 @@ pub fn probe(repo: &Path) -> Result<ProbeReport, AdapterError> {
             python_claims += 1;
             continue;
         }
+        // Test-local non-Python sources are fixtures (compiled at test time,
+        // e.g. packaging's tests/hello-world.c), not build units: they count
+        // as claimed so the census stays quiet, but register no frontend, so
+        // a fixture alone cannot flip the repo to the CTest spine.
+        let test_local = path.components().any(|c| {
+            matches!(
+                c.as_os_str().to_str(),
+                Some("test") | Some("tests") | Some("bench")
+            )
+        });
         if fortran.claims(&path, None) {
             claimed += 1;
-            fortran_claims += 1;
+            if !test_local {
+                fortran_claims += 1;
+            }
             continue;
         }
         if cxx.claims(&path, None) {
             claimed += 1;
-            cxx_claims += 1;
+            if !test_local {
+                cxx_claims += 1;
+            }
             continue;
         }
         if NON_SOURCE_EXTS.contains(&ext.to_lowercase().as_str()) {
@@ -1545,19 +1573,12 @@ fn summary_counts(text: &str) -> (u32, u32, u32, u32, u32) {
             continue;
         }
         for chunk in t.split(',') {
+            // Each number pairs only with the kind that follows it before any
+            // subsequent number. pytest's collection line ("collected 62910
+            // items / 427 deselected / 62483 selected") must not attach 62483
+            // to "deselected" via a stale kind.
             let mut num: Option<u32> = None;
-            let mut kind: Option<&str> = None;
-            for tok in chunk.split_whitespace() {
-                if let Ok(n) = tok.parse::<u32>() {
-                    num = Some(n);
-                } else {
-                    let k = tok.trim_matches(|c| c == '.' || c == 's');
-                    if ["passed", "failed", "skipped", "xfailed", "deselected", "xpass"].contains(&k) {
-                        kind = Some(k);
-                    }
-                }
-            }
-            if let (Some(n), Some(k)) = (num, kind) {
+            let mut record = |n: u32, k: &str| {
                 match k {
                     "passed" => found.0 = found.0.max(n),
                     "failed" => found.1 = found.1.max(n),
@@ -1565,6 +1586,18 @@ fn summary_counts(text: &str) -> (u32, u32, u32, u32, u32) {
                     "xfailed" | "xpass" => found.3 = found.3.max(n),
                     "deselected" => found.4 = found.4.max(n),
                     _ => {}
+                }
+            };
+            for tok in chunk.split_whitespace() {
+                if let Ok(n) = tok.parse::<u32>() {
+                    num = Some(n);
+                } else {
+                    let k = tok.trim_matches(|c| c == '.' || c == 's');
+                    if ["passed", "failed", "skipped", "xfailed", "deselected", "xpass"].contains(&k) {
+                        if let Some(n) = num.take() {
+                            record(n, k);
+                        }
+                    }
                 }
             }
         }
@@ -2250,6 +2283,36 @@ mod tests {
     }
 
     #[test]
+    fn python_fragment_ignores_deferred_and_type_checking_imports() {
+        // specifiers <-> ranges shape: a function-local import and an
+        // `if TYPE_CHECKING:` import must not become DAG edges.
+        let dir = tempfile::tempdir().unwrap();
+        write_tmp_file(&dir.path().join("pkg/a.py"), "from . import b\n");
+        write_tmp_file(
+            &dir.path().join("pkg/b.py"),
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from . import a\n\ndef f():\n    from . import a\n    return a\n",
+        );
+        let files = vec![dir.path().join("pkg/a.py"), dir.path().join("pkg/b.py")];
+        let compiler_ids = BTreeMap::new();
+        let cx = FragmentCtx {
+            repo: dir.path(),
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
+        let fragment = PythonFrontend.fragment(&cx).unwrap();
+        let mut edge_set: Vec<(String, String)> = fragment
+            .edges
+            .iter()
+            .map(|(f, t)| (f.0.clone(), t.0.clone()))
+            .collect();
+        edge_set.sort();
+        // Only a -> b (top-level); b -> a would close a false cycle.
+        assert!(edge_set.iter().any(|(f, t)| f.ends_with("a.py") && t.ends_with("b.py")));
+        assert!(!edge_set.iter().any(|(f, t)| f.ends_with("b.py") && t.ends_with("a.py")));
+    }
+
+    #[test]
     fn python_fragment_unit_ids_use_canonical_lang_rel_form() {
         let dir = python_only_tree();
         let files = vec![dir.path().join("pkg/a.py"), dir.path().join("pkg/b.py")];
@@ -2315,6 +2378,17 @@ mod tests {
         assert_eq!(diag_a, diag_b);
         let order = dag_a.leaf_first_order().unwrap();
         assert!(dag_a.verify_order(&order));
+    }
+
+    #[test]
+    fn pytest_summary_counts_pairs_number_with_following_kind() {
+        // The collection line must not attach the selected count to
+        // "deselected" via a stale kind.
+        let text = "collecting ... collected 62910 items / 427 deselected / 62483 selected\n\
+                    ==== 62483 passed, 427 deselected in 27.93s ====";
+        assert_eq!(summary_counts(text), (62483, 0, 0, 0, 427));
+        assert_eq!(summary_counts("80 passed, 28 subtests passed in 0.18s"), (80, 0, 0, 0, 0));
+        assert_eq!(summary_counts("1 failed, 79 passed"), (79, 1, 0, 0, 0));
     }
 
     #[test]
@@ -5313,6 +5387,24 @@ mod track_i_tests {
         let report = probe(dir.path()).unwrap();
         assert_eq!(report.frontends, vec!["python"]);
         assert_eq!(report.unclaimed_share, 0.0);
+    }
+
+    #[test]
+    fn probe_ignores_test_local_c_source_for_spine() {
+        // packaging shape: one C fixture under tests/ must not flip the
+        // repo to the CTest spine, and must not read as unclaimed either.
+        let dir = tempfile::tempdir().unwrap();
+        write_file(&dir.path().join("src/pkg/__init__.py"), "");
+        write_file(&dir.path().join("src/pkg/a.py"), "VALUE = 1\n");
+        write_file(&dir.path().join("pyproject.toml"), "[project]\nname = \"a\"\n");
+        write_file(&dir.path().join("tests/hello-world.c"), "int main(void) { return 0; }\n");
+        let report = probe(dir.path()).unwrap();
+        assert_eq!(report.frontends, vec!["python"]);
+        assert!(report.unclaimed.is_empty());
+        assert_eq!(report.unclaimed_share, 0.0);
+        assert!(!report.has_ctest);
+        let (composite, _) = select_composite(dir.path()).unwrap();
+        assert_eq!(composite.runner_id(), "pytest");
     }
     #[test]
     fn select_composite_picks_ctest_spine_for_mixed_tree() {
