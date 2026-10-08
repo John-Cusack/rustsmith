@@ -1,0 +1,53 @@
+# Release configuration for the `markdown-it-py` converted project.
+#
+# This file is the single source of truth for publishing the rustsmith output
+# as a reusable Rust core crate (crates.io) plus a Python package calling that
+# same core (PyPI). `rustsmith release-prep --project mirror/markdown-it-py`
+# reads it; every name/version here MUST match the manifests below or prep
+# fails. Field meanings are documented in `docs/RELEASE.md`.
+
+[release]
+schema = 1
+# Original package identity (matches `template.json` `package` and recon facts).
+project = "markdown-it-py"
+# Rust core crate published to crates.io (`markdown-it-core/Cargo.toml [package] name`).
+rust_crate = "markdown-it-rust-core"
+# Python distribution published to PyPI (`pyproject.toml [project] name`).
+# MUST differ from `project`: the original name stays with upstream.
+pypi_dist = "markdown-it-rust"
+# Python import name. MUST equal the upstream import name: users swap the
+# install with zero import changes (`pip install markdown-it-rust` still
+# does `import markdown_it`).
+python_import = "markdown_it"
+# Release version. MUST equal `[package] version` in `Cargo.toml`,
+# `markdown-it-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
+# Snapshot of upstream 4.2.0 at port time.
+version = "4.2.0"
+# Supported Python versions (workflow matrix) and the matching floor.
+requires_python = ">=3.10"
+python_versions = ["3.10", "3.11", "3.12", "3.13"]
+# GitHub runners the release workflow builds and tests on.
+platforms = ["ubuntu-22.04", "macos-14", "windows-2022"]
+# Publishing repository and workflow identity (trusted publishing, no tokens).
+# The repo below is the publishing home for the converted project: create it,
+# push the prepared tree, then register the trusted publishers.
+github_repo = "John-Cusack/markdown-it-rust"
+release_workflow = ".github/workflows/release.yml"
+pypi_environment = "pypi"
+testpypi_environment = "testpypi"
+
+# License and upstream attribution.
+license_spdx = "MIT"
+upstream = "executablebooks/markdown-it-py"
+upstream_url = "https://github.com/executablebooks/markdown-it-py"
+upstream_license = "MIT"
+upstream_authors = "Chris Sewell and individual contributors"
+
+# Smoke checks run against the installed wheel (Python expressions; each must
+# evaluate truthy). Kept to stdlib-only, deterministic vectors.
+smoke_exprs = [
+  "markdown_it.MarkdownIt().render('# hi') == '<h1>hi</h1>\\n'",
+  "markdown_it.MarkdownIt().render('**a**') == '<p><strong>a</strong></p>\\n'",
+  "markdown_it.MarkdownIt('commonmark').render('[a](/u)') == '<p><a href="/u">a</a></p>\\n'",
+  "markdown_it.MarkdownIt('zero').render('*a*') == '<p>*a*</p>\\n'",
+]

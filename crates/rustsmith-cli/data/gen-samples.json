@@ -73,5 +73,30 @@
       ]
     ],
     "body": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom packaging.specifiers import InvalidSpecifier, SpecifierSet\nfrom packaging.version import InvalidVersion, Version\n\n\ndef _norm(s):\n    try:\n        return str(Version(s))\n    except InvalidVersion:\n        return None\n\n\ndef _ge_contains(a, b):\n    try:\n        return SpecifierSet(\">=\" + a).contains(b)\n    except InvalidSpecifier:\n        return None\n\n\ndef test_generated_pins():\n    assert _norm(\"1.0\") == \"1.0\"\n    assert _norm(\"2.0\") == \"2.0\"\n    assert _ge_contains(\"1.0\", \"2.0\") == True\n    assert _norm(\"abc\") == None\n    assert _norm(\"1.5\") == \"1.5\"\n    assert _ge_contains(\"abc\", \"1.5\") == None\n"
+  },
+  "markdown-it-py": {
+    "pairs": [
+      [
+        "# hi",
+        "a *b*"
+      ],
+      [
+        "",
+        "**x**"
+      ]
+    ],
+    "vals": [
+      [
+        "<h1>hi</h1>\n",
+        "<p>a <em>b</em></p>\n",
+        "<h1>hia <em>b</em></h1>\n"
+      ],
+      [
+        "",
+        "<p><strong>x</strong></p>\n",
+        "<p><strong>x</strong></p>\n"
+      ]
+    ],
+    "body": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom markdown_it import MarkdownIt\n\n\ndef _render(s):\n    return MarkdownIt().render(s)\n\n\ndef test_generated_pins():\n    assert _render(\"# hi\") == \"<h1>hi</h1>\\n\"\n    assert _render(\"a *b*\") == \"<p>a <em>b</em></p>\\n\"\n    assert _render(\"# hi\" + \"a *b*\") == \"<h1>hia <em>b</em></h1>\\n\"\n    assert _render(\"\") == \"\"\n    assert _render(\"**x**\") == \"<p><strong>x</strong></p>\\n\"\n    assert _render(\"\" + \"**x**\") == \"<p><strong>x</strong></p>\\n\"\n"
   }
 }

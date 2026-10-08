@@ -1,0 +1,19 @@
+[package]
+name = "markdown-it-rust"
+version = "4.2.0"
+edition = "2021"
+description = "Pure-Rust markdown-it core with Python bindings (rustsmith Stage-1 mirror of executablebooks/markdown-it-py)"
+license = "MIT"
+repository = "https://github.com/John-Cusack/markdown-it-rust"
+homepage = "https://github.com/executablebooks/markdown-it-py"
+
+[lib]
+name = "_markdown_it"
+crate-type = ["cdylib"]
+
+[dependencies]
+markdown-it-rust-core = { path = "markdown-it-core", version = "4.2.0" }
+pyo3 = { version = "0.23", features = ["macros"] }
+
+[workspace]
+members = ["markdown-it-core"]
