@@ -3296,6 +3296,264 @@
         ]
       },
       "candidate_pool": []
+    },
+    "pyparsing": {
+      "differential": {
+        "script": "import sys\nfrom pyparsing import CharsNotIn, DelimitedList, ParseException, Suppress, White, Word, alphas, nums\n\ndef show(fn):\n    try:\n        return repr(fn())\n    except ParseException as e:\n        return \"PARSE-FAIL:\" + str(e.msg)\n    except Exception as e:  # noqa: BLE001\n        return \"ERROR:\" + type(e).__name__\n\nt1 = bytes.fromhex(sys.argv[1]).decode(\"latin-1\")\nt2 = bytes.fromhex(sys.argv[2]).decode(\"latin-1\")\nt3 = bytes.fromhex(sys.argv[3]).decode(\"latin-1\")\nrec = DelimitedList(CharsNotIn(\";\\n\"), delim=\";\")\nprint(show(lambda: list(rec.parse_string(t1))))\nprint(show(lambda: list((White(\" \") + Word(alphas)).parse_string(t2))))\nprint(show(lambda: list((Word(nums) + CharsNotIn(\";\") + Suppress(\";\") + Word(nums)).parse_string(t3))))\n",
+        "argvs": [
+          [
+            "613b62623b636363",
+            "202020616263",
+            "31326162633b3334"
+          ],
+          [
+            "3b6c656164",
+            "2078616263",
+            "39397a7a3b3131"
+          ],
+          [
+            "6e6f73652d6d6568616e63",
+            "20202020206869",
+            "317c627c333b3434"
+          ]
+        ]
+      },
+      "heldout_descriptors": {
+        "distribution": "semicolon/newline/comma field records (1B..20KB blocks, empty fields, trailing delims), White space/tab/newline runs with min/max/exact bounds, unicode/astral/surrogate text, packrat on/off equivalence, 500-field documents",
+        "adversarial_shapes": [
+          "lone-surrogate text and stop chars (raw code-point matching)",
+          "astral-plane chars split across kernel iterations",
+          "empty input and leading stop char (ParseException sites)",
+          "min/max/exact boundary lengths"
+        ],
+        "coverage_complement": [
+          "Word/Regex/Literal paths (already C-speed, untouched)",
+          "preParse whitespace skipping (stays Python, pinned only)",
+          "packrat and left-recursion dispatch",
+          "example programs (run by the visible oracle)"
+        ],
+        "heldout_sizes": [
+          "41 static tests",
+          "9 generated pins"
+        ],
+        "visible_sizes": [
+          "2029 oracle tests"
+        ],
+        "identity_sensitive_repeats": []
+      },
+      "heldout_suites": [
+        {
+          "name": "test_heldout_scan.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): scan-kernel parity.\n\nPins exact CharsNotIn / White / preParse behavior: token values, end\nlocations, min/max/exact violations, ParseException sites, and unicode\n(including astral and lone-surrogate text, which the Rust core must\nmatch code-point for code-point).\n\"\"\"\nimport pytest\n\nfrom pyparsing import CharsNotIn, ParseException, White, Word, alphas\n\n\ndef parse(expr, text, **kw):\n    return expr.parse_string(text, **kw)\n\n\nclass TestCharsNotIn:\n    def test_basic_run(self):\n        r = parse(CharsNotIn(\";\"), \"abcdef;rest\")\n        assert list(r) == [\"abcdef\"]\n        assert r[0] == \"abcdef\"\n\n    def test_stops_at_first_stop_char(self):\n        r = parse(CharsNotIn(\";\"), \"a;b;c\")\n        assert list(r) == [\"a\"]\n\n    def test_leading_stop_char_fails(self):\n        with pytest.raises(ParseException):\n            parse(CharsNotIn(\";\"), \";abc\")\n\n    def test_empty_input_fails(self):\n        with pytest.raises(ParseException):\n            parse(CharsNotIn(\";\"), \"\")\n\n    def test_no_stop_char_consumes_all(self):\n        r = parse(CharsNotIn(\";\"), \"abcdef\")\n        assert list(r) == [\"abcdef\"]\n\n    def test_single_char_match(self):\n        r = parse(CharsNotIn(\";\"), \"x\")\n        assert list(r) == [\"x\"]\n\n    def test_min_len_violation(self):\n        with pytest.raises(ParseException):\n            parse(CharsNotIn(\";\", min=3), \"ab;\")\n\n    def test_min_len_boundary(self):\n        r = parse(CharsNotIn(\";\", min=2), \"ab;\")\n        assert list(r) == [\"ab\"]\n\n    def test_max_len_truncates(self):\n        r = parse(CharsNotIn(\";\", max=3), \"abcdef;\")\n        assert list(r) == [\"abc\"]\n\n    def test_exact_len(self):\n        r = parse(CharsNotIn(\";\", exact=4), \"abcdef;\")\n        assert list(r) == [\"abcd\"]\n        with pytest.raises(ParseException):\n            parse(CharsNotIn(\";\", exact=4), \"ab;\")\n\n    def test_multi_stop_set(self):\n        r = parse(CharsNotIn(\";,\\n\"), \"ab,cd\")\n        assert list(r) == [\"ab\"]\n\n    def test_unicode_run(self):\n        r = parse(CharsNotIn(\";\"), \"héllo wörld;tail\")\n        assert list(r) == [\"héllo wörld\"]\n\n    def test_unicode_stop_char(self):\n        r = parse(CharsNotIn(\"中\"), \"ab中cd\")\n        assert list(r) == [\"ab\"]\n\n    def test_astral_chars(self):\n        r = parse(CharsNotIn(\";\"), \"a\\U0001f600b;tail\")\n        assert list(r) == [\"a\\U0001f600b\"]\n\n    def test_astral_stop_char(self):\n        with pytest.raises(ParseException):\n            parse(CharsNotIn(\"\\U0001f600\"), \"\\U0001f600abc\")\n\n    def test_lone_surrogate_text(self):\n        # Lone surrogates are valid Python str content; the kernel must\n        # treat them as ordinary code points.\n        r = parse(CharsNotIn(\";\"), \"a\\ud800b;tail\")\n        assert list(r) == [\"a\\ud800b\"]\n\n    def test_lone_surrogate_stop(self):\n        with pytest.raises(ParseException):\n            parse(CharsNotIn(\"\\ud800\"), \"\\ud800abc\")\n\n    def test_end_loc(self):\n        r, start, end = next(CharsNotIn(\";\").scan_string(\"ab;cd;ef\"))\n        assert (list(r), start, end) == ([\"ab\"], 0, 2)\n\n    def test_long_run_value(self):\n        text = \"x\" * 5000 + \";tail\"\n        r = parse(CharsNotIn(\";\"), text)\n        assert r[0] == \"x\" * 5000\n\n\nclass TestWhite:\n    def test_leading_run(self):\n        r = parse(White(\" \") + Word(alphas), \"   abc\")\n        assert list(r) == [\"   \", \"abc\"]\n\n    def test_no_match_fails(self):\n        with pytest.raises(ParseException):\n            parse(White(\" \"), \"abc\")\n\n    def test_min_violation(self):\n        with pytest.raises(ParseException):\n            parse(White(\" \", min=3), \"  abc\")\n\n    def test_max_truncates(self):\n        r = parse(White(\" \", max=2) + Word(alphas), \"    abc\")\n        assert r[0] == \"  \"\n\n    def test_exact(self):\n        r = parse(White(\" \", exact=2), \"  x\")\n        assert list(r) == [\"  \"]\n        with pytest.raises(ParseException):\n            parse(White(\" \", exact=2), \" x\")\n\n    def test_tab_newline_set(self):\n        # No tabs: parse_string expands tabs before kernels run.\n        r = parse(White(\" \\n\"), \" \\nx\")\n        assert list(r) == [\" \\n\"]\n\n\nclass TestPreParse:\n    def test_skips_spaces(self):\n        w = Word(alphas)\n        r = parse(w, \"   abc\")\n        assert list(r) == [\"abc\"]\n\n    def test_no_skip_when_disabled(self):\n        w = Word(alphas)\n        w.skipWhitespace = False\n        with pytest.raises(ParseException):\n            parse(w, \"  abc\")\n\n    def test_custom_whitespace_chars(self):\n        w = Word(alphas)\n        w.set_whitespace_chars(\"._\")\n        r = parse(w, \"..__abc\")\n        assert list(r) == [\"abc\"]\n\n    def test_long_whitespace_run(self):\n        w = Word(alphas)\n        r = parse(w, \" \" * 3000 + \"abc\")\n        assert list(r) == [\"abc\"]\n\n    def test_comment_ignore(self):\n        w = Word(alphas)\n        w.ignore(\"#\" + CharsNotIn(\"\\n\"))\n        r = parse(w, \"# hello\\n  abc\")\n        assert list(r) == [\"abc\"]\n"
+        },
+        {
+          "name": "test_heldout_grammar.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): grammar-level parity over\nthe ported scan kernels.\n\nSmall end-to-end grammars that route through CharsNotIn / White on every\ntoken, with pinned token values. Any kernel divergence changes these.\n\nNote: `parse_string` expands tabs before parsing, so literal tab\ncharacters never reach the kernels through that entry point; tab\ncoverage here uses tab-free inputs (expansion itself is pinned by\n`test_tab_expansion_before_kernels`).\n\"\"\"\nimport pytest\n\nfrom pyparsing import (\n    CharsNotIn,\n    DelimitedList,\n    ParseException,\n    Suppress,\n    White,\n    Word,\n    alphas,\n    nums,\n)\n\n\ndef test_semicolon_records():\n    rec = DelimitedList(CharsNotIn(\";\\n\"), delim=\";\")\n    r = rec.parse_string(\"a;bb;ccc\")\n    assert list(r) == [\"a\", \"bb\", \"ccc\"]\n\n\ndef test_record_with_empty_field_fails():\n    rec = DelimitedList(CharsNotIn(\";\\n\"), delim=\";\")\n    with pytest.raises(ParseException):\n        rec.parse_string(\"a;;c\", parse_all=True)\n\n\ndef test_multiline_fields():\n    line = CharsNotIn(\"\\n\")\n    doc = DelimitedList(line, delim=White(\"\\n\", exact=1))\n    r = doc.parse_string(\"l1\\nl2\\nl3\\n\")\n    assert list(r) == [\"l1\", \"l2\", \"l3\"]\n\n\ndef test_csv_like_row():\n    field = CharsNotIn(\",\")\n    row = DelimitedList(field)\n    assert list(row.parse_string(\"a,bb,ccc\")) == [\"a\", \"bb\", \"ccc\"]\n    assert list(row.parse_string(\"single\")) == [\"single\"]\n\n\ndef test_indented_words_with_white():\n    indent = White(\" \")\n    word = Word(alphas)\n    line = indent + word\n    r = line.parse_string(\"    hello\")\n    assert list(r) == [\"    \", \"hello\"]\n\n\ndef test_mixed_ws_and_text():\n    text = CharsNotIn(\" \")\n    doc = (text + White(\" \"))[...] + text\n    r = doc.parse_string(\"a  b  c\")\n    assert list(r) == [\"a\", \"  \", \"b\", \"  \", \"c\"]\n\n\ndef test_tab_expansion_before_kernels():\n    # Tabs expand (tabsize 8) before any kernel runs: '\\t' at col 1\n    # becomes 7 spaces, matched here as ordinary space runs.\n    text = CharsNotIn(\" \")\n    doc = (text + White(\" \"))[...] + text\n    r = doc.parse_string(\"a\\tb\")\n    assert list(r) == [\"a\", \"       \", \"b\"]\n\n\ndef test_numbers_around_text():\n    expr = Word(nums) + CharsNotIn(\";\") + Suppress(\";\") + Word(nums)\n    r = expr.parse_string(\"12abc;34\")\n    assert list(r) == [\"12\", \"abc\", \"34\"]\n\n\ndef test_comment_lines_skipped():\n    from pyparsing import python_style_comment\n\n    name = Word(alphas)\n    name.ignore(python_style_comment)\n    doc = name[...]\n    r = doc.parse_string(\"a # one\\nb # two\\nc\")\n    assert list(r) == [\"a\", \"b\", \"c\"]\n\n\ndef test_packrat_same_result():\n    from pyparsing import ParserElement\n\n    field = CharsNotIn(\";0123456789\")\n    rec = DelimitedList(field, delim=\";\") + Suppress(\";\") + Word(nums)\n    text = \"a;b;42\"\n    ParserElement.disable_memoization()\n    try:\n        plain = list(rec.parse_string(text))\n    finally:\n        ParserElement.disable_memoization()\n    ParserElement.enable_packrat(force=True)\n    try:\n        packed = list(rec.parse_string(text))\n    finally:\n        ParserElement.disable_memoization()\n    assert plain == packed == [\"a\", \"b\", \"42\"]\n\n\n\ndef test_long_document_throughput_shape():\n    body = (CharsNotIn(\";\") + Suppress(\";\"))[...]\n    text = \"\".join(f\"field{i:04d};\" for i in range(500))\n    r = body.parse_string(text)\n    assert len(r) == 500\n    assert r[0] == \"field0000\"\n    assert r[-1] == \"field0499\"\n"
+        }
+      ],
+      "hotspot_descriptors": [
+        "text-5K:500-semicolon-fields",
+        "idents-18K:3000-words",
+        "ws-4K:indented-word-block",
+        "arith-6K:1500-terms"
+      ],
+      "porting_rules": [
+        {
+          "title": "kernel boundary is remainder loops only",
+          "original": "Original (Python): CharsNotIn/White.parseImpl do a first-char check, then a `while` scan loop, then O(1) length checks and raises",
+          "rust": "Rust: scan_while_in/scan_while_not_in own ONLY the while loop over [start, end); first-char checks, min/max/exact checks, and every raise stay in the Python shim",
+          "example": "Example: CharsNotIn checks `instring[loc] in notchars` in Python, then calls scan_while_not_in(text, loc+1, maxlen, notchars)"
+        },
+        {
+          "title": "indices are code points, never bytes",
+          "original": "Original (Python): loc/end index str code points (O(1) flexible-repr indexing)",
+          "rust": "Rust: read units via PyUnicode_KIND/DATA (1/2/4-byte); unit index == char index in every kind, so loc/end pass through unchanged",
+          "example": "Example: scan_while_in(text, 3, 10, ws) scans units 3..10 whether the string is ASCII or UCS-4"
+        },
+        {
+          "title": "no UTF-8 assumption anywhere",
+          "original": "Original (Python): str holds any code points, including lone surrogates",
+          "rust": "Rust: never converts text to &str/UTF-8 (which would reject surrogates); compares raw unit values as u32",
+          "example": "Example: 'a\\ud800b' scans unit-by-unit; 0xD800 matches a 0xD800 table entry exactly like Python `in`"
+        },
+        {
+          "title": "multi-char charset members never match",
+          "original": "Original (Python): `instring[loc] in charset` compares one 1-char str; a 2-char member can never equal it",
+          "rust": "Rust: charset_table keeps only length-1 str members; longer/empty members are skipped, never raise",
+          "example": "Example: {'ab', ' '} behaves as {' '}; '' in the set matches nothing"
+        },
+        {
+          "title": "charset containers are interchangeable",
+          "original": "Original (Python): whiteChars is set[str], matchWhite is str, both support `in`",
+          "rust": "Rust: iterate any iterable of str (set/frozenset/list/tuple/str) via PyObject_GetIter; non-str items skipped",
+          "example": "Example: White(' ') passes matchWhite str; CharsNotIn passes notCharsSet; both scan identically"
+        },
+        {
+          "title": "maxLen clamping stays in Python",
+          "original": "Original (Python): maxlen = min(start + self.maxLen, len(instring)) with unbounded _MAX_INT default",
+          "rust": "Rust: takes end pre-clamped; additionally clamps start/end into [0, len] defensively (min/callers pass valid bounds)",
+          "example": "Example: White(max=0) means unbounded: shim passes maxloc = start + _MAX_INT clamped by len()"
+        },
+        {
+          "title": "IndexError behavior is byte-identical",
+          "original": "Original (Python): first-char `instring[loc]` raises IndexError past the end (caught by _parseNoCache only when mayIndexError or pre_loc >= len)",
+          "rust": "Rust: never indexed before the Python first-char check runs, so the raise/no-raise pattern is unchanged",
+          "example": "Example: CharsNotIn(';').parse_string('') raises ParseException from the _parseNoCache wrapper, not from the kernel"
+        },
+        {
+          "title": "all raises stay in Python shims",
+          "original": "Original (Python): ParseException(instring, loc, self.errmsg, self) carries message, location, and element",
+          "rust": "Rust: returns an index only; it never constructs exceptions (no PyErr paths in the scan loop)",
+          "example": "Example: min-len violation raises in the shim after the kernel returns, with the original errmsg"
+        },
+        {
+          "title": "preParse stays pure Python",
+          "original": "Original (Python): preParse whitespace loop runs per element parse, usually over 0-2 chars",
+          "rust": "Rust: no kernel (measured: PyO3 call floor ~130ns exceeds the ~50-110ns 0-2-char Python loop; delegation regressed token streams ~8%)",
+          "example": "Example: Word(alphas) streams keep the upstream preParse verbatim; only CharsNotIn/White delegate"
+        },
+        {
+          "title": "Word regex fast path untouched",
+          "original": "Original (Python): Word builds reString from the charsets and uses parseImpl_regex (C-speed re) unless re.compile fails",
+          "rust": "Rust: no regex reimplementation; the char-loop Word.parseImpl fallback stays Python (near-dead path, kept verbatim)",
+          "example": "Example: Word(alphas, alphanums) still binds parseImpl_regex at construction"
+        },
+        {
+          "title": "tab expansion precedes every kernel",
+          "original": "Original (Python): parse_string/scan_string call instring.expandtabs() before any element runs",
+          "rust": "Rust: kernels handle tabs correctly if they arrive, but via parse_string they never do (expansion is upstream of the boundary)",
+          "example": "Example: White('\\t') via parse_string sees spaces; held-out pins use tab-free inputs plus one expansion pin"
+        },
+        {
+          "title": "kernels are pure index functions",
+          "original": "Original (Python): scan loops read instring/charset and advance loc; no element state, no cache, no actions",
+          "rust": "Rust: (text, start, end, charset) -> end index; no memoization interaction, no parse-action calls, packrat-safe",
+          "example": "Example: same grammar parses identically with packrat disabled, packrat, and left-recursion enabled"
+        },
+        {
+          "title": "no Python callbacks from Rust",
+          "original": "Original (Python): loops call no hooks (membership is C-level set/str contains)",
+          "rust": "Rust: the scan loop performs no Python calls except charset iteration up front; str-subclass __getitem__ overrides are not consulted (same as C-level `in`)",
+          "example": "Example: a str subclass instance parses by value, exactly as the upstream loops do"
+        },
+        {
+          "title": "raw reads hold the GIL with live refs",
+          "original": "Original (Python): reference counting keeps buffers alive implicitly",
+          "rust": "Rust: scan over PyUnicode_DATA only while the Bound<PyString> and Bound<PyAny> charset are alive on the stack; GIL held for the whole call",
+          "example": "Example: // SAFETY on unit_at cites the alive Bound refs and held GIL"
+        },
+        {
+          "title": "one unsafe site at the FFI boundary",
+          "original": "Original (Python): no unsafe",
+          "rust": "Rust: exactly one `unsafe` block in the binding (slice construction over PyUnicode_DATA at the FFI boundary, with // SAFETY:); the core crate is unsafe-free (borrows &[u8]) and passes the unsafe_budget gate (1 site, FFI + SAFETY)",
+          "example": "Example: audit_unsafe collects 1 site from src/lib.rs; pyparsing-core/src/lib.rs contributes none"
+        },
+        {
+          "title": "missing extension falls back to Python",
+          "original": "Original (Python): loops work with no compiled code present",
+          "rust": "Rust: shims import pyparsing._pyparsing at module import inside try/except ImportError and keep the upstream loops as fallback",
+          "example": "Example: `try: from pyparsing._pyparsing import scan_while_in as _scan_while_in\\nexcept ImportError: _scan_while_in = None`"
+        },
+        {
+          "title": "extension module identity",
+          "original": "Original (Python): package pyparsing, version 3.3.3, MIT",
+          "rust": "Rust: cdylib named _pyparsing, maturin module-name pyparsing._pyparsing; core crate pyparsing-rust-core has no Python dependency",
+          "example": "Example: Cargo.toml [lib] name = \"_pyparsing\", crate-type = [\"cdylib\"]"
+        },
+        {
+          "title": "shim files stay upstream-verbatim otherwise",
+          "original": "Original (Python): pyparsing 3.3.3 core.py (6972 lines)",
+          "rust": "Rust: the template core.py differs only at the import block plus CharsNotIn.parseImpl and White.parseImpl; `diff` against upstream shows only delegation",
+          "example": "Example: review the fork with `diff -u <sdist>/pyparsing/core.py pyparsing/core.py`"
+        },
+        {
+          "title": "version and metadata follow upstream",
+          "original": "Original (Python): flit dynamic version from source, currently 3.3.3",
+          "rust": "Rust: static version 3.3.3 in Cargo.toml, pyparsing-core/Cargo.toml, and pyproject.toml (release.toml pins the same)",
+          "example": "Example: release.toml version = \"3.3.3\" equals [project] version and both [package] versions"
+        },
+        {
+          "title": "oracle is never weakened",
+          "original": "Original (Python): tests/ suite (2029 passed, 6 skipped with diagrams extra installed)",
+          "rust": "Rust: graded run executes the frozen manifest invocation unmodified; serve extras (railroad) come from system site-packages, never vendored",
+          "example": "Example: oracle 2029/2029 with 6 env-skips identical to the pristine baseline"
+        },
+        {
+          "title": "probes decode latin-1 and never raise",
+          "original": "Original (Python): differential/heldout-gen probes take hex argv (arbitrary bytes)",
+          "rust": "Rust: n/a (host-side scripts); bytes decode via latin-1 (total) and ParseException maps to a failure sentinel, so pins exist for hostile inputs",
+          "example": "Example: empty input and leading-';' inputs pin [[], 0, False]"
+        },
+        {
+          "title": "differential is exact string equality",
+          "original": "Original (Python): probe prints repr() of token lists (ParseException.msg for failures, no locations)",
+          "rust": "Rust: gate compares trimmed stdout pairs with 0.0 tolerance; repr() of str lists is deterministic across identical strings",
+          "example": "Example: ['a', 'bb', 'ccc'] prints identically from both implementations or the gate fails"
+        }
+      ],
+      "workload_contract": {
+        "primary": "wall_time_p50",
+        "secondary": "throughput",
+        "distribution": "semicolon-field document parse via CharsNotIn/Suppress (5KB 500-field, 20KB 2000-field blocks) and identifier-stream parse via Word (3000 idents); share API-shaped (field blocks 70%, ident streams 30%)",
+        "out_of_scope": "inputs >1MB; packrat-cache memory paths; diagram generation (railroad optional dep); benchmark harness file itself",
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+      },
+      "workload_probe": {
+        "script": "import sys;nfields,fsize=[int(x) for x in sys.argv[1].split(':')];from pyparsing import CharsNotIn, Suppress;field='v'.ljust(fsize,'x');text=(field+';')*nfields;g=(CharsNotIn(';')+Suppress(';'))[...];r=g.parse_string(text);print(sum(len(t) for t in r))",
+        "argvs": [
+          "10:8",
+          "500:10",
+          "2000:12"
+        ]
+      },
+      "workloads": {
+        "visible": [
+          {
+            "name": "vis-text-5K",
+            "setup": "from pyparsing import CharsNotIn, Suppress\ntext=''.join(f'field{i:05d};' for i in range(500))\ng=(CharsNotIn(';')+Suppress(';'))[...]\n",
+            "stmt": "g.parse_string(text)",
+            "iters": 20
+          },
+          {
+            "name": "vis-idents-3k",
+            "setup": "from pyparsing import OneOrMore, Word, alphas, alphanums\ntext=' '.join(f'var{i}x' for i in range(3000))\ng=OneOrMore(Word(alphas, alphanums))\n",
+            "stmt": "g.parse_string(text)",
+            "iters": 10
+          }
+        ],
+        "heldout": [
+          {
+            "name": "held-text-20K",
+            "setup": "from pyparsing import CharsNotIn, Suppress\ntext=''.join(f'field{i:05d};' for i in range(2000))\ng=(CharsNotIn(';')+Suppress(';'))[...]\n",
+            "stmt": "g.parse_string(text)",
+            "iters": 5
+          },
+          {
+            "name": "held-idents-6k",
+            "setup": "from pyparsing import OneOrMore, Word, alphas, alphanums\ntext=' '.join(f'var{i}x' for i in range(6000))\ng=OneOrMore(Word(alphas, alphanums))\n",
+            "stmt": "g.parse_string(text)",
+            "iters": 3
+          }
+        ],
+        "tiny": {
+          "name": "tiny",
+          "setup": "from pyparsing import CharsNotIn\ntext='a;'",
+          "stmt": "CharsNotIn(';').parse_string(text)",
+          "iters": 100
+        }
+      },
+      "heldout_gen": {
+        "kind": "bytes_json3",
+        "probe": "import json,sys\nfrom pyparsing import CharsNotIn, ParseException\nout=[]\nfor h in sys.argv[1:]:\n    text=bytes.fromhex(h).decode('latin-1')\n    try:\n        r=CharsNotIn(';').parse_string(text)\n        out.append([[r[0]], len(r[0]), True])\n    except ParseException:\n        out.append([[], 0, False])\nprint(json.dumps(out,allow_nan=False))\n",
+        "header": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom pyparsing import CharsNotIn, ParseException\n\n\ndef _parse(data):\n    try:\n        r = CharsNotIn(\";\").parse_string(bytes(data).decode(\"latin-1\"))\n        return [list(r), len(r[0]), True]\n    except ParseException:\n        return [[], 0, False]\n",
+        "line": "    assert _parse({LIT}) == [{V0}, {V1}, {V2}]\n",
+        "avoid_hex": [
+          "",
+          "3b",
+          "616263"
+        ]
+      },
+      "candidate_pool": []
     }
   }
 }

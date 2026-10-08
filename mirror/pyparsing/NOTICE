@@ -1,0 +1,19 @@
+This is a Stage-1 mirror of pyparsing/pyparsing (MIT).
+
+Upstream: https://github.com/pyparsing/pyparsing
+Original author: Paul McGuire
+Upstream license: MIT (see upstream LICENSE, preserved in this tree).
+
+What changed vs upstream (behavior-identical port):
+- `pyparsing/core.py`: `CharsNotIn.parseImpl` and `White.parseImpl`
+  execute their remainder scan loops in the compiled
+  `pyparsing-rust-core` crate (exposed as `pyparsing._pyparsing`).
+  First-character checks, length checks, and every `ParseException`
+  site stay in Python; the Rust kernels only advance a code-point
+  index over the same membership predicate (verified code-point for
+  code-point, including lone surrogates). Every other module —
+  `ParserElement` dispatch, `preParse`, `Word` (regex fast path),
+  `ParseResults`, helpers, common, testing, unicode, diagram — is the
+  upstream source verbatim.
+- Build backend: flit_core → maturin (PyO3 extension module
+  `pyparsing._pyparsing`).
