@@ -450,6 +450,7 @@ name = "rustsmith-report"
 version = "0.1.0"
 dependencies = [
  "rustsmith-harvest",
+ "rustsmith-profile",
  "rustsmith-store",
  "serde",
  "serde_json",

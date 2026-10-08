@@ -782,10 +782,59 @@
           "original": "Original (Python): BSD-2-Clause + headers",
           "rust": "Rust: headers + NOTICE preserved (provenance)",
           "title": "license preserved"
+        },
+        {
+          "example": "Example: `arg.extract::<&str>()` on a hot path -> `arg.cast::<pyo3::types::PyString>()`",
+          "original": "Original (Python): `extract` on every crossing with the error ignored",
+          "rust": "Rust: `cast` when the error is ignored - avoids the costly `PyDowncastError` -> `PyErr` conversion (PyO3 perf rule 1)",
+          "title": "binding: cast, not extract"
+        },
+        {
+          "example": "Example: `PyString::new(py, \"digest\")` per call -> `intern!(py, \"digest\")`",
+          "original": "Original (Python): fresh `PyString` per call for dict keys and attr names",
+          "rust": "Rust: `pyo3::intern!` for repeated `&str` -> `PyString` (PyO3 perf rule 2)",
+          "title": "binding: intern repeated strings"
+        },
+        {
+          "example": "Example: `Python::attach(|py| get(py))` inside a loop -> hoist `py` out via `bound.py()`",
+          "original": "Original (Python): re-acquiring the interpreter token per helper call",
+          "rust": "Rust: thread `Bound::py()` through helpers - zero-cost token vs re-attach (PyO3 perf rule 3)",
+          "title": "binding: zero-cost Python token"
+        },
+        {
+          "example": "Example: `func.call1(py_tuple)` -> `func.call1((a, b))`",
+          "original": "Original (Python): building `PyTuple` objects for outbound calls",
+          "rust": "Rust: pass Rust tuples as call args - unlocks vectorcall; `PyTuple` objects fall back to `tp_call` (PyO3 perf rule 4)",
+          "title": "binding: tuple args for vectorcall"
+        },
+        {
+          "example": "Example: `py.allow_threads(|| checksum(&buf))` for multi-ms loops",
+          "original": "Original (Python): holding the GIL across multi-ms Rust-only computation",
+          "rust": "Rust: `Python::detach` around Rust-only work (attach/detach under 1ms); still best practice on free-threaded builds (PyO3 perf rule 5)",
+          "title": "binding: detach Rust-only work"
+        },
+        {
+          "example": "Example: record the choice in the run log; default stays pooled unless measured",
+          "original": "Original (Python): default global reference-pool sync on every crossing",
+          "rust": "Rust: decide `pyo3_disable_reference_pool` explicitly - removes sync cost but aborts (or leaks, with `pyo3_leak_on_drop_without_reference_pool`) on drop-without-attach (PyO3 perf rule 6)",
+          "title": "binding: reference-pool decision explicit"
+        },
+        {
+          "example": "Example: `json.loads(s)` then validate(dict) -> `model_validate_json(s)`",
+          "original": "Original (Python): pre-parse in Python, then re-validate in Rust - double work",
+          "rust": "Rust: bytes/str crossing the boundary are consumed in Rust exactly once (pydantic `model_validate_json` lesson)",
+          "title": "binding: parse once in Rust"
+        },
+        {
+          "example": "Example: per-item `default(obj)` callback -> native handling, or batch the callback out of the loop",
+          "original": "Original (Python): `wrap` validators / `default` callbacks invoked per item from Rust",
+          "rust": "Rust: Python callbacks inside Rust loops re-impose GIL + conversion per item - bound mismatch, rejected at proposal review before costing a graded run",
+          "title": "binding: no Python callbacks in hot loops"
         }
       ],
       "workload_contract": {
         "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression",
+        "corpus": "upstream test/bench/benches.py vectors (Register vs TableBasedRegister on string.digits; see distribution); frozen bytes hashed in the manifest benchmark section; repro: recon on the pinned repo",
         "distribution": "checksum bytes via Calculator/Register/TableBasedRegister derived from test/bench/benches.py (Register vs TableBasedRegister on string.digits vectors); sizes: empty, tiny (3B), digits (10B), medium (256B-1KB), large (64KB); values: ASCII digits, sequential, uniform random, all-identical, all-distinct; degenerate: empty/singleton/max included; share: API-shaped (calculator one-shot 70%, register incremental 30%)",
         "out_of_scope": "inputs >1MB; non-bytes inputs (str/int raise TypeError); CLI formatting paths",
         "primary": "wall_time_p50",
@@ -1255,10 +1304,59 @@
           "original": "Original (Python): n/a",
           "rust": "Rust: `cargo +nightly miri test --lib` + `clippy -- -D warnings` clean",
           "title": "miri+clippy"
+        },
+        {
+          "example": "Example: `arg.extract::<&str>()` on a hot path -> `arg.cast::<pyo3::types::PyString>()`",
+          "original": "Original (Python): `extract` on every crossing with the error ignored",
+          "rust": "Rust: `cast` when the error is ignored - avoids the costly `PyDowncastError` -> `PyErr` conversion (PyO3 perf rule 1)",
+          "title": "binding: cast, not extract"
+        },
+        {
+          "example": "Example: `PyString::new(py, \"digest\")` per call -> `intern!(py, \"digest\")`",
+          "original": "Original (Python): fresh `PyString` per call for dict keys and attr names",
+          "rust": "Rust: `pyo3::intern!` for repeated `&str` -> `PyString` (PyO3 perf rule 2)",
+          "title": "binding: intern repeated strings"
+        },
+        {
+          "example": "Example: `Python::attach(|py| get(py))` inside a loop -> hoist `py` out via `bound.py()`",
+          "original": "Original (Python): re-acquiring the interpreter token per helper call",
+          "rust": "Rust: thread `Bound::py()` through helpers - zero-cost token vs re-attach (PyO3 perf rule 3)",
+          "title": "binding: zero-cost Python token"
+        },
+        {
+          "example": "Example: `func.call1(py_tuple)` -> `func.call1((a, b))`",
+          "original": "Original (Python): building `PyTuple` objects for outbound calls",
+          "rust": "Rust: pass Rust tuples as call args - unlocks vectorcall; `PyTuple` objects fall back to `tp_call` (PyO3 perf rule 4)",
+          "title": "binding: tuple args for vectorcall"
+        },
+        {
+          "example": "Example: `py.allow_threads(|| checksum(&buf))` for multi-ms loops",
+          "original": "Original (Python): holding the GIL across multi-ms Rust-only computation",
+          "rust": "Rust: `Python::detach` around Rust-only work (attach/detach under 1ms); still best practice on free-threaded builds (PyO3 perf rule 5)",
+          "title": "binding: detach Rust-only work"
+        },
+        {
+          "example": "Example: record the choice in the run log; default stays pooled unless measured",
+          "original": "Original (Python): default global reference-pool sync on every crossing",
+          "rust": "Rust: decide `pyo3_disable_reference_pool` explicitly - removes sync cost but aborts (or leaks, with `pyo3_leak_on_drop_without_reference_pool`) on drop-without-attach (PyO3 perf rule 6)",
+          "title": "binding: reference-pool decision explicit"
+        },
+        {
+          "example": "Example: `json.loads(s)` then validate(dict) -> `model_validate_json(s)`",
+          "original": "Original (Python): pre-parse in Python, then re-validate in Rust - double work",
+          "rust": "Rust: bytes/str crossing the boundary are consumed in Rust exactly once (pydantic `model_validate_json` lesson)",
+          "title": "binding: parse once in Rust"
+        },
+        {
+          "example": "Example: per-item `default(obj)` callback -> native handling, or batch the callback out of the loop",
+          "original": "Original (Python): `wrap` validators / `default` callbacks invoked per item from Rust",
+          "rust": "Rust: Python callbacks inside Rust loops re-impose GIL + conversion per item - bound mismatch, rejected at proposal review before costing a graded run",
+          "title": "binding: no Python callbacks in hot loops"
         }
       ],
       "workload_contract": {
         "budgets": "RSS ceiling: +5% vs original; contract budgets enforced in Stage 2 no_regression",
+        "corpus": "upstream test vectors + public API shapes via edit + shingle APIs (no bench file; see distribution); frozen bytes hashed in the manifest benchmark section; repro: recon on the pinned repo",
         "distribution": "similarity/distance strings via strsimpy edit + shingle APIs (no bench file; derived from test vectors + public API); distribution: lengths empty, tiny (3ch), short (6-11ch), medium (256ch), large (4Kch); values: ASCII near/far pairs, identical, all-distinct, CJK; degenerate: empty/singleton included; share: API-shaped (edit one-shot 70%, shingle 30%)",
         "out_of_scope": "inputs >1MB chars; None inputs (raise TypeError)",
         "primary": "wall_time_p50",
@@ -1771,6 +1869,54 @@
           "original": "Original: `language` best or ascii->English",
           "rust": "Rust: same fallback chain",
           "example": "Example: ascii gives English"
+        },
+        {
+          "example": "Example: `arg.extract::<&str>()` on a hot path -> `arg.cast::<pyo3::types::PyString>()`",
+          "original": "Original (Python): `extract` on every crossing with the error ignored",
+          "rust": "Rust: `cast` when the error is ignored - avoids the costly `PyDowncastError` -> `PyErr` conversion (PyO3 perf rule 1)",
+          "title": "binding: cast, not extract"
+        },
+        {
+          "example": "Example: `PyString::new(py, \"digest\")` per call -> `intern!(py, \"digest\")`",
+          "original": "Original (Python): fresh `PyString` per call for dict keys and attr names",
+          "rust": "Rust: `pyo3::intern!` for repeated `&str` -> `PyString` (PyO3 perf rule 2)",
+          "title": "binding: intern repeated strings"
+        },
+        {
+          "example": "Example: `Python::attach(|py| get(py))` inside a loop -> hoist `py` out via `bound.py()`",
+          "original": "Original (Python): re-acquiring the interpreter token per helper call",
+          "rust": "Rust: thread `Bound::py()` through helpers - zero-cost token vs re-attach (PyO3 perf rule 3)",
+          "title": "binding: zero-cost Python token"
+        },
+        {
+          "example": "Example: `func.call1(py_tuple)` -> `func.call1((a, b))`",
+          "original": "Original (Python): building `PyTuple` objects for outbound calls",
+          "rust": "Rust: pass Rust tuples as call args - unlocks vectorcall; `PyTuple` objects fall back to `tp_call` (PyO3 perf rule 4)",
+          "title": "binding: tuple args for vectorcall"
+        },
+        {
+          "example": "Example: `py.allow_threads(|| checksum(&buf))` for multi-ms loops",
+          "original": "Original (Python): holding the GIL across multi-ms Rust-only computation",
+          "rust": "Rust: `Python::detach` around Rust-only work (attach/detach under 1ms); still best practice on free-threaded builds (PyO3 perf rule 5)",
+          "title": "binding: detach Rust-only work"
+        },
+        {
+          "example": "Example: record the choice in the run log; default stays pooled unless measured",
+          "original": "Original (Python): default global reference-pool sync on every crossing",
+          "rust": "Rust: decide `pyo3_disable_reference_pool` explicitly - removes sync cost but aborts (or leaks, with `pyo3_leak_on_drop_without_reference_pool`) on drop-without-attach (PyO3 perf rule 6)",
+          "title": "binding: reference-pool decision explicit"
+        },
+        {
+          "example": "Example: `json.loads(s)` then validate(dict) -> `model_validate_json(s)`",
+          "original": "Original (Python): pre-parse in Python, then re-validate in Rust - double work",
+          "rust": "Rust: bytes/str crossing the boundary are consumed in Rust exactly once (pydantic `model_validate_json` lesson)",
+          "title": "binding: parse once in Rust"
+        },
+        {
+          "example": "Example: per-item `default(obj)` callback -> native handling, or batch the callback out of the loop",
+          "original": "Original (Python): `wrap` validators / `default` callbacks invoked per item from Rust",
+          "rust": "Rust: Python callbacks inside Rust loops re-impose GIL + conversion per item - bound mismatch, rejected at proposal review before costing a graded run",
+          "title": "binding: no Python callbacks in hot loops"
         }
       ],
       "workload_contract": {
@@ -1778,7 +1924,8 @@
         "secondary": "throughput",
         "distribution": "from_bytes detection bytes via multi-encoding decode-all + mess/coherence scoring; sizes empty, 232B ascii, 520B utf-8, 272B shift_jis, 336B gb18030, 4KB mixed; values English ASCII, French accents (utf-8 + cp1252), Japanese shift_jis, Chinese gb18030, Korean euc-kr, uniform random, binary range(256); share API-shaped (from_bytes best 80%, mess_ratio 10%, coherence 10%)",
         "out_of_scope": "inputs >1MB; non-bytes inputs (TypeError); from_path file-IO paths; CLI formatting paths",
-        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression",
+        "corpus": "detection samples (232B ascii, 520B utf-8, 272B shift_jis, 336B gb18030, 4KB mixed; see distribution); frozen bytes hashed in the manifest benchmark section; repro: recon on the pinned repo"
       },
       "workload_probe": {
         "script": "import sys; data=bytes.fromhex(sys.argv[1]); from charset_normalizer import from_bytes; b=from_bytes(data).best(); print(b.encoding if b else 'None')",
@@ -2068,6 +2215,54 @@
           "original": "Original: `AFTER_LOCALS(V)` sits above V+local below V.post0; `AFTER_POSTS(V)` above V.postN below next release",
           "rust": "Rust: `above/below_after_locals/posts` mirror the maker predicates, never plain version compare",
           "example": "Example: `2.1 in (2[AFTER_LOCALS], +inf)` is True"
+        },
+        {
+          "example": "Example: `arg.extract::<&str>()` on a hot path -> `arg.cast::<pyo3::types::PyString>()`",
+          "original": "Original (Python): `extract` on every crossing with the error ignored",
+          "rust": "Rust: `cast` when the error is ignored - avoids the costly `PyDowncastError` -> `PyErr` conversion (PyO3 perf rule 1)",
+          "title": "binding: cast, not extract"
+        },
+        {
+          "example": "Example: `PyString::new(py, \"digest\")` per call -> `intern!(py, \"digest\")`",
+          "original": "Original (Python): fresh `PyString` per call for dict keys and attr names",
+          "rust": "Rust: `pyo3::intern!` for repeated `&str` -> `PyString` (PyO3 perf rule 2)",
+          "title": "binding: intern repeated strings"
+        },
+        {
+          "example": "Example: `Python::attach(|py| get(py))` inside a loop -> hoist `py` out via `bound.py()`",
+          "original": "Original (Python): re-acquiring the interpreter token per helper call",
+          "rust": "Rust: thread `Bound::py()` through helpers - zero-cost token vs re-attach (PyO3 perf rule 3)",
+          "title": "binding: zero-cost Python token"
+        },
+        {
+          "example": "Example: `func.call1(py_tuple)` -> `func.call1((a, b))`",
+          "original": "Original (Python): building `PyTuple` objects for outbound calls",
+          "rust": "Rust: pass Rust tuples as call args - unlocks vectorcall; `PyTuple` objects fall back to `tp_call` (PyO3 perf rule 4)",
+          "title": "binding: tuple args for vectorcall"
+        },
+        {
+          "example": "Example: `py.allow_threads(|| checksum(&buf))` for multi-ms loops",
+          "original": "Original (Python): holding the GIL across multi-ms Rust-only computation",
+          "rust": "Rust: `Python::detach` around Rust-only work (attach/detach under 1ms); still best practice on free-threaded builds (PyO3 perf rule 5)",
+          "title": "binding: detach Rust-only work"
+        },
+        {
+          "example": "Example: record the choice in the run log; default stays pooled unless measured",
+          "original": "Original (Python): default global reference-pool sync on every crossing",
+          "rust": "Rust: decide `pyo3_disable_reference_pool` explicitly - removes sync cost but aborts (or leaks, with `pyo3_leak_on_drop_without_reference_pool`) on drop-without-attach (PyO3 perf rule 6)",
+          "title": "binding: reference-pool decision explicit"
+        },
+        {
+          "example": "Example: `json.loads(s)` then validate(dict) -> `model_validate_json(s)`",
+          "original": "Original (Python): pre-parse in Python, then re-validate in Rust - double work",
+          "rust": "Rust: bytes/str crossing the boundary are consumed in Rust exactly once (pydantic `model_validate_json` lesson)",
+          "title": "binding: parse once in Rust"
+        },
+        {
+          "example": "Example: per-item `default(obj)` callback -> native handling, or batch the callback out of the loop",
+          "original": "Original (Python): `wrap` validators / `default` callbacks invoked per item from Rust",
+          "rust": "Rust: Python callbacks inside Rust loops re-impose GIL + conversion per item - bound mismatch, rejected at proposal review before costing a graded run",
+          "title": "binding: no Python callbacks in hot loops"
         }
       ],
       "workload_contract": {
@@ -2075,7 +2270,8 @@
         "secondary": "throughput",
         "distribution": "PEP 440 version parse, specifier contains/filter, marker evaluate, sys_tags enumeration; sizes tiny literals through 4KB requirement files; share API-shaped (parse 40%, contains 30%, evaluate 20%, tags 10%)",
         "out_of_scope": "inputs >1MB; sys_tags platform snapshots; manylinux ELF inspection of huge trees",
-        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression",
+        "corpus": "PEP 440 literals through 4KB requirement files via parse/contains/evaluate/tags APIs (see distribution); frozen bytes hashed in the manifest benchmark section; repro: recon on the pinned repo"
       },
       "workload_probe": {
         "script": "import sys; from packaging.version import Version; vs = sys.argv[1].split(','); print(sum(1 for v in vs if Version(v).is_prerelease))",
@@ -2456,6 +2652,54 @@
           "original": "Original: GIL-bound iteration",
           "rust": "Rust: core loops never call back into Python",
           "example": "Example: _iter allocates only the yielded triples"
+        },
+        {
+          "example": "Example: `arg.extract::<&str>()` on a hot path -> `arg.cast::<pyo3::types::PyString>()`",
+          "original": "Original (Python): `extract` on every crossing with the error ignored",
+          "rust": "Rust: `cast` when the error is ignored - avoids the costly `PyDowncastError` -> `PyErr` conversion (PyO3 perf rule 1)",
+          "title": "binding: cast, not extract"
+        },
+        {
+          "example": "Example: `PyString::new(py, \"digest\")` per call -> `intern!(py, \"digest\")`",
+          "original": "Original (Python): fresh `PyString` per call for dict keys and attr names",
+          "rust": "Rust: `pyo3::intern!` for repeated `&str` -> `PyString` (PyO3 perf rule 2)",
+          "title": "binding: intern repeated strings"
+        },
+        {
+          "example": "Example: `Python::attach(|py| get(py))` inside a loop -> hoist `py` out via `bound.py()`",
+          "original": "Original (Python): re-acquiring the interpreter token per helper call",
+          "rust": "Rust: thread `Bound::py()` through helpers - zero-cost token vs re-attach (PyO3 perf rule 3)",
+          "title": "binding: zero-cost Python token"
+        },
+        {
+          "example": "Example: `func.call1(py_tuple)` -> `func.call1((a, b))`",
+          "original": "Original (Python): building `PyTuple` objects for outbound calls",
+          "rust": "Rust: pass Rust tuples as call args - unlocks vectorcall; `PyTuple` objects fall back to `tp_call` (PyO3 perf rule 4)",
+          "title": "binding: tuple args for vectorcall"
+        },
+        {
+          "example": "Example: `py.allow_threads(|| checksum(&buf))` for multi-ms loops",
+          "original": "Original (Python): holding the GIL across multi-ms Rust-only computation",
+          "rust": "Rust: `Python::detach` around Rust-only work (attach/detach under 1ms); still best practice on free-threaded builds (PyO3 perf rule 5)",
+          "title": "binding: detach Rust-only work"
+        },
+        {
+          "example": "Example: record the choice in the run log; default stays pooled unless measured",
+          "original": "Original (Python): default global reference-pool sync on every crossing",
+          "rust": "Rust: decide `pyo3_disable_reference_pool` explicitly - removes sync cost but aborts (or leaks, with `pyo3_leak_on_drop_without_reference_pool`) on drop-without-attach (PyO3 perf rule 6)",
+          "title": "binding: reference-pool decision explicit"
+        },
+        {
+          "example": "Example: `json.loads(s)` then validate(dict) -> `model_validate_json(s)`",
+          "original": "Original (Python): pre-parse in Python, then re-validate in Rust - double work",
+          "rust": "Rust: bytes/str crossing the boundary are consumed in Rust exactly once (pydantic `model_validate_json` lesson)",
+          "title": "binding: parse once in Rust"
+        },
+        {
+          "example": "Example: per-item `default(obj)` callback -> native handling, or batch the callback out of the loop",
+          "original": "Original (Python): `wrap` validators / `default` callbacks invoked per item from Rust",
+          "rust": "Rust: Python callbacks inside Rust loops re-impose GIL + conversion per item - bound mismatch, rejected at proposal review before costing a graded run",
+          "title": "binding: no Python callbacks in hot loops"
         }
       ],
       "workload_contract": {
@@ -2463,7 +2707,8 @@
         "secondary": "throughput",
         "distribution": "rrule daily expansion (500 occurrences from 2020-01-01) 60%, relativedelta month-shift loop (50 dates) 20%, tz gettz+utcoffset over 12 months 10%, rrule monthly month-end expansion (120) 10%; naive and US/Eastern-aware starts; counts 120..500",
         "out_of_scope": "occurrences >100k; parser/isoparser paths; tzfile bytes >1MB; from_path file-IO paths",
-        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression",
+        "corpus": "rrule daily/monthly expansions + relativedelta loops + tz ranges (counts 120..500; see distribution); frozen bytes hashed in the manifest benchmark section; repro: recon on the pinned repo"
       },
       "workload_probe": {
         "script": "import sys\nfrom datetime import datetime\nfrom dateutil.rrule import rrule, DAILY\nprint(len(list(rrule(DAILY, count=200, dtstart=datetime.strptime(sys.argv[1], \"%Y%m%d\")))))",

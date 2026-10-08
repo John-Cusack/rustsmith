@@ -30,8 +30,38 @@ pub struct ReportSuggestion {
     pub patch_file: Option<String>,
 }
 
-/// The full M6 report model (§15 item list).
+/// Measurement context (F25 Hoefler hardening): every speedup in this report
+/// ships with its spread (noise floor + round CIs), its N (screen samples +
+/// wall reps, from the [`rustsmith_profile`] protocol constants), the grading
+/// host config, and the exact repro commands. `host`/`commands` are `None`/
+/// empty when the pipeline did not record them — the emitters print
+/// "unrecorded" rather than omitting the field, so a bare multiple can never
+/// slip through a missing field again.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MeasurementContext {
+    pub screen_samples: usize,
+    pub wall_reps: usize,
+    pub ci_level: f64,
+    pub host: Option<String>,
+    pub commands: Vec<String>,
+}
+
+impl MeasurementContext {
+    /// Protocol context from the screen constants; host/commands unrecorded
+    /// until the pipeline captures them (F25 leg staged, not dropped).
+    pub fn protocol() -> Self {
+        Self {
+            screen_samples: rustsmith_profile::SCREEN_SAMPLES,
+            wall_reps: rustsmith_profile::WALLCLOCK_REPS,
+            ci_level: rustsmith_profile::WALLCLOCK_CI_LEVEL,
+            host: None,
+            commands: Vec::new(),
+        }
+    }
+}
+
+ /// The full M6 report model (§15 item list).
+ #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Report {
     pub run_id: String,
     pub repo_url: String,
@@ -51,6 +81,7 @@ pub struct Report {
     pub delivered: Option<DeliveredArtifact>,
     pub stop: String,
     pub floor: f64,
+    pub measurement: MeasurementContext,
     pub guidance_version: String,
     pub attribution: String,
     pub license: String,
@@ -61,6 +92,8 @@ pub struct RoundEntry {
     pub round: i64,
     pub merged: usize,
     pub gain: f64,
+    pub low: Option<f64>,
+    pub high: Option<f64>,
     pub stop: String,
 }
 
@@ -142,6 +175,7 @@ pub fn render(
     attribution: &str,
     license: &str,
     delivered: Option<DeliveredArtifact>,
+    measurement: MeasurementContext,
 ) -> Result<Report, ReportError> {
     let run = store
         .get_run(run_id)
@@ -199,6 +233,8 @@ pub fn render(
                 round: r.round,
                 merged: opts.iter().filter(|o| o.round == r.round).count(),
                 gain: round_gain(r, &opts),
+                low: r.gain_low,
+                high: r.gain_high,
                 stop: r.stop_reason.clone(),
             })
             .collect(),
@@ -246,6 +282,7 @@ pub fn render(
         delivered,
         stop: stop.into(),
         floor,
+        measurement,
         guidance_version,
         attribution: attribution.into(),
         license: license.into(),
@@ -279,6 +316,16 @@ fn round_gain(r: &RoundRow, opts: &[OptimizationRow]) -> f64 {
     compound_gains(&opts.iter().filter(|o| o.round <= r.round).cloned().collect::<Vec<_>>())
 }
 
+/// Round-gain CI in one fragment, never bare: recorded bounds print, missing
+/// bounds print as unrecorded (F25 — a multiple without its interval is a
+/// claim, not a measurement).
+fn ci_text(low: Option<f64>, high: Option<f64>) -> String {
+    match (low, high) {
+        (Some(lo), Some(hi)) => format!("CI {}..{}", num(lo), num(hi)),
+        _ => "CI unrecorded".to_string(),
+    }
+}
+
 /// Markdown emitter (fork RUSTSMITH_REPORT.md).
 pub fn emit_md(r: &Report) -> String {
     let mut s = String::new();
@@ -286,7 +333,7 @@ pub fn emit_md(r: &Report) -> String {
         "# RUSTSMITH_REPORT\n\n\
          run: {} | repo: {} | status: {}\n\n\
          - parity: {}\n- divergence: {}\n- unsafe blocks: {}\n\
-         - e2e speedup vs original: {} ({})\n- floor: {}\n- stop: {}\n- guidance: {}\n",
+         - e2e speedup vs original: {} (floor={}; {})\n- stop: {}\n- guidance: {}\n",
         r.run_id,
         r.repo_url,
         r.status,
@@ -294,14 +341,37 @@ pub fn emit_md(r: &Report) -> String {
         r.divergence,
         r.unsafe_list.len(),
         num(r.e2e_speedup_vs_original),
-        r.e2e_basis,
         num(r.floor),
+        r.e2e_basis,
         r.stop,
         r.guidance_version,
     ));
+    // F25: measurement context is mandatory template furniture — spread (noise
+    // floor), N (screen samples + wall reps), host, exact repro commands.
+    // Unrecorded legs print as such; no speedup below ever ships bare.
+    s.push_str(&format!(
+        "\n## Measurement\nscreen: N={} (median) | wall-clock: N={} reps, {:.0}% bootstrap CI | noise floor: {} | host: {} | repro: {}\n",
+        r.measurement.screen_samples,
+        r.measurement.wall_reps,
+        r.measurement.ci_level * 100.0,
+        num(r.floor),
+        r.measurement.host.as_deref().unwrap_or("unrecorded"),
+        if r.measurement.commands.is_empty() {
+            "unrecorded".to_string()
+        } else {
+            r.measurement.commands.join(" ; ")
+        },
+    ));
     s.push_str("\n## Rounds\n");
     for e in &r.rounds {
-        s.push_str(&format!("- round {}: merged={} gain={} stop={}\n", e.round, e.merged, num(e.gain), e.stop));
+        s.push_str(&format!(
+            "- round {}: merged={} gain={} [{}] stop={}\n",
+            e.round,
+            e.merged,
+            num(e.gain),
+            ci_text(e.low, e.high),
+            e.stop
+        ));
     }
     s.push_str("\n## Suggestions\n");
     for g in &r.suggestions {
@@ -364,7 +434,7 @@ pub fn emit_html(r: &Report) -> String {
     s.push_str(&format!(
         "<html><body><h1>rustsmith report</h1><p>run: {} | repo: {} | status: {}</p>\
          <p>parity: {}</p><p>divergence: {}</p><p>unsafe blocks: {}</p>\
-         <p>e2e speedup vs original: {} ({})</p><p>floor: {}</p><p>stop: {}</p><p>guidance: {}</p>",
+         <p>e2e speedup vs original: {} (floor={}; {})</p><p>stop: {}</p><p>guidance: {}</p>",
         r.run_id,
         r.repo_url,
         r.status,
@@ -372,14 +442,34 @@ pub fn emit_html(r: &Report) -> String {
         r.divergence,
         r.unsafe_list.len(),
         num(r.e2e_speedup_vs_original),
-        r.e2e_basis,
         num(r.floor),
+        r.e2e_basis,
         r.stop,
         r.guidance_version,
     ));
+    s.push_str(&format!(
+        "<h2>Measurement</h2><p>screen: N={} (median) | wall-clock: N={} reps, {:.0}% bootstrap CI | noise floor: {} | host: {} | repro: {}</p>",
+        r.measurement.screen_samples,
+        r.measurement.wall_reps,
+        r.measurement.ci_level * 100.0,
+        num(r.floor),
+        r.measurement.host.as_deref().unwrap_or("unrecorded"),
+        if r.measurement.commands.is_empty() {
+            "unrecorded".to_string()
+        } else {
+            r.measurement.commands.join(" ; ")
+        },
+    ));
     s.push_str("<h2>Rounds</h2><ul>");
     for e in &r.rounds {
-        s.push_str(&format!("<li>round {}: merged={} gain={} stop={}</li>", e.round, e.merged, num(e.gain), e.stop));
+        s.push_str(&format!(
+            "<li>round {}: merged={} gain={} [{}] stop={}</li>",
+            e.round,
+            e.merged,
+            num(e.gain),
+            ci_text(e.low, e.high),
+            e.stop
+        ));
     }
     s.push_str("</ul>");
     s.push_str(&gain_chart_svg(&r.rounds));
@@ -457,7 +547,10 @@ mod tests {
         let r = Report {
             run_id: "t".into(), repo_url: "u".into(), status: "done".into(),
             parity: "80/80".into(), divergence: "0.0000".into(), unsafe_list: vec![],
-            rounds: vec![RoundEntry { round: 1, merged: 1, gain: 0.5521, stop: "s".into() }],
+            rounds: vec![RoundEntry {
+                round: 1, merged: 1, gain: 0.5521,
+                low: Some(0.02), high: Some(0.06), stop: "s".into(),
+            }],
             units: vec![DagUnit { unit: "u1".into(), status: "passed".into(), depends_on: vec![] }],
             e2e_speedup_vs_original: 0.5521, e2e_basis: "b".into(), unported_modules: vec![],
             decisions: vec![], tokens: TokenSpend { spent: 0, cache_hit_rate: None },
@@ -469,7 +562,8 @@ mod tests {
                 base_fork_sha: "base123".into(), work_sha: "work456".into(),
                 merged: vec!["slicing-by-8".into()], merged_count: 1, rejected_excluded: 2,
                 files: vec![DeliveredFile { path: "crc-core/src/lib.rs".into(), sha256: "abc123".into() }],
-            }), stop: "s".into(), floor: 0.0042, guidance_version: "g".into(),
+            }), stop: "s".into(), floor: 0.0042, measurement: MeasurementContext::protocol(),
+            guidance_version: "g".into(),
             attribution: "Nicoretti/crc".into(), license: "SPDX-License-Identifier: BSD-2-Clause".into(),
         };
         let (md, js, html) = (emit_md(&r), emit_json(&r), emit_html(&r));
@@ -496,6 +590,37 @@ mod tests {
         assert_eq!(v["delivered"]["merged"], serde_json::json!(["slicing-by-8"]));
         assert_eq!(v["delivered"]["files"][0]["sha256"], serde_json::json!("abc123"));
         assert_eq!(v["delivered"]["rejected_excluded"], serde_json::json!(2));
+    }
+
+    #[test]
+    fn report_never_ships_bare_multiples() {
+        // F25: every gain prints with its interval; the template carries
+        // spread + N + host + commands on every render.
+        let mut r = Report {
+            run_id: "t".into(), repo_url: "u".into(), status: "done".into(),
+            parity: "80/80".into(), divergence: "0.0000".into(), unsafe_list: vec![],
+            rounds: vec![RoundEntry {
+                round: 1, merged: 0, gain: 0.0, low: None, high: None, stop: "s".into(),
+            }],
+            units: vec![], e2e_speedup_vs_original: 0.0, e2e_basis: "b".into(),
+            unported_modules: vec![], decisions: vec![],
+            tokens: TokenSpend { spent: 0, cache_hit_rate: None }, suggestions: vec![],
+            negative_results: vec![], delivered: None, stop: "s".into(), floor: 0.0042,
+            measurement: MeasurementContext::protocol(), guidance_version: "g".into(),
+            attribution: "a".into(), license: "l".into(),
+        };
+        for t in [emit_md(&r), emit_html(&r)] {
+            assert!(t.contains("Measurement"), "measurement section");
+            assert!(t.contains("N=7"), "screen N");
+            assert!(t.contains("N=30"), "wall N");
+            assert!(t.contains("CI unrecorded"), "missing CI disclosed, never bare");
+            assert!(t.contains("unrecorded"), "host/commands legs");
+        }
+        // Recorded CI renders as an interval next to the gain.
+        r.rounds[0].low = Some(0.01);
+        r.rounds[0].high = Some(0.03);
+        let md = emit_md(&r);
+        assert!(md.contains("gain=0.0000 [CI 0.0100..0.0300]"), "gain with interval");
     }
 
     #[test]

@@ -67,6 +67,12 @@ import json, sys
 v = json.load(open(sys.argv[1]))
 for k in ['rust_core_tests','rust_consumer','core_package','wheel_build','sdist_build','sdist_contents','sdist_rebuild']:
     assert v[k]['passed'], (k, v[k])
+# C13: the shipped wheel must be a release build. The exact maturin argv is
+# retained in verification.json so a future switch to `develop` (or a dropped
+# flag) fails here structurally instead of silently benchmarking debug code.
+assert v['release_profile']['passed'] is True, v['release_profile']
+assert v['release_profile']['profile'] == 'release', v['release_profile']
+assert '--release' in v['release_profile']['maturin_argv'], v['release_profile']
 assert all(r['passed'] for r in v['python_install_smoke']), v['python_install_smoke']
 assert v['passed'] is True
 print('verification OK')

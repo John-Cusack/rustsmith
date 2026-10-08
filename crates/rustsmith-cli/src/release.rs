@@ -359,23 +359,28 @@ pub fn cmd_release_prep(args: &[String]) -> Result<(), String> {
     if !r.ok {
         return Err(format!("cargo package (core) failed:\n{}", tail(&r.log, 20)));
     }
-    // 3. Python wheel + sdist from the staged source.
+    // 3. Python wheel + sdist from the staged source. The wheel MUST be a
+    // release build (C13 foot-gun: a develop build benchmarked or shipped as
+    // "the Rust port" silently measures unoptimized code). The exact argv is
+    // retained in verification.json so acceptance can assert `--release`
+    // structurally instead of trusting this comment.
     let stage_s = stage.display().to_string();
     let dist_s = dist.display().to_string();
-    let r = run_cmd(
-        &stage,
-        "maturin",
-        &[
-            "build".into(),
-            "--release".into(),
-            "--manifest-path".into(),
-            format!("{stage_s}/Cargo.toml"),
-            "--out".into(),
-            dist_s.clone(),
-        ],
-        &[],
-    );
+    let wheel_argv = vec![
+        "build".to_string(),
+        "--release".to_string(),
+        "--manifest-path".to_string(),
+        format!("{stage_s}/Cargo.toml"),
+        "--out".to_string(),
+        dist_s.clone(),
+    ];
+    let r = run_cmd(&stage, "maturin", &wheel_argv, &[]);
     verify["wheel_build"] = serde_json::json!({"passed": r.ok, "tail": tail(&r.log, 6)});
+    verify["release_profile"] = serde_json::json!({
+        "passed": wheel_argv.contains(&"--release".to_string()),
+        "profile": "release",
+        "maturin_argv": wheel_argv,
+    });
     if !r.ok {
         return Err(format!("maturin build failed:\n{}", tail(&r.log, 25)));
     }

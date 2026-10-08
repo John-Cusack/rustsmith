@@ -135,7 +135,11 @@ fn render_bytes3(header: &str, line: &str, datas_hex: &[String], vals: &[[u64; 3
 }
 
 /// JSON value as a Python literal (`None`/`True`/`False`, never `null`).
-/// JSON string quoting is valid Python; numbers transfer verbatim.
+/// JSON string quoting is valid Python; numbers transfer verbatim — which
+/// requires exactly-rounded float parsing (workspace `float_roundtrip`):
+/// the default parser drifted a probed pin by 1 ulp
+/// (0.9538461538461539 -> 0.953846153846154), failing the pristine original
+/// against its own pin — and any mirror with it.
 /// Containers recurse so nested `null`/`true`/`false` convert too (a
 /// generated pin whose values are lists, e.g. querystring field tables,
 /// otherwise renders a `NameError`-raising `null`).
@@ -429,5 +433,26 @@ mod tests {
             json_to_py(&serde_json::json!({"k": [null, false]})),
             "{\"k\": [None, False]}"
         );
+    }
+
+    #[test]
+    fn json_to_py_preserves_probed_float_pins() {
+        // A held-out pin must survive probe-stdout -> JSON -> Python source
+        // bit-identically: the original is graded against the same pin, and
+        // 1 ulp of rendering drift fails the mirror it should pass.
+        let v: serde_json::Value = serde_json::from_str("0.9538461538461539").unwrap();
+        assert_eq!(json_to_py(&v), "0.9538461538461539");
+    }
+
+    #[test]
+    fn float_parse_is_exactly_rounded() {
+        let std_parsed: f64 = "0.9538461538461539".parse().unwrap();
+        let serde_parsed: f64 =
+            serde_json::from_str::<serde_json::Value>("0.9538461538461539")
+                .unwrap()
+                .as_f64()
+                .unwrap();
+        assert_eq!(std_parsed.to_bits(), 0x3FEE_85E8_5E85_E85F, "std parse");
+        assert_eq!(serde_parsed.to_bits(), 0x3FEE_85E8_5E85_E85F, "serde parse");
     }
 }

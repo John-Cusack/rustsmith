@@ -448,17 +448,61 @@ pub fn benchmark_restated(
         return verdict(false, json!({"reason": "below_floor", "det_gain": det_gain, "floor": floor}));
     }
     if let Some((lo, hi)) = round_ci {
+        // Explicit noise threshold (A1, criterion semantics): the wall-clock
+        // interval must clear the threshold band, not merely exclude zero.
+        // A CI sitting inside ±threshold is noise, not a confirmed gain.
         if lo > 0.0 || hi < 0.0 {
-            // CI excludes zero; check sign agreement with deterministic.
-            let wall_sign = if lo > 0.0 { 1.0 } else { -1.0 };
-            if wall_sign * det_sign < 0.0 {
-                return verdict(false, json!({"reason": "instrument_disagreement"}));
+            if lo > SCREEN_NOISE_THRESHOLD || hi < -SCREEN_NOISE_THRESHOLD {
+                // CI excludes zero; check sign agreement with deterministic.
+                let wall_sign = if lo > SCREEN_NOISE_THRESHOLD { 1.0 } else { -1.0 };
+                if wall_sign * det_sign < 0.0 {
+                    return verdict(false, json!({"reason": "instrument_disagreement"}));
+                }
+                return verdict(true, json!({"ci_low": lo, "ci_high": hi}));
             }
-            return verdict(true, json!({"ci_low": lo, "ci_high": hi}));
+            return verdict(false, json!({"reason": "ci_inside_noise_threshold", "ci_low": lo, "ci_high": hi}));
         }
         return verdict(false, json!({"reason": "ci_includes_zero", "ci_low": lo, "ci_high": hi}));
     }
     verdict(true, json!({"det_gain": det_gain}))
+}
+
+/// Explicit screen-vs-confirm noise threshold (A1, criterion semantics:
+/// changes inside the band are ignored as noise). Distinct from the measured
+/// floor: the floor is what this host produced today, the threshold is what
+/// counts as a claim.
+pub const SCREEN_NOISE_THRESHOLD: f64 = 0.01;
+
+/// Pass iff `gain` clears BOTH the measured floor and the noise threshold.
+pub fn above_noise(gain: f64, floor: f64, threshold: f64) -> bool {
+    gain > floor.max(threshold)
+}
+
+/// Modified-Tukey outlier flag (A1, criterion semantics: report, never drop).
+/// Returns the indices of samples outside the severe fences
+/// Q1 − 3×IQR / Q3 + 3×IQR (linear-interpolated quartiles). Fewer than 4
+/// samples cannot be classified: returns empty, never guesses.
+pub fn tukey_outliers(samples: &[f64]) -> Vec<usize> {
+    if samples.len() < 4 {
+        return Vec::new();
+    }
+    let mut sorted: Vec<f64> = samples.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = sorted.len() as f64;
+    let pct = |p: f64| {
+        let pos = p * (n - 1.0);
+        let lo = pos.floor() as usize;
+        let hi = pos.ceil() as usize;
+        sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo as f64)
+    };
+    let (q1, q3) = (pct(0.25), pct(0.75));
+    let (lo_fence, hi_fence) = (q1 - 3.0 * (q3 - q1), q3 + 3.0 * (q3 - q1));
+    samples
+        .iter()
+        .enumerate()
+        .filter(|(_, &x)| x < lo_fence || x > hi_fence)
+        .map(|(i, _)| i)
+        .collect()
 }
 
 #[derive(Debug, Clone, Default)]
@@ -845,4 +889,36 @@ mod tests {
         assert!(!provenance(true, false, "Nicoretti").passed);
         assert!(!provenance(true, true, "").passed);
     }
+
+    #[test]
+    fn tukey_flags_only_severe_outliers() {
+        // Tight cluster plus one cold-cache sample 10x out.
+        let xs = vec![1.0, 1.1, 0.9, 1.05, 0.95, 1.02, 10.0];
+        assert_eq!(tukey_outliers(&xs), vec![6]);
+        // Clean run: nothing flagged, never dropped by construction.
+        let clean = vec![1.0, 1.1, 0.9, 1.05, 0.95, 1.02, 0.98];
+        assert!(tukey_outliers(&clean).is_empty());
+        // Identical samples (IQR=0): no false positives.
+        assert!(tukey_outliers(&[2.0; 7]).is_empty());
+        // Too few to classify: empty, never guesses.
+        assert!(tukey_outliers(&[1.0, 2.0, 100.0]).is_empty());
+    }
+
+    #[test]
+    fn noise_threshold_needs_floor_and_band() {
+        assert!(above_noise(0.05, 0.01, SCREEN_NOISE_THRESHOLD));
+        assert!(!above_noise(0.005, 0.001, SCREEN_NOISE_THRESHOLD)); // clears floor, inside band
+        assert!(!above_noise(0.05, 0.10, SCREEN_NOISE_THRESHOLD)); // clears band, below floor
+    }
+
+    #[test]
+    fn confirm_ci_must_clear_threshold_band() {
+        // Excludes zero but sits inside ±1%: noise, not confirmation.
+        let v = benchmark_restated(0.05, 0.01, Some((0.002, 0.008)), 1.0);
+        assert!(!v.passed);
+        assert_eq!(v.detail["reason"], "ci_inside_noise_threshold");
+        // Clears the band with sign agreement: confirms.
+        assert!(benchmark_restated(0.05, 0.01, Some((0.02, 0.06)), 1.0).passed);
+    }
 }
+

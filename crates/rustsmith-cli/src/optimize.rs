@@ -1452,10 +1452,26 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     let (e_set, e_rm) = py_env(&venv_py, true, &staged);
     let floor = profile::measure_noise_floor(&venv_py, &wl.visible[0], &e_set, &e_rm)
         .map_err(|e| e.to_string())?;
-    let base_stats =
-        profile::deterministic_measure(&venv_py, &wl.visible[0], &e_set, &e_rm).map_err(|e| e.to_string())?;
-    let base_ci =
-        profile::wallclock_confirm(&venv_py, &wl.visible[0], &e_set, &e_rm, 30).map_err(|e| e.to_string())?;
+    // Baseline screen keeps its raw samples: Tukey-flag outliers for the
+    // event log (A1: report, never drop — the median stands regardless).
+    let base_samples =
+        profile::deterministic_samples(&venv_py, &wl.visible[0], &e_set, &e_rm)
+            .map_err(|e| e.to_string())?;
+    let base_stats = profile::summarize(&base_samples);
+    let base_outliers = gates::tukey_outliers(
+        &base_samples.iter().map(|s| s.cpu_per_op).collect::<Vec<_>>(),
+    );
+    if !base_outliers.is_empty() {
+        ev("screen_outliers", serde_json::json!({"stage": "baseline", "idx": base_outliers}));
+    }
+    let base_ci = profile::wallclock_confirm(
+        &venv_py,
+        &wl.visible[0],
+        &e_set,
+        &e_rm,
+        profile::WALLCLOCK_REPS,
+    )
+    .map_err(|e| e.to_string())?;
     // Round 0 (serialized representation pass).
     let r0 = round0_report(&a.work);
     let mut failed_keys: Vec<(String, u8, String, String)> = vec![];
@@ -1722,8 +1738,10 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
             git(&a.work, &["commit", "-qm", &format!("audit reversions r{round}")])?;
         }
         build_release(&a.work, &venv).map_err(|e| format!("merged build: {e}"))?;
-        let confirm =
-            profile::wallclock_confirm(&venv_py, &wl.visible[0], &e_set, &e_rm, 30).map_err(|e| e.to_string())?;
+        let confirm = profile::wallclock_confirm(
+            &venv_py, &wl.visible[0], &e_set, &e_rm, profile::WALLCLOCK_REPS,
+        )
+        .map_err(|e| e.to_string())?;
         // Round gain vs Stage-2 baseline with a non-overlap CI proxy for
         // "excludes zero" (conservative: non-overlap implies the difference
         // interval excludes zero; overlap stops the loop honestly).

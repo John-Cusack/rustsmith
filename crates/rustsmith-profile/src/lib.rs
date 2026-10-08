@@ -25,6 +25,10 @@ pub struct WorkloadContract {
     pub input_distribution: String,
     pub out_of_scope: String,
     pub budgets: String,
+    /// Real-corpus requirement (F28): the real-world source document/input
+    /// each workload derives from, versioned in the repo. Empty degrades to
+    /// an "unrecorded" section — the field is never omitted.
+    pub corpus: String,
 }
 
 impl WorkloadContract {
@@ -34,12 +38,14 @@ impl WorkloadContract {
              ## Objective metric\n- primary: `{}`\n- secondary: `{}`\n\n\
              ## Input distribution\n{}\n\n\
              ## Out-of-scope inputs\n{}\n\n\
-             ## Resource budgets\n{}\n",
+             ## Resource budgets\n{}\n\n\
+             ## Corpus / repro\n{}\n",
             self.primary_metric,
             self.secondary_metric.as_deref().unwrap_or("none"),
             self.input_distribution,
             self.out_of_scope,
-            self.budgets
+            self.budgets,
+            if self.corpus.is_empty() { "unrecorded".into() } else { self.corpus.clone() },
         )
     }
 }
@@ -198,19 +204,50 @@ fn median(mut xs: Vec<f64>) -> f64 {
     xs[xs.len() / 2]
 }
 
-/// Deterministic screen: median of 7 samples (per-op process CPU).
+/// Screen protocol constants (A1/F25): the deterministic screen takes
+/// `SCREEN_SAMPLES` process-CPU samples and reports the median; wall-clock
+/// confirmation takes `WALLCLOCK_REPS` samples with a `WALLCLOCK_CI_LEVEL`
+/// bootstrap CI (indices 25/974 of 1000 resamples encode 95%). The report
+/// template cites these so no figure ships without its N.
+pub const SCREEN_SAMPLES: usize = 7;
+pub const WALLCLOCK_REPS: usize = 30;
+pub const WALLCLOCK_CI_LEVEL: f64 = 0.95;
+
+/// Deterministic screen: median of `SCREEN_SAMPLES` samples (per-op process CPU).
 pub fn deterministic_measure(
     python: &std::path::Path,
     workload: &Workload,
     env_set: &[(String, String)],
     env_remove: &[&str],
 ) -> Result<CpuStats, ProfileError> {
+    Ok(summarize(&deterministic_samples(
+        python, workload, env_set, env_remove,
+    )?))
+}
+
+/// Raw screen samples (one [`CpuStats`] per repetition). Exposed so callers
+/// can flag outliers (report, never drop) before summarizing.
+pub fn deterministic_samples(
+    python: &std::path::Path,
+    workload: &Workload,
+    env_set: &[(String, String)],
+    env_remove: &[&str],
+) -> Result<Vec<CpuStats>, ProfileError> {
+    let mut out = Vec::with_capacity(SCREEN_SAMPLES);
+    for _ in 0..SCREEN_SAMPLES {
+        out.push(measure_once(python, workload, env_set, env_remove)?);
+    }
+    Ok(out)
+}
+
+/// Summarize screen samples exactly as [`deterministic_measure`] always has:
+/// median CPU, median wall, max RSS, median alloc (None when unmeasured).
+pub fn summarize(samples: &[CpuStats]) -> CpuStats {
     let mut cpu = Vec::new();
     let mut wall = Vec::new();
     let mut rss = 0u64;
     let mut alloc = Vec::new();
-    for _ in 0..7 {
-        let s = measure_once(python, workload, env_set, env_remove)?;
+    for s in samples {
         cpu.push(s.cpu_per_op);
         wall.push(s.wall_per_op);
         rss = rss.max(s.rss_kb);
@@ -218,12 +255,12 @@ pub fn deterministic_measure(
             alloc.push(a as f64);
         }
     }
-    Ok(CpuStats {
+    CpuStats {
         cpu_per_op: median(cpu),
         wall_per_op: median(wall),
         rss_kb: rss,
         alloc_peak: if alloc.is_empty() { None } else { Some(median(alloc) as u64) },
-    })
+    }
 }
 
 /// Noise floor: self-vs-self spread (max-min)/median over two back-to-back
@@ -352,13 +389,30 @@ pub fn classify_bounds(hotspot: &str, small: &CpuStats, large: &CpuStats, size_r
     }
 }
 
-/// Caller-side check (§5.3): call count vs necessary lower bound.
-pub fn caller_side_check(calls_measured: u64, calls_necessary: u64) -> Option<String> {
+/// FFI per-call budget (C12): a bare extension call costs tens of ns plus
+/// argument/return conversion. Per-call Rust work below this budget is
+/// boundary-dominated — batch, hoist the loop, or don't port the unit.
+pub const FFI_PER_CALL_BUDGET_SECS: f64 = 1e-6;
+
+/// Caller-side check (§5.3): call count vs necessary lower bound, plus the
+/// FFI per-call time budget. Returns a work_volume note when the count ratio
+/// hits 10× OR per-call work is under budget; None otherwise.
+pub fn caller_side_check(
+    calls_measured: u64,
+    calls_necessary: u64,
+    per_call_secs: f64,
+) -> Option<String> {
     if calls_necessary > 0 && calls_measured / calls_necessary >= 10 {
-        Some(format!("work_volume: {calls_measured} calls vs {calls_necessary} necessary"))
-    } else {
-        None
+        return Some(format!(
+            "work_volume: {calls_measured} calls vs {calls_necessary} necessary"
+        ));
     }
+    if (0.0..FFI_PER_CALL_BUDGET_SECS).contains(&per_call_secs) {
+        return Some(format!(
+            "work_volume: per-call {per_call_secs:.3e}s under FFI budget {FFI_PER_CALL_BUDGET_SECS:.0e}s — batch/hoist/don't-port"
+        ));
+    }
+    None
 }
 
 /// Plausible-speedup caps (§6): 5 measured, 4 empirical (conservative).
@@ -419,4 +473,46 @@ pub fn select_candidates(
     });
     candidates.truncate(max_n);
     candidates
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn caller_side_check_fires_on_count_ratio() {
+        let hit = caller_side_check(100, 10, 1.0).expect("10x ratio must fire");
+        assert!(hit.contains("work_volume"), "{hit}");
+        assert!(caller_side_check(50, 10, 1.0).is_none());
+        assert!(caller_side_check(100, 0, 1.0).is_none());
+    }
+
+    #[test]
+    fn caller_side_check_fires_under_ffi_budget() {
+        // Sub-microsecond per-call work is boundary-dominated even at 1:1.
+        let hit = caller_side_check(10, 10, 0.2e-6).expect("budget must fire");
+        assert!(hit.contains("FFI budget"), "{hit}");
+        assert!(caller_side_check(10, 10, 50e-6).is_none());
+        // Unknown timing (NaN/negative) never fires the budget leg.
+        assert!(caller_side_check(10, 10, f64::NAN).is_none());
+    }
+
+    #[test]
+    fn corpus_section_always_renders() {
+        let c = WorkloadContract {
+            primary_metric: "wall_time_p50".into(),
+            secondary_metric: None,
+            input_distribution: "d".into(),
+            out_of_scope: "o".into(),
+            budgets: "b".into(),
+            corpus: "upstream vectors; frozen in manifest".into(),
+        };
+        let md = c.to_markdown();
+        assert!(md.contains("## Corpus / repro"), "{md}");
+        assert!(md.contains("upstream vectors"), "{md}");
+        // Empty corpus degrades to an explicit marker, never a missing section.
+        let md = WorkloadContract { corpus: "".into(), ..c }.to_markdown();
+        assert!(md.contains("## Corpus / repro"), "{md}");
+        assert!(md.contains("unrecorded"), "{md}");
+    }
 }

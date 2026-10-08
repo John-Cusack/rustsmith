@@ -9,6 +9,11 @@ echo "== M5: work=$WORK"
 
 echo "-- unit tests (gates, profile math, store schema)"
 cargo test -q -p rustsmith-gates -p rustsmith-store -p rustsmith-profile || (echo "FAIL: unit tests"; exit 1)
+# A3: libtest #[bench] (nightly-only, no statistics) is never a graded
+# measurement. Structural: the harness tree must not contain it at all.
+if grep -rn '#\[bench\]' "$ROOT/crates/" 2>/dev/null | grep -q .; then
+  echo "FAIL: #[bench] in graded harness tree"; grep -rn '#\[bench\]' "$ROOT/crates/"; exit 1
+fi
 
 echo "-- fixtures + recon (WORKLOAD.md, benchmark freeze, held-out)"
 git clone --quiet https://github.com/Nicoretti/crc "$WORK/orig"
