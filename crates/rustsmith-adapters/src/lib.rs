@@ -3550,8 +3550,7 @@ impl CtestRunner {
         let mut launcher: Option<Launcher> = None;
         for line in ctest_n_output.lines() {
             let t = line.trim();
-            if let Some(idx) = t.find("Test #") {
-                if let Some((_, right)) = t[idx..].split_once(':') {
+            if let Some(right) = ctest_test_rhs(t) {
                     if let Some(name) = current.take() {
                         out.push((name, launcher.take()));
                     }
@@ -3563,7 +3562,6 @@ impl CtestRunner {
                         .to_string();
                     current = if name.is_empty() { None } else { Some(name) };
                     continue;
-                }
             }
             if let Some(rest) = t.strip_prefix("Test command:") {
                 launcher = parse_test_command(rest);
@@ -3765,6 +3763,19 @@ fn cmake_cache_features(build_dir: &Path) -> Vec<String> {
     out
 }
 
+/// Right-hand side of a ctest `Test #<n>:` line, tolerating ctest's column
+/// alignment (`Test    #1:` vs `Test #1002:` shift with the progress/number
+/// width on large suites). Returns `None` for non-test lines: `Test command:`
+/// and `Test project`/`Test time` summaries never match (no `#` after the
+/// padding), and the first `Test` on the line wins, as before.
+fn ctest_test_rhs(t: &str) -> Option<&str> {
+    let idx = t.find("Test")?;
+    let rest = t[idx + 4..].trim_start();
+    let rest = rest.strip_prefix('#')?;
+    let (_, right) = rest.split_once(':')?;
+    Some(right)
+}
+
 /// Grade one ctest output text into `outcomes`: per-test `Test #N:` verdict
 /// lines (the LAST verb on the line wins, so names containing verb words are
 /// safe), then the `The following tests FAILED:` section, which wins ties.
@@ -3794,8 +3805,7 @@ fn ctest_grade_text(text: &str, outcomes: &mut BTreeMap<String, Outcome>) {
             }
             continue;
         }
-        let Some(idx) = t.find("Test #") else { continue };
-        let Some((_, right)) = t[idx..].split_once(':') else { continue };
+        let Some(right) = ctest_test_rhs(t) else { continue };
         let right = right.trim();
         let name = right.split_whitespace().next().unwrap_or("").trim_matches('.');
         if name.is_empty() {
@@ -4468,6 +4478,83 @@ impl CmakeBridge {
             ))
         }
     }
+    /// Built objects for unit source `rel`: the root-layout suffix match
+    /// plus the `DependInfo.cmake` fallback for subdir targets. Pure
+    /// path resolution (no gate logic): every returned path is an existing
+    /// `.o` file, deduplicated by the caller.
+    fn find_unit_objects(build_dir: &Path, tree: &Path, rel: &str) -> Vec<String> {
+        let mut objects: Vec<String> = Vec::new();
+        let cmake_files = build_dir.join("CMakeFiles");
+        if cmake_files.is_dir() {
+            let want = format!(".dir/{rel}.o");
+            for entry in walkdir::WalkDir::new(&cmake_files).into_iter().filter_map(Result::ok) {
+                let p = entry.path();
+                if p.is_file()
+                    && p.to_string_lossy().replace('\\', "/").ends_with(want.as_str())
+                {
+                    objects.push(p.to_string_lossy().into_owned());
+                }
+            }
+            // Subdir targets (bare filenames in their CMakeLists) emit
+            // `<target>.dir/<base>.o` under `<subdir>/CMakeFiles`, outside
+            // the root `CMakeFiles` tree the suffix scans above. Their
+            // `DependInfo.cmake` pairs each absolute source with its
+            // build-relative object: accept the pair only for this unit's
+            // exact source path, so same-named copies in other directories
+            // never resolve.
+            if objects.is_empty() {
+                let want_src = tree.join(rel).to_string_lossy().replace('\\', "/");
+                for entry in walkdir::WalkDir::new(build_dir)
+                    .into_iter()
+                    .filter_map(Result::ok)
+                {
+                    let p = entry.path();
+                    if !p.is_file() || p.file_name().and_then(|n| n.to_str()) != Some("DependInfo.cmake") {
+                        continue;
+                    }
+                    let Ok(text) = std::fs::read_to_string(p) else { continue };
+                    for obj_rel in Self::depinfo_objects_for(&text, &want_src) {
+                        let obj = build_dir.join(&obj_rel);
+                        if obj.is_file() {
+                            objects.push(obj.to_string_lossy().into_owned());
+                        }
+                    }
+                }
+            }
+        }
+        objects
+    }
+
+    /// Build-relative `.o` paths from one `DependInfo.cmake` text whose
+    /// source entry equals `want_src` (absolute, `/`-separated). Reads the
+    /// generated `set(CMAKE_DEPENDS_DEPENDENCY_FILES ...)` entry lines
+    /// (`"source" "object" "language" "depfile"`, one quadruple per line);
+    /// anything else in the file is ignored, so a reordered CMake still
+    /// yields nothing rather than a wrong object.
+    fn depinfo_objects_for(text: &str, want_src: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut in_section = false;
+        for line in text.lines() {
+            if !in_section {
+                if line.contains("CMAKE_DEPENDS_DEPENDENCY_FILES") {
+                    in_section = true;
+                }
+                continue;
+            }
+            if line.trim_start().starts_with(')') {
+                break;
+            }
+            // Quoted spans: odd indices after splitting on `"`.
+            let spans: Vec<&str> = line.split('"').skip(1).step_by(2).collect();
+            if spans.len() == 4
+                && spans[0].replace('\\', "/") == want_src
+                && spans[1].ends_with(".o")
+            {
+                out.push(spans[1].to_string());
+            }
+        }
+        out
+    }
 }
 
 impl BuildBridge for CmakeBridge {
@@ -4550,21 +4637,14 @@ impl BuildBridge for CmakeBridge {
         }
         // Built-object discovery: every `<target>.dir/<rel>.o` under the
         // build dir (a source shared by several targets ports in all of
-        // them). Zero matches means the target never built: halt, never an
-        // empty splice.
-        let mut objects: Vec<String> = Vec::new();
-        let cmake_files = cx.build_dir.join("CMakeFiles");
-        if cmake_files.is_dir() {
-            let want = format!(".dir/{rel}.o");
-            for entry in walkdir::WalkDir::new(&cmake_files).into_iter().filter_map(Result::ok) {
-                let p = entry.path();
-                if p.is_file()
-                    && p.to_string_lossy().replace('\\', "/").ends_with(want.as_str())
-                {
-                    objects.push(p.to_string_lossy().into_owned());
-                }
-            }
-        }
+        // them), plus the exact source→object pairs from each
+        // `<target>.dir/DependInfo.cmake` (subdir targets list bare
+        // filenames, so their objects are `<target>.dir/<base>.o` and the
+        // suffix above never matches). The fallback matches the unit source
+        // by absolute path only, so a same-named copy under another
+        // directory never resolves. Zero matches means the target never
+        // built: halt, never an empty splice.
+        let mut objects = Self::find_unit_objects(cx.build_dir, cx.tree, rel);
         objects.sort();
         objects.dedup();
         if objects.is_empty() {
@@ -5605,6 +5685,23 @@ mod track_i_tests {
     }
 
     #[test]
+    fn ctest_grade_parses_column_aligned_progress() {
+        // Large suites column-align the `#` (`Test    #1:` vs `Test #1002:`);
+        // both shapes must count identically, or big-tree oracles tamper-halt.
+        let stdout = "Test project /b\n  1/482 Test    #1: alpha ............ Passed    0.10 sec\n425/482 Test #1002: omega ............ Passed    0.60 sec\n99% tests passed, 0 tests failed out of 482\n";
+        let runs = vec![RunOutput {
+            exit_code: 0,
+            stdout: stdout.to_string(),
+            stderr: String::new(),
+            artifacts: BTreeMap::new(),
+        }];
+        let graded = CtestRunner.grade(&runs).unwrap();
+        assert_eq!(graded.count(Outcome::Pass), 2);
+        assert!(graded.outcomes.contains_key("alpha"));
+        assert!(graded.outcomes.contains_key("omega"));
+    }
+
+    #[test]
     fn ctest_grade_summary_only_counts_without_phantoms() {
         // `100%` is a percent, never a count; `out of 3` carries no verdict.
         let only_percent = vec![RunOutput {
@@ -5800,6 +5897,73 @@ mod track_i_tests {
             .substitute(&cx_empty, &bind_c_unit, &rust_lib)
             .unwrap_err();
         assert!(err.to_string().contains("no built object"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn cmake_objects_root_layout_by_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        let build = dir.path().join("build");
+        write_file(&tree.join("src/foo.c"), "int foo(void){return 1;}\n");
+        write_file(&build.join("CMakeFiles/t.dir/src/foo.c.o"), "o");
+        let got = CmakeBridge::find_unit_objects(&build, &tree, "src/foo.c");
+        assert_eq!(
+            got,
+            vec![build.join("CMakeFiles/t.dir/src/foo.c.o").to_string_lossy().into_owned()]
+        );
+    }
+
+    #[test]
+    fn cmake_objects_subdir_layout_via_depinfo() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        let build = dir.path().join("build");
+        // Real build dirs always carry a root CMakeFiles dir (the fallback
+        // scans beneath it); without one nothing resolves, by design.
+        write_file(&build.join("CMakeFiles/placeholder"), "x");
+        write_file(&tree.join("sub/foo.c"), "int foo(void){return 1;}\n");
+        // Same-named copy under another directory: must never resolve here.
+        write_file(&tree.join("other/sub/foo.c"), "int foo(void){return 2;}\n");
+        let src = tree.join("sub/foo.c").to_string_lossy().replace('\\', "/");
+        let other = tree.join("other/sub/foo.c").to_string_lossy().replace('\\', "/");
+        write_file(
+            &build.join("sub/CMakeFiles/t.dir/DependInfo.cmake"),
+            &format!(
+                "# generated\nset(CMAKE_DEPENDS_DEPENDENCY_FILES\n  \"{src}\" \"sub/CMakeFiles/t.dir/foo.c.o\" \"C\" \"sub/CMakeFiles/t.dir/foo.c.o.d\"\n  )\n"
+            ),
+        );
+        write_file(
+            &build.join("copy/CMakeFiles/u.dir/DependInfo.cmake"),
+            &format!(
+                "set(CMAKE_DEPENDS_DEPENDENCY_FILES\n  \"{other}\" \"copy/CMakeFiles/u.dir/foo.c.o\" \"C\" \"x\"\n  )\n"
+            ),
+        );
+        write_file(&build.join("sub/CMakeFiles/t.dir/foo.c.o"), "o");
+        // Decoy object exists on disk but its source is the other copy.
+        write_file(&build.join("copy/CMakeFiles/u.dir/foo.c.o"), "o");
+        let got = CmakeBridge::find_unit_objects(&build, &tree, "sub/foo.c");
+        assert_eq!(
+            got,
+            vec![build.join("sub/CMakeFiles/t.dir/foo.c.o").to_string_lossy().into_owned()]
+        );
+        // The other copy resolves to its own object, never this unit's.
+        let got2 = CmakeBridge::find_unit_objects(&build, &tree, "other/sub/foo.c");
+        assert_eq!(
+            got2,
+            vec![build.join("copy/CMakeFiles/u.dir/foo.c.o").to_string_lossy().into_owned()]
+        );
+        // Listed but never built: no resolution, honest halt downstream.
+        std::fs::remove_file(build.join("copy/CMakeFiles/u.dir/foo.c.o")).unwrap();
+        assert!(CmakeBridge::find_unit_objects(&build, &tree, "other/sub/foo.c").is_empty());
+    }
+
+    #[test]
+    fn cmake_depinfo_parser_ignores_non_entries() {
+        assert!(CmakeBridge::depinfo_objects_for("# no section\n", "/t/a.c").is_empty());
+        let text =
+            "set(CMAKE_DEPENDS_DEPENDENCY_FILES\n  \"/t/b.c\" \"o/b.c.o\" \"C\" \"d\"\n  )\n";
+        assert!(CmakeBridge::depinfo_objects_for(text, "/t/a.c").is_empty());
+        assert_eq!(CmakeBridge::depinfo_objects_for(text, "/t/b.c"), vec!["o/b.c.o"]);
     }
 
     #[test]

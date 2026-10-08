@@ -2360,16 +2360,28 @@ mod tests {
     }
 
     #[test]
-    fn matc_probe_carries_repl_stdin() {
-        // The recorded matc probe feeds the REPL script the binary actually
-        // reads (`1+2` then `exit`): argv stays empty because the binary
-        // ignores argv, and the differential signal is stdin-fed.
+    fn matc_probes_carry_repl_stdin() {
+        // Every recorded matc probe feeds a REPL script the binary actually
+        // reads: argv stays empty because the binary ignores argv, and the
+        // differential signal is stdin-fed. Coverage must include the
+        // scanner-sensitive surfaces (`:` range, `,` args, `;` rows): a
+        // garbled scanner table passes `1+2` but breaks those.
         let entry = crate::repo_content::entry("matc").unwrap();
         let probes = entry["differential"]["probes"].as_array().unwrap();
-        assert_eq!(probes.len(), 1);
-        assert_eq!(probes[0]["program"], serde_json::json!("matc/src/matc"));
-        assert_eq!(probes[0]["args"], serde_json::json!([]));
-        assert_eq!(probes[0]["stdin"], serde_json::json!("1+2\nexit\n"));
+        assert!(!probes.is_empty());
+        let stdins: Vec<&str> = probes
+            .iter()
+            .map(|p| {
+                assert_eq!(p["program"], serde_json::json!("matc/src/matc"));
+                assert_eq!(p["args"], serde_json::json!([]));
+                let s = p["stdin"].as_str().unwrap();
+                assert!(s.ends_with("exit\n"), "probe must terminate the REPL");
+                s
+            })
+            .collect();
+        assert!(stdins.iter().any(|s| s.contains(':')), "colon range covered");
+        assert!(stdins.iter().any(|s| s.contains("ones(2,2)")), "comma args covered");
+        assert!(stdins.iter().any(|s| s.contains(';')), "semicolon rows covered");
     }
 
     fn write_lists(dir: &std::path::Path, rel: &str, body: &str) {
