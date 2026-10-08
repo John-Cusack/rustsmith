@@ -45,4 +45,6 @@ moves (E22), vectorizer checklist + stable-SIMD rule (E20/E21).
   edges dominate cost. Zero survivors is a stop, not a failure.
 - Forbidden: shape-dependent behavior change; visible-keyed caches; relaxed
   tolerances; unsafe outside FFI; nightly-only features (incl.
-  portable_simd) without explicit exception; deleting unexercised paths.
+  portable_simd) without explicit exception; libtest `#[bench]` as graded
+  measurement (nightly-only, no statistics — criterion/divan/hyperfine class
+  only); deleting unexercised paths.

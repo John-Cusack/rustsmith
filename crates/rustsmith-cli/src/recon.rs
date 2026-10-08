@@ -118,6 +118,7 @@ pub fn run_recon(repo: &Path, out: &Path, heldout_out: &Path) -> Result<ReconOut
         input_distribution: wc["distribution"].as_str().unwrap_or("").to_string(),
         out_of_scope: wc["out_of_scope"].as_str().unwrap_or("").to_string(),
         budgets: wc["budgets"].as_str().unwrap_or("").to_string(),
+        corpus: wc["corpus"].as_str().unwrap_or("").to_string(),
     };
     let workload_md = contract.to_markdown();
     std::fs::write(out.join("WORKLOAD.md"), &workload_md).map_err(|e| e.to_string())?;

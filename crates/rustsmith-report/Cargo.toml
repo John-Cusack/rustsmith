@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 rustsmith-store = { version = "0.1.0", path = "../rustsmith-store" }
 rustsmith-harvest = { version = "0.1.0", path = "../rustsmith-harvest" }
+rustsmith-profile = { version = "0.1.0", path = "../rustsmith-profile" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
