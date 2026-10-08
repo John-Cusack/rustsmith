@@ -349,3 +349,35 @@ Never push. Keep Python-spine output byte-identical (suite pins it).
   sessions can rely on the DB/coverage paths.
 - Non-goals: running the test suite (hours); fixing Elmer upstream
   build issues (report them).
+
+#### S5 outcome (GREEN 2026-10-07, this host: 32-core, cmake 3.28.3, gfortran+OpenMPI)
+
+- Orig: `/home/john/runs/elmer-work/orig` at `9f6af2f85`
+  (release-26.2-641-g9f6af2f85); build dir `/tmp/elmer-full` (fresh,
+  outside the repo); `CMAKE_BUILD_TYPE=Debug`, default options.
+- Endpoint: GREEN, `cmake --build --parallel` rc=0 — 351 targets,
+  1089 compiled objects (466 C, 27 C++, 596 Fortran), 314 links.
+  Key artifacts observed: `fem/src/ElmerSolver` (→ `ElmerSolver_mpi`),
+  `matc/src/matc`, `fhutiter/src/libfhuti.so`, `libarpack.so`,
+  `libparpack.so`, `libumfpack.a`.
+- Wall time: configure ~8 s, build ~46 s.
+- Artifact size: `/tmp/elmer-full` 375M total (`fem` 296M, `umfpack`
+  15M, `elmergrid` 12M, `mathlibs` 5.7M).
+- `compile_commands.json`: NOT emitted (Elmer does not set
+  `CMAKE_EXPORT_COMPILE_COMMANDS`; later sessions needing the DB must
+  pass `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` explicitly — untested).
+- Warnings (18, none fatal): 8 type-mismatch REAL/COMPLEX-vs-LOGICAL in
+  `mathlibs/src/parpack/p{c,d,s,z}naitr.f`; 4 rank-mismatch scalar-vs-rank-1
+  in `mathlibs/src/parpack/p{c,d,s,z}getv0.f` (+ rank mismatch in
+  `pcvout`/`pdvout` MPI_ALLREDUCE calls); 1 rank-mismatch scalar-vs-rank-2
+  + 4 assumed-shape-element in `fem/src/LinearForms.F90` (DGEMV/DGEMM
+  calls); 1 `-Wformat-overflow` (`sprintf`, `elmergrid/src/fempre.c:893`).
+  Full log kept outside the repo
+  (`/home/john/firstmate/data/rs-elmer-s5/build.log`).
+- Scope notes (defaults, not failures): `WITH_ElmerIce=FALSE` and
+  `WITH_ELMERGUI*=FALSE`, so `elmerice/` and `ElmerGUI*` compile zero
+  objects; bundled LAPACK/BLAS sources are skipped in favor of system
+  `/usr/lib/x86_64-linux-gnu/{libblas,liblapack}.so`; `misc/` (brepsamples,
+  mpitest, netcdf, tetgen_plugin, xdmf) contributes no objects.
+  Build logs: `configure.log` + `build.log` under
+  `/home/john/firstmate/data/rs-elmer-s5/`.
