@@ -224,6 +224,7 @@ pub(crate) fn ensure_grade_venv(venv: &Path) -> Result<(), String> {
         launcher: None,
         timeout_secs: None,
         collect: Vec::new(),
+        stdin: None,
     };
     let runs = execute_all(base, base, &[cmd]).map_err(|e| e.to_string())?;
     if runs.first().map(|r| r.exit_code) != Some(0) {
@@ -399,10 +400,10 @@ pub(crate) fn run_ctest_heldout(
 
 /// CTest differential: run frozen probe commands in the original and mirror
 /// builds and pair trimmed stdouts. Probes come from package-keyed data
-/// (`differential.probes`: program + argv, programs resolved against each
-/// build dir); no toolchain literal lives here. Missing probes halt honestly
-/// (never a vacuous pass); a nonzero probe run halts with its location.
-/// The original side is the shared per-run pristine build (see
+/// (`differential.probes`: program + argv + optional stdin, programs resolved
+/// against each build dir); no toolchain literal lives here. Missing probes
+/// halt honestly (never a vacuous pass); a nonzero probe run halts with its
+/// location. The original side is the shared per-run pristine build (see
 /// `build_shared_pristine`): one configure + build per mirror run, reused
 /// across units. Per-unit orig builds are gone.
 pub fn differential_ctest_pairs(
@@ -412,10 +413,29 @@ pub fn differential_ctest_pairs(
 ) -> Result<Vec<(String, String)>, String> {
     let entry = crate::repo_content::entry(package)?;
     let probes = entry["differential"]["probes"].as_array().cloned().unwrap_or_default();
+    ctest_probe_pairs(&probes, orig_build, mirror_build, package)
+}
+
+/// Probe-pair runner behind [`differential_ctest_pairs`]: `probes` are the raw
+/// `differential.probes` JSON values (`package` names the owner for error
+/// context). A probe's optional `stdin` string is piped to the child's stdin
+/// with EOF closed, so stdin-fed REPLs (the matc binary) terminate with
+/// comparable output instead of hanging to timeout; probes without `stdin`
+/// inherit stdin (argv-only behavior unchanged).
+pub(crate) fn ctest_probe_pairs(
+    probes: &[serde_json::Value],
+    orig_build: &Path,
+    mirror_build: &Path,
+    package: &str,
+) -> Result<Vec<(String, String)>, String> {
     if probes.is_empty() {
         return Err(format!("no differential probes for package '{package}'"));
     }
-    let run_one = |build: &Path, program: &str, args: &[String]| -> Result<String, String> {
+    let run_one = |build: &Path,
+                   probe: &serde_json::Value,
+                   program: &str,
+                   args: &[String]|
+     -> Result<String, String> {
         let cmd = TestCommand {
             program: build.join(program).display().to_string(),
             args: args.to_vec(),
@@ -425,6 +445,7 @@ pub fn differential_ctest_pairs(
             launcher: None,
             timeout_secs: Some(600),
             collect: Vec::new(),
+            stdin: probe["stdin"].as_str().map(str::to_string),
         };
         let runs = execute_all(build, build, &[cmd]).map_err(|e| e.to_string())?;
         let run = runs.first().ok_or("differential probe produced no output")?;
@@ -439,7 +460,7 @@ pub fn differential_ctest_pairs(
         Ok(output_value(&run.stdout))
     };
     let mut pairs = Vec::new();
-    for probe in &probes {
+    for probe in probes {
         let program = probe["program"].as_str().unwrap_or("");
         if program.is_empty() {
             return Err(format!("bad differential probe entry for package '{package}'"));
@@ -451,7 +472,10 @@ pub fn differential_ctest_pairs(
             .iter()
             .filter_map(|a| a.as_str().map(str::to_string))
             .collect();
-        pairs.push((run_one(orig_build, program, &args)?, run_one(mirror_build, program, &args)?));
+        pairs.push((
+            run_one(orig_build, probe, program, &args)?,
+            run_one(mirror_build, probe, program, &args)?,
+        ));
     }
     Ok(pairs)
 }
@@ -693,6 +717,7 @@ fn probe_command(program: &Path, script: &str, args: &[String]) -> TestCommand {
         launcher: None,
         timeout_secs: None,
         collect: Vec::new(),
+        stdin: None,
     }
 }
 /// Original vs mirror outputs across probe inputs. The original side runs with
@@ -2265,6 +2290,65 @@ mod tests {
         let err =
             differential_ctest_pairs("crc", Path::new("/o"), Path::new("/m")).unwrap_err();
         assert!(err.contains("no differential probes"), "unexpected: {err}");
+    }
+
+    /// Write an executable probe script into a fake build dir.
+    fn write_probe(dir: &std::path::Path, name: &str, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        std::fs::write(&path, body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn ctest_differential_feeds_stdin_to_both_trees() {
+        // Fixture proof for the matc shape: a stdin-fed probe pair passes with
+        // byte-identical trimmed stdout on both sides. `cat` echoes exactly
+        // what it reads, so the pair proves the fed bytes arrived and EOF
+        // closed (no EOF would hang each side to its 600 s timeout).
+        let orig = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        write_probe(orig.path(), "stdin_probe", "#!/bin/sh\ncat\n");
+        write_probe(mirror.path(), "stdin_probe", "#!/bin/sh\ncat\n");
+        let probes = vec![serde_json::json!({
+            "program": "stdin_probe",
+            "args": [],
+            "stdin": "1+2\nexit\n",
+        })];
+        let pairs = ctest_probe_pairs(&probes, orig.path(), mirror.path(), "s2-fixture").unwrap();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0, "1+2\nexit");
+        assert_eq!(pairs[0].0, pairs[0].1);
+    }
+
+    #[test]
+    fn ctest_differential_argv_only_probes_stay_byte_identical() {
+        // Probes without `stdin` inherit stdin and keep legacy bytes: `echo`
+        // never reads stdin, so the pair proves argv-only routing is
+        // untouched by the stdin path.
+        let orig = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        write_probe(orig.path(), "argv_probe", "#!/bin/sh\necho \"argv:$1:$2\"\n");
+        write_probe(mirror.path(), "argv_probe", "#!/bin/sh\necho \"argv:$1:$2\"\n");
+        let probes = vec![serde_json::json!({
+            "program": "argv_probe",
+            "args": ["add", "2"],
+        })];
+        let pairs = ctest_probe_pairs(&probes, orig.path(), mirror.path(), "s2-fixture").unwrap();
+        assert_eq!(pairs, vec![("argv:add:2".to_string(), "argv:add:2".to_string())]);
+    }
+
+    #[test]
+    fn matc_probe_carries_repl_stdin() {
+        // The recorded matc probe feeds the REPL script the binary actually
+        // reads (`1+2` then `exit`): argv stays empty because the binary
+        // ignores argv, and the differential signal is stdin-fed.
+        let entry = crate::repo_content::entry("matc").unwrap();
+        let probes = entry["differential"]["probes"].as_array().unwrap();
+        assert_eq!(probes.len(), 1);
+        assert_eq!(probes[0]["program"], serde_json::json!("matc/src/matc"));
+        assert_eq!(probes[0]["args"], serde_json::json!([]));
+        assert_eq!(probes[0]["stdin"], serde_json::json!("1+2\nexit\n"));
     }
 
     fn write_lists(dir: &std::path::Path, rel: &str, body: &str) {

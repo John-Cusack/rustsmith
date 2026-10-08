@@ -32,6 +32,14 @@ pub struct TestCommand {
     pub launcher: Option<Launcher>,
     pub timeout_secs: Option<u32>,
     pub collect: Vec<String>,
+    /// Bytes fed to the child's stdin, then EOF. `None` inherits the
+    /// parent's stdin (legacy argv-only behavior, byte-identical).
+    /// `Some(text)` pipes exactly `text` and closes: probes like the matc
+    /// REPL (`"1+2\nexit\n"`) terminate instead of hanging to timeout.
+    /// Skipped in serialization when unset so argv-only manifests keep
+    /// their frozen bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -128,6 +136,7 @@ impl Manifest {
                     launcher: None,
                     timeout_secs: None,
                     collect: Vec::new(),
+                    stdin: None,
                 })
                 .collect(),
             config_hash: String::new(),
@@ -406,6 +415,7 @@ mod tests {
             }),
             timeout_secs: Some(300),
             collect: vec!["Testing/**/*.xml".to_string()],
+            stdin: None,
         }
     }
 
@@ -449,6 +459,14 @@ mod tests {
         let json = serde_json::to_string(&manifest).unwrap();
         let back: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(back, manifest);
+        // Unset stdin serializes to nothing: argv-only manifests keep frozen bytes.
+        assert!(!json.contains("stdin"), "argv-only manifest must not name stdin: {json}");
+        // … while a set stdin value round-trips explicitly.
+        let mut fed = sample_command();
+        fed.stdin = Some("1+2\nexit\n".to_string());
+        let fed_json = serde_json::to_string(&fed).unwrap();
+        assert!(fed_json.contains("\"stdin\":\"1+2\\nexit\\n\""), "{fed_json}");
+        assert_eq!(serde_json::from_str::<TestCommand>(&fed_json).unwrap(), fed);
 
         let graded = GradedResult::from_outcomes(
             run.exit_code,

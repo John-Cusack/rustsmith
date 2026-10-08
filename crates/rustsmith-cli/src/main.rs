@@ -1161,6 +1161,7 @@ fn cmd_grade_candidate(args: &[String]) -> Result<(), String> {
             launcher: None,
             timeout_secs: Some(120),
             collect: Vec::new(),
+            stdin: None,
         };
         let runs = rustsmith_oracle::execute_all(&out, &out, &[cmd]).map_err(|e| e.to_string())?;
         let stdout = runs.first().map(|r| r.stdout.clone()).unwrap_or_default();

@@ -281,6 +281,29 @@ Never push. Keep Python-spine output byte-identical (suite pins it).
 - Non-goals: pty/interactive sessions (pipes only); changing the
   `{program, args}` shape for existing entries.
 
+#### S2 stdin data shape (landed)
+
+- Probe JSON: `{"program": "matc/src/matc", "args": [], "stdin":
+  "1+2\nexit\n"}`. `stdin` is an OPTIONAL JSON string of literal bytes
+  (with real `\n` newlines, not escaped `\\n` text) fed to the probe's
+  stdin, then EOF. Absent — or present but not a string — means inherit
+  the parent's stdin: argv-only probes keep legacy behavior
+  byte-identically, and the `{program, args}` shape is unchanged.
+- `TestCommand.stdin: Option<String>` (`crates/rustsmith-core`):
+  `#[serde(default, skip_serializing_if = "Option::is_none")]`, so
+  argv-only manifests keep their frozen bytes and pre-S2 JSON parses.
+  Both executors honor it (`rustsmith-oracle` `execute_all`/`execute_one`
+  and the `rustsmith-sandbox` mirror): `Some(text)` pipes exactly `text`
+  and closes the pipe (readers drain stdout/stderr first, so a chatty
+  child can't deadlock the write); `None` inherits stdin as before.
+- Recorded `matc` value: `"1+2\nexit\n"` — the REPL prints `         3`
+  for the first line and exits 0 on `exit`, which is the pilot
+  differential (`output_value` trims the `$` transcript line on both
+  sides before `gates::differential` compares).
+- Pipes only: no pty, no interactive sessions, no EOF-without-close
+  mode. A probe that reads past EOF still hangs to its 600 s timeout
+  (exit 124) by design — that halt stays honest, never silent.
+
 ### S3 — Real workers + pilot run (needs S1; S2 for matc, optional after)
 
 - Goal: back `RUSTSMITH_WORKER_CMD` with a model and run the pilot slice

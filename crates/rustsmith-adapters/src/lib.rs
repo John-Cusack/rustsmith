@@ -965,6 +965,7 @@ impl MaturinBridge {
             launcher: None,
             timeout_secs: None,
             collect: Vec::new(),
+            stdin: None,
         }
     }
 
@@ -1215,6 +1216,7 @@ impl PytestRunner {
             launcher: None,
             timeout_secs: None,
             collect: Vec::new(),
+            stdin: None,
         }
     }
     /// Rebind tree-graded pytest commands onto a grade venv: `program` becomes
@@ -1647,6 +1649,7 @@ impl PyProfiler {
             launcher: None,
             timeout_secs: None,
             collect: Vec::new(),
+            stdin: None,
         }
     }
 }
@@ -3501,6 +3504,7 @@ impl CtestRunner {
             launcher: None,
             timeout_secs,
             collect,
+            stdin: None,
         }
     }
 
@@ -4396,6 +4400,7 @@ impl CmakeBridge {
             launcher: None,
             timeout_secs: Some(600),
             collect: Vec::new(),
+            stdin: None,
         }]
     }
 
@@ -4452,6 +4457,7 @@ impl BuildBridge for CmakeBridge {
             launcher: None,
             timeout_secs: Some(1200),
             collect: Vec::new(),
+            stdin: None,
         }]
     }
 
@@ -4474,6 +4480,7 @@ impl BuildBridge for CmakeBridge {
             launcher: None,
             timeout_secs: Some(3600),
             collect: Vec::new(),
+            stdin: None,
         }]
     }
 
@@ -4553,6 +4560,7 @@ impl BuildBridge for CmakeBridge {
                 launcher: None,
                 timeout_secs: Some(600),
                 collect: Vec::new(),
+                stdin: None,
             });
         }
         cmds.push(TestCommand {
@@ -4574,6 +4582,7 @@ impl BuildBridge for CmakeBridge {
             launcher: None,
             timeout_secs: Some(3600),
             collect: Vec::new(),
+            stdin: None,
         });
         cmds.push(TestCommand {
             program: CtestRunner::ctest_program(),
@@ -4588,6 +4597,7 @@ impl BuildBridge for CmakeBridge {
             launcher: None,
             timeout_secs: Some(600),
             collect: vec!["Testing/Temporary/LastTest.log".to_string()],
+            stdin: None,
         });
         Ok(cmds)
     }
@@ -4791,6 +4801,7 @@ impl Profiler for PerfProfiler {
             launcher: None,
             timeout_secs: Some(600),
             collect: Vec::new(),
+            stdin: None,
         }]
     }
 
@@ -4804,6 +4815,7 @@ impl Profiler for PerfProfiler {
             launcher: None,
             timeout_secs: Some(600),
             collect: Vec::new(),
+            stdin: None,
         }
     }
 
