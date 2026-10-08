@@ -1,0 +1,41 @@
+{
+  "package": "python-multipart",
+  "extension_module": "python_multipart._python_multipart",
+  "src_layout": false,
+  "files": [
+    ["Cargo.toml", "Cargo.toml"],
+    ["Cargo.lock", "Cargo.lock"],
+    ["pyproject.toml", "pyproject.toml"],
+    ["release.toml", "release.toml"],
+    ["NOTICE", "NOTICE"],
+    ["README.md", "README.md"],
+    ["src/lib.rs", "src/lib.rs"],
+    ["multipart-core/Cargo.toml", "multipart-core/Cargo.toml"],
+    ["multipart-core/src/lib.rs", "multipart-core/src/lib.rs"],
+    ["multipart-core/src/multipart.rs", "multipart-core/src/multipart.rs"],
+    ["multipart-core/src/querystring.rs", "multipart-core/src/querystring.rs"],
+    ["multipart-core/src/headers.rs", "multipart-core/src/headers.rs"],
+    ["python_multipart/__init__.py", "python_multipart/__init__.py"],
+    ["python_multipart/multipart.py", "python_multipart/multipart.py"],
+    ["python_multipart/decoders.py", "python_multipart/decoders.py"],
+    ["python_multipart/exceptions.py", "python_multipart/exceptions.py"],
+    ["python_multipart/py.typed", "python_multipart/py.typed"],
+    ["multipart/__init__.py", "multipart/__init__.py"],
+    ["multipart/multipart.py", "multipart/multipart.py"],
+    ["multipart/decoders.py", "multipart/decoders.py"],
+    ["multipart/exceptions.py", "multipart/exceptions.py"]
+  ],
+  "extra_files": {},
+  "delete_on_merge": {
+    "python:fuzz/fuzz_decoders.py": [],
+    "python:fuzz/fuzz_form.py": [],
+    "python:fuzz/fuzz_multipart_parser.py": [],
+    "python:fuzz/fuzz_options_header.py": [],
+    "python:fuzz/fuzz_querystring.py": [],
+    "python:fuzz/helpers.py": [],
+    "python:python_multipart/decoders.py": [],
+    "python:python_multipart/exceptions.py": [],
+    "python:python_multipart/multipart.py": []
+  },
+  "orig_source": {}
+}

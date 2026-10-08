@@ -1,0 +1,19 @@
+This is a Stage-1 mirror of Kludex/python-multipart (Apache-2.0).
+
+Upstream: https://github.com/Kludex/python-multipart
+Original author: Andrew Dunham <andrew@du.nham.ca>
+Upstream license: Apache-2.0 (see upstream LICENSE.txt, preserved in this tree).
+
+What changed vs upstream (behavior-identical port):
+- `python_multipart/multipart.py`: `MultipartParser._internal_write`,
+  `QuerystringParser._internal_write`, `parse_options_header`, and
+  `_parseparam` execute in the compiled `multipart-rust-core` crate
+  (exposed as `python_multipart._python_multipart`). Every other module —
+  `Field`, `File`, `BaseParser`, `OctetStreamParser`, `FormParser`,
+  `create_form_parser`, `parse_form`, decoders, exceptions — is the
+  upstream source verbatim: file I/O orchestration and glue stay in
+  Python, the byte-level state machines move to Rust.
+- Build backend: hatchling → maturin (PyO3 extension module
+  `python_multipart._python_multipart`).
+
+The `multipart/` legacy alias package ships unchanged from upstream.
