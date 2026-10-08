@@ -45,6 +45,11 @@ struct RruleData {
 /// Raw engine pull as a Python iterator: materializes wall candidates and
 /// applies until/dtstart/count filtering through Python comparisons,
 /// mirroring one `_iter` generator.
+///
+/// This is the documented slow path: one crossing per candidate. The
+/// window queries (`between`/`after`/`before`/`count`) batch the same
+/// filtering in Rust (see the batched section below) and only fall back
+/// here for inputs the batch cannot prove wall-ordered.
 #[pyclass(weakref, module = "dateutil._dateutil")]
 struct EnginePull {
     engine: Option<core::Engine>,
@@ -1515,10 +1520,22 @@ fn q_contains(py: Python<'_>, owner: Owner, item: Bound<'_, PyAny>) -> PyResult<
     }
 
 fn q_count(py: Python<'_>, owner: Owner) -> PyResult<usize> {
-        pull_count(py, &owner)
+    match batch_count(py, &owner)? {
+        Batched::Done(n) => Ok(n),
+        Batched::Slow => pull_count(py, &owner),
     }
+}
 
 fn q_before(py: Python<'_>, owner: Owner, dt: Bound<'_, PyAny>, inc: Option<Bound<'_, PyAny>>) -> PyResult<PyObject> {
+    match batch_before(py, &owner, dt.clone(), inc.clone())? {
+        Batched::Done(o) => Ok(o),
+        Batched::Slow => q_before_slow(py, owner, dt, inc),
+    }
+}
+
+/// Original per-item `before` (the documented slow path): kept verbatim as
+/// the batch fallback so edge cases reproduce exactly.
+fn q_before_slow(py: Python<'_>, owner: Owner, dt: Bound<'_, PyAny>, inc: Option<Bound<'_, PyAny>>) -> PyResult<PyObject> {
         let inc_b: bool = inc.map(|v| v.is_truthy()).transpose()?.unwrap_or(false);
         let mut pull = QueryPull::for_owner(py, &owner)?;
         let mut last: Option<PyObject> = None;
@@ -1534,6 +1551,15 @@ fn q_before(py: Python<'_>, owner: Owner, dt: Bound<'_, PyAny>, inc: Option<Boun
     }
 
 fn q_after(py: Python<'_>, owner: Owner, dt: Bound<'_, PyAny>, inc: Option<Bound<'_, PyAny>>) -> PyResult<PyObject> {
+    match batch_after(py, &owner, dt.clone(), inc.clone())? {
+        Batched::Done(o) => Ok(o),
+        Batched::Slow => q_after_slow(py, owner, dt, inc),
+    }
+}
+
+/// Original per-item `after` (the documented slow path): kept verbatim as
+/// the batch fallback so edge cases reproduce exactly.
+fn q_after_slow(py: Python<'_>, owner: Owner, dt: Bound<'_, PyAny>, inc: Option<Bound<'_, PyAny>>) -> PyResult<PyObject> {
         let inc_b: bool = inc.map(|v| v.is_truthy()).transpose()?.unwrap_or(false);
         let mut pull = QueryPull::for_owner(py, &owner)?;
         while let Some(d) = pull.next(py)? {
@@ -1563,6 +1589,15 @@ fn q_xafter(py: Python<'_>, owner: Owner, dt: Bound<'_, PyAny>, count: Option<Bo
     }
 
 fn q_between(py: Python<'_>, owner: Owner, after: Bound<'_, PyAny>, before: Bound<'_, PyAny>, inc: Option<Bound<'_, PyAny>>, count: Option<Bound<'_, PyAny>>) -> PyResult<PyObject> {
+    match batch_between(py, &owner, after.clone(), before.clone(), inc.clone(), count.clone())? {
+        Batched::Done(o) => Ok(o),
+        Batched::Slow => q_between_slow(py, owner, after, before, inc, count),
+    }
+}
+
+/// Original per-item `between` (the documented slow path): kept verbatim as
+/// the batch fallback so edge cases reproduce exactly.
+fn q_between_slow(py: Python<'_>, owner: Owner, after: Bound<'_, PyAny>, before: Bound<'_, PyAny>, inc: Option<Bound<'_, PyAny>>, count: Option<Bound<'_, PyAny>>) -> PyResult<PyObject> {
         let _ = count;
         let inc_b: bool = inc.map(|v| v.is_truthy()).transpose()?.unwrap_or(false);
         let mut pull = QueryPull::for_owner(py, &owner)?;
@@ -1597,6 +1632,1242 @@ fn q_between(py: Python<'_>, owner: Owner, after: Bound<'_, PyAny>, before: Boun
         let list = PyList::new(py, out.iter().map(|o| o.bind(py)))?;
         Ok(list.into_any().unbind())
     }
+
+// =====================================================================
+// Batched window queries: `between` / `after` / `before` / `count`.
+//
+// `EnginePull::__next__` crosses into Python once per candidate (one
+// `datetime` construction plus rich compares), and `pull_merge` adds more
+// compares per step, so a window scan pays microseconds per item while the
+// engine step underneath costs nanoseconds. The four queries below run the
+// whole scan in Rust over cached wall triples instead: one engine pass
+// with integer bound filtering, one materialization per surviving item
+// (plus a bounded confirmation zone near each bound), and a single
+// crossing for the answer list (or count). Iteration (`__next__`, slices,
+// `xafter`, `__contains__`) keeps the per-item path for compatibility; it
+// is the documented slow path.
+//
+// Exactness contract:
+// - Naive pairs compare as walls in Python: integer filtering is exact.
+// - Aware pairs compare as instants (wall minus utcoffset). Walls farther
+//   apart than the adaptive margin (measured |offsets| + slack, at least
+//   3 days) order the same as walls and as instants, because live offsets
+//   stay within the slack of the measured ones; anything nearer a bound is
+//   confirmed with a real Python comparison, so bound decisions are exact.
+// - Merge order across sources is by wall. With one shared tz and fold 0
+//   everywhere (enforced below) this matches instant order outside
+//   nonexistent spring-forward gap walls; see docs/adr/021.
+// - Everything else falls back to the slow path, which is today's behavior
+//   by construction: the batch returns `Slow` *before* touching shared
+//   state (the `py_sort` side effect excepted; the slow path re-sorts
+//   idempotently) and the caller reruns the original pull logic,
+//   reproducing even error/no-error edge cases exactly.
+// =====================================================================
+
+/// Wall triple plus microseconds. Derived `Ord` is chronological wall order.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct Wall {
+    ord: i64,
+    hh: i64,
+    mm: i64,
+    ss: i64,
+    us: i64,
+}
+
+fn wall_us(w: Wall) -> i128 {
+    w.ord as i128 * 86_400_000_000
+        + (w.hh as i128 * 3_600 + w.mm as i128 * 60 + w.ss as i128) * 1_000_000
+        + w.us as i128
+}
+
+/// Base margin (3 days) and DST-swing slack (2 days), in microseconds. The
+/// base covers any sane |offset| pair (offsets live within +/-1 day); the
+/// slack covers live-offset drift versus the measured ones (DST swings and
+/// date-line jumps stay far below it).
+const BASE_MARGIN_US: i128 = 3 * 86_400_000_000;
+const MARGIN_SLACK_US: i128 = 2 * 86_400_000_000;
+
+/// `tz.utcoffset(dt)` in microseconds; `None` when unavailable or failing
+/// (the caller falls back to the slow path, preserving lazy errors).
+fn offset_us(py: Python<'_>, tz: &PyObject, dt: &Bound<'_, PyAny>) -> Option<i128> {
+    let off = tz.bind(py).call_method1("utcoffset", (dt,)).ok()?;
+    if off.is_none() {
+        return None;
+    }
+    let d: i64 = off.getattr("days").ok()?.extract().ok()?;
+    let s: i64 = off.getattr("seconds").ok()?.extract().ok()?;
+    let u: i64 = off.getattr("microseconds").ok()?.extract().ok()?;
+    Some(d as i128 * 86_400_000_000 + s as i128 * 1_000_000 + u as i128)
+}
+
+/// Offset of the rule tz at its dtstart (0 when naive); `None` slow-paths.
+fn rule_offset_us(
+    py: Python<'_>,
+    tz: &Option<PyObject>,
+    dtstart: &Bound<'_, PyAny>,
+) -> Option<i128> {
+    match tz {
+        None => Some(0),
+        Some(t) => offset_us(py, t, dtstart),
+    }
+}
+
+/// Wall-filter margin for one rule-tz/bound-tz pair; `None` slow-paths
+/// (naive/aware mix, where Python raises `TypeError` lazily).
+fn pair_margin_us(
+    py: Python<'_>,
+    rule_aware: bool,
+    o_rule: i128,
+    tz_b: &Option<PyObject>,
+    dt_b: &Bound<'_, PyAny>,
+) -> Option<i128> {
+    match tz_b {
+        None => {
+            if rule_aware {
+                None
+            } else {
+                Some(0)
+            }
+        }
+        Some(t) => {
+            if !rule_aware {
+                return None;
+            }
+            let ob = offset_us(py, t, dt_b)?;
+            Some(BASE_MARGIN_US.max(o_rule.abs() + ob.abs() + MARGIN_SLACK_US))
+        }
+    }
+}
+
+/// True for exactly `datetime.datetime` (subclasses keep the slow path so
+/// overridden comparisons stay exact).
+fn is_exact_datetime(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let cls = datetime_cls(py)?;
+    Ok(obj.get_type().as_ptr() == cls.as_ptr())
+}
+
+/// One query bound as a wall triple plus its Python object (for confirms).
+struct QBound {
+    obj: PyObject,
+    wall_us: i128,
+    tz: Option<PyObject>,
+}
+
+/// Read a window bound; `Ok(None)` reruns the slow path (non-datetime,
+/// exotic attribute failure, naive/aware mix, or datetime subclass).
+fn read_qbound(
+    py: Python<'_>,
+    obj: &Bound<'_, PyAny>,
+    rule_aware: bool,
+) -> PyResult<Option<QBound>> {
+    if !is_exact_datetime(py, obj)? {
+        return Ok(None);
+    }
+    let parts = match parts_of(obj) {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
+    if parts.tz.is_some() != rule_aware {
+        return Ok(None);
+    }
+    let wall = Wall {
+        ord: civil::to_ordinal(parts.y, parts.m as u8, parts.d as u8),
+        hh: parts.hh,
+        mm: parts.mm,
+        ss: parts.ss,
+        us: parts.us,
+    };
+    Ok(Some(QBound {
+        obj: obj.clone().unbind(),
+        wall_us: wall_us(wall),
+        tz: parts.tz,
+    }))
+}
+
+/// Immutable per-rule inputs snapshotted out of `RruleData` (no borrows
+/// held while stepping).
+struct RuleSnap {
+    params: core::Params,
+    sy: i64,
+    smo: i64,
+    sd: i64,
+    shh: i64,
+    smm: i64,
+    sss: i64,
+    dtstart_wall_us: i128,
+    dtstart_obj: PyObject,
+    tz: Option<PyObject>,
+    until_obj: Option<PyObject>,
+    until_wall_us: i128,
+    until_tz: Option<PyObject>,
+    count: Option<i64>,
+    aware: bool,
+}
+
+/// Snapshot one rule's filter inputs; `Ok(None)` slow-paths (exotic
+/// dtstart/until objects or awareness drift; defensive, as the constructor
+/// normalizes these).
+fn snap_rule(py: Python<'_>, r: &Py<Rrule>) -> PyResult<Option<RuleSnap>> {
+    let (params, sy, smo, sd, shh, smm, sss, dtstart_obj, tz, until_obj, count) = {
+        let b = r.bind(py);
+        let inner = b.borrow();
+        let d = &inner.data;
+        (
+            d.params.clone(),
+            d.dtstart_wall_y,
+            d.dtstart_wall_m,
+            d.dtstart_wall_d,
+            d.dtstart_wall_hh,
+            d.dtstart_wall_mm,
+            d.dtstart_wall_ss,
+            d.dtstart.clone_ref(py),
+            clone_opt(py, &d.dtstart_tz),
+            clone_opt(py, &d.until),
+            d.count,
+        )
+    };
+    if !is_exact_datetime(py, dtstart_obj.bind(py))? {
+        return Ok(None);
+    }
+    let aware = tz.is_some();
+    let dtstart_wall_us = match parts_of(dtstart_obj.bind(py)) {
+        Ok(p) => {
+            if p.tz.is_some() != aware {
+                return Ok(None);
+            }
+            wall_us(Wall {
+                ord: civil::to_ordinal(p.y, p.m as u8, p.d as u8),
+                hh: p.hh,
+                mm: p.mm,
+                ss: p.ss,
+                us: p.us,
+            })
+        }
+        Err(_) => return Ok(None),
+    };
+    let (until_wall_us, until_tz) = match &until_obj {
+        None => (0, None),
+        Some(u) => {
+            if !is_exact_datetime(py, u.bind(py))? {
+                return Ok(None);
+            }
+            match parts_of(u.bind(py)) {
+                Ok(p) => {
+                    if p.tz.is_some() != aware {
+                        return Ok(None);
+                    }
+                    (
+                        wall_us(Wall {
+                            ord: civil::to_ordinal(p.y, p.m as u8, p.d as u8),
+                            hh: p.hh,
+                            mm: p.mm,
+                            ss: p.ss,
+                            us: p.us,
+                        }),
+                        p.tz,
+                    )
+                }
+                Err(_) => return Ok(None),
+            }
+        }
+    };
+    Ok(Some(RuleSnap {
+        params,
+        sy,
+        smo,
+        sd,
+        shh,
+        smm,
+        sss,
+        dtstart_wall_us,
+        dtstart_obj,
+        tz,
+        until_obj,
+        until_wall_us,
+        until_tz,
+        count,
+        aware,
+    }))
+}
+
+/// Pull step: one filtered wall, exhaustion, or slow-path fallback (engine
+/// errors reproduce exactly via the original pull logic).
+enum Step {
+    Item(Wall),
+    Done,
+    Slow,
+}
+
+struct EngineCursor {
+    engine: core::Engine,
+    pending: Vec<core::Candidate>,
+    snap: RuleSnap,
+    ds_margin: i128,
+    until_margin: i128,
+    count_left: Option<i64>,
+}
+
+fn open_cursor(py: Python<'_>, snap: RuleSnap) -> PyResult<Option<EngineCursor>> {
+    let o_rule = match rule_offset_us(py, &snap.tz, snap.dtstart_obj.bind(py)) {
+        Some(o) => o,
+        None => return Ok(None),
+    };
+    let ds_margin = match pair_margin_us(py, snap.aware, o_rule, &snap.tz, snap.dtstart_obj.bind(py)) {
+        Some(m) => m,
+        None => return Ok(None),
+    };
+    let until_margin = match &snap.until_obj {
+        None => 0,
+        Some(u) => {
+            match pair_margin_us(py, snap.aware, o_rule, &snap.until_tz, u.bind(py)) {
+                Some(m) => m,
+                None => return Ok(None),
+            }
+        }
+    };
+    let engine =
+        core::Engine::new(snap.params.clone(), snap.sy, snap.smo, snap.sd, snap.shh, snap.smm, snap.sss);
+    let count_left = snap.count;
+    Ok(Some(EngineCursor { engine, pending: Vec::new(), snap, ds_margin, until_margin, count_left }))
+}
+
+/// Materialize one wall as a `datetime` (fold 0, like the engine yields).
+fn wall_to_py(py: Python<'_>, w: Wall, tz: &Option<PyObject>) -> PyResult<PyObject> {
+    let (y, mo, d) = civil::from_ordinal(w.ord);
+    make_datetime(py, y, mo as i64, d as i64, w.hh, w.mm, w.ss, w.us, tz.as_ref(), 0)
+}
+
+/// One filtered engine candidate. Mirrors `EnginePull::__next__` filtering
+/// order (until stop, dtstart skip, count limit) with integer prefilters
+/// and Python confirmation inside the margin bands.
+fn cursor_next(py: Python<'_>, c: &mut EngineCursor) -> PyResult<Step> {
+    loop {
+        while let Some((ord, h, m, s)) = c.pending.pop() {
+            let w = Wall { ord, hh: h as i64, mm: m as i64, ss: s as i64, us: 0 };
+            let wus = wall_us(w);
+            if c.snap.until_obj.is_some() {
+                let uus = c.snap.until_wall_us;
+                let um = c.until_margin;
+                if wus > uus + um {
+                    return Ok(Step::Done);
+                }
+                if wus >= uus - um {
+                    let dt = wall_to_py(py, w, &c.snap.tz)?;
+                    if dt.bind(py).gt(c.snap.until_obj.as_ref().unwrap().bind(py))? {
+                        return Ok(Step::Done);
+                    }
+                }
+            }
+            if wus < c.snap.dtstart_wall_us - c.ds_margin {
+                continue;
+            }
+            if wus <= c.snap.dtstart_wall_us + c.ds_margin {
+                let dt = wall_to_py(py, w, &c.snap.tz)?;
+                if dt.bind(py).lt(c.snap.dtstart_obj.bind(py))? {
+                    continue;
+                }
+            }
+            if let Some(left) = c.count_left.as_mut() {
+                *left -= 1;
+                if *left < 0 {
+                    return Ok(Step::Done);
+                }
+            }
+            return Ok(Step::Item(w));
+        }
+        if c.engine.done {
+            return Ok(Step::Done);
+        }
+        match c.engine.next_step() {
+            Ok(mut b) => {
+                b.reverse();
+                c.pending = b;
+            }
+            Err(_) => return Ok(Step::Slow),
+        }
+    }
+}
+
+/// One merge input: a lazy engine cursor or a sorted wall vector (points).
+enum Stream {
+    Engine(Box<EngineCursor>),
+    Points { walls: Vec<Wall>, idx: usize },
+}
+
+fn stream_next(py: Python<'_>, s: &mut Stream) -> PyResult<Step> {
+    match s {
+        Stream::Engine(c) => cursor_next(py, c),
+        Stream::Points { walls, idx } => {
+            if *idx < walls.len() {
+                let w = walls[*idx];
+                *idx += 1;
+                Ok(Step::Item(w))
+            } else {
+                Ok(Step::Done)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Head {
+    Fresh,
+    At(Wall),
+    Gone,
+}
+
+struct Merge {
+    inc: Vec<Stream>,
+    exc: Vec<Stream>,
+    inc_head: Vec<Head>,
+    exc_head: Vec<Head>,
+    last: Option<Wall>,
+}
+
+/// K-way merge over wall streams, mirroring `pull_merge`: least inclusive
+/// head wins (deduped by wall, which equals instant dedup under the
+/// single-tz fold-0 gate), drained past exclusions.
+fn merge_next(py: Python<'_>, m: &mut Merge) -> PyResult<Step> {
+    loop {
+        for i in 0..m.inc.len() {
+            if m.inc_head[i] == Head::Fresh {
+                match stream_next(py, &mut m.inc[i])? {
+                    Step::Item(w) => m.inc_head[i] = Head::At(w),
+                    Step::Done => m.inc_head[i] = Head::Gone,
+                    Step::Slow => return Ok(Step::Slow),
+                }
+            }
+        }
+        let mut best: Option<(usize, Wall)> = None;
+        for (i, h) in m.inc_head.iter().enumerate() {
+            if let Head::At(w) = h {
+                if best.map(|(_, b)| *w < b).unwrap_or(true) {
+                    best = Some((i, *w));
+                }
+            }
+        }
+        let (rn, rdt) = match best {
+            None => return Ok(Step::Done),
+            Some(v) => v,
+        };
+        if m.last == Some(rdt) {
+            m.inc_head[rn] = Head::Fresh;
+            continue;
+        }
+        // Drain exclusions below the head.
+        let mut excluded = false;
+        loop {
+            for j in 0..m.exc.len() {
+                if m.exc_head[j] == Head::Fresh {
+                    match stream_next(py, &mut m.exc[j])? {
+                        Step::Item(w) => m.exc_head[j] = Head::At(w),
+                        Step::Done => m.exc_head[j] = Head::Gone,
+                        Step::Slow => return Ok(Step::Slow),
+                    }
+                }
+            }
+            let mut emin: Option<(usize, Wall)> = None;
+            for (j, h) in m.exc_head.iter().enumerate() {
+                if let Head::At(w) = h {
+                    if emin.map(|(_, b)| *w < b).unwrap_or(true) {
+                        emin = Some((j, *w));
+                    }
+                }
+            }
+            match emin {
+                None => break,
+                Some((en, edt)) => {
+                    if edt < rdt {
+                        m.exc_head[en] = Head::Fresh;
+                        continue;
+                    }
+                    if edt == rdt {
+                        excluded = true;
+                    }
+                    break;
+                }
+            }
+        }
+        m.last = Some(rdt);
+        m.inc_head[rn] = Head::Fresh;
+        if excluded {
+            continue;
+        }
+        return Ok(Step::Item(rdt));
+    }
+}
+
+/// Raw pull behind one query: a single engine cursor or an owned merge.
+enum Pull {
+    Single(Box<EngineCursor>),
+    Merged(Merge),
+}
+
+fn pull_next(py: Python<'_>, p: &mut Pull) -> PyResult<Step> {
+    match p {
+        Pull::Single(c) => cursor_next(py, c),
+        Pull::Merged(m) => merge_next(py, m),
+    }
+}
+
+/// One window bound with inclusivity and its integer margin.
+struct Win {
+    b: QBound,
+    inc: bool,
+    margin: i128,
+}
+
+enum Query {
+    Count,
+    After(Win),
+    Before(Win),
+    Between(Win, Win),
+}
+
+// Integer prefilter predicates. Proofs assume the margin covers
+// |candidate offset| + |bound offset| plus slack (see `pair_margin_us`):
+// `lo_fail`/`hi_mid`/`lo_pass`/`hi_fail` then decide exactly, and the
+// leftover band around each bound goes through Python confirmation.
+/// Certainly below the window (`instant < lo` for either `inc`): skip.
+fn lo_fail(w: i128, lo: i128, m: i128) -> bool {
+    w < lo - m
+}
+/// Certainly inside past the lower bound (`instant > lo` either way).
+fn lo_pass(w: i128, lo: i128, m: i128) -> bool {
+    w > lo + m
+}
+/// Certainly past the upper bound (`instant > hi` either way): stop.
+fn hi_fail(w: i128, hi: i128, m: i128) -> bool {
+    w > hi + m
+}
+/// Certainly inside below the upper bound (`instant < hi`, hence `<= hi`
+/// too): keep without confirmation.
+fn hi_mid(w: i128, hi: i128, m: i128) -> bool {
+    w < hi - m
+}
+
+/// An answer item: a mid-window wall (materialized at the end, or by index
+/// into the cache prefix in cache mode) or a margin-zone survivor already
+/// materialized for its confirmation (reused in non-cache mode).
+enum Stored {
+    Wall { w: Wall, idx: usize },
+    Obj { obj: PyObject },
+}
+
+enum Answer {
+    Count(usize),
+    One(Option<Stored>),
+    List(Vec<Stored>),
+}
+
+struct BatchDone {
+    answer: Answer,
+    /// Every raw item the pull yielded, in order (window breaker included;
+    /// until/engine stops excluded, exactly like the pull): the future
+    /// cache prefix in cache mode, empty otherwise.
+    kept: Vec<Wall>,
+    /// Raw items yielded (equals `kept.len()` in cache mode).
+    raw: usize,
+    exhausted: bool,
+}
+
+/// Pull one raw item, tracking the yielded count (and the walls in cache
+/// mode for the later fill).
+fn next_kept(
+    py: Python<'_>,
+    pull: &mut Pull,
+    kept: &mut Vec<Wall>,
+    raw: &mut usize,
+    cache_on: bool,
+) -> PyResult<Step> {
+    match pull_next(py, pull)? {
+        Step::Item(w) => {
+            *raw += 1;
+            if cache_on {
+                kept.push(w);
+            }
+            Ok(Step::Item(w))
+        }
+        other => Ok(other),
+    }
+}
+
+/// Drain a pull through one window query. `Ok(None)` slow-paths the whole
+/// query (engine error or any residual uncertainty); success carries
+/// everything the cache/len commit needs.
+fn run_query(
+    py: Python<'_>,
+    pull: &mut Pull,
+    q: &Query,
+    mat_tz: &Option<PyObject>,
+    cache_on: bool,
+) -> PyResult<Option<BatchDone>> {
+    let mut kept: Vec<Wall> = Vec::new();
+    let mut raw: usize = 0;
+    match q {
+        Query::Count => loop {
+            match next_kept(py, pull, &mut kept, &mut raw, cache_on)? {
+                Step::Slow => return Ok(None),
+                Step::Done => {
+                    return Ok(Some(BatchDone { answer: Answer::Count(raw), kept, raw, exhausted: true }));
+                }
+                Step::Item(_) => {}
+            }
+        },
+        Query::After(win) => {
+            let (b, m, inc, bobj) = (win.b.wall_us, win.margin, win.inc, &win.b.obj);
+            loop {
+                let w = match next_kept(py, pull, &mut kept, &mut raw, cache_on)? {
+                    Step::Slow => return Ok(None),
+                    Step::Done => {
+                        return Ok(Some(BatchDone {
+                            answer: Answer::One(None),
+                            kept,
+                            raw,
+                            exhausted: true,
+                        }));
+                    }
+                    Step::Item(w) => w,
+                };
+                let wus = wall_us(w);
+                if lo_fail(wus, b, m) {
+                    continue;
+                }
+                if lo_pass(wus, b, m) {
+                    let st = if cache_on {
+                        Stored::Wall { w, idx: raw - 1 }
+                    } else {
+                        Stored::Obj { obj: wall_to_py(py, w, mat_tz)? }
+                    };
+                    return Ok(Some(BatchDone {
+                        answer: Answer::One(Some(st)),
+                        kept,
+                        raw,
+                        exhausted: false,
+                    }));
+                }
+                let dt = wall_to_py(py, w, mat_tz)?;
+                let hit = if inc {
+                    dt.bind(py).ge(bobj.bind(py))?
+                } else {
+                    dt.bind(py).gt(bobj.bind(py))?
+                };
+                if hit {
+                    let st = if cache_on {
+                        Stored::Wall { w, idx: raw - 1 }
+                    } else {
+                        Stored::Obj { obj: dt }
+                    };
+                    return Ok(Some(BatchDone {
+                        answer: Answer::One(Some(st)),
+                        kept,
+                        raw,
+                        exhausted: false,
+                    }));
+                }
+            }
+        }
+        Query::Before(win) => {
+            let (b, m, inc, bobj) = (win.b.wall_us, win.margin, win.inc, &win.b.obj);
+            let mut best: Option<Stored> = None;
+            loop {
+                let w = match next_kept(py, pull, &mut kept, &mut raw, cache_on)? {
+                    Step::Slow => return Ok(None),
+                    Step::Done => {
+                        return Ok(Some(BatchDone {
+                            answer: Answer::One(best),
+                            kept,
+                            raw,
+                            exhausted: true,
+                        }));
+                    }
+                    Step::Item(w) => w,
+                };
+                let wus = wall_us(w);
+                if hi_fail(wus, b, m) {
+                    return Ok(Some(BatchDone {
+                        answer: Answer::One(best),
+                        kept,
+                        raw,
+                        exhausted: false,
+                    }));
+                }
+                if hi_mid(wus, b, m) {
+                    best = Some(Stored::Wall { w, idx: raw - 1 });
+                    continue;
+                }
+                let dt = wall_to_py(py, w, mat_tz)?;
+                let pass = if inc {
+                    dt.bind(py).le(bobj.bind(py))?
+                } else {
+                    dt.bind(py).lt(bobj.bind(py))?
+                };
+                if pass {
+                    best = Some(if cache_on {
+                        Stored::Wall { w, idx: raw - 1 }
+                    } else {
+                        Stored::Obj { obj: dt }
+                    });
+                }
+            }
+        }
+        Query::Between(lo, hi) => {
+            let mut out: Vec<Stored> = Vec::new();
+            loop {
+                let w = match next_kept(py, pull, &mut kept, &mut raw, cache_on)? {
+                    Step::Slow => return Ok(None),
+                    Step::Done => {
+                        return Ok(Some(BatchDone {
+                            answer: Answer::List(out),
+                            kept,
+                            raw,
+                            exhausted: true,
+                        }));
+                    }
+                    Step::Item(w) => w,
+                };
+                let wus = wall_us(w);
+                if lo_fail(wus, lo.b.wall_us, lo.margin) {
+                    continue;
+                }
+                if !lo_pass(wus, lo.b.wall_us, lo.margin) {
+                    let dt = wall_to_py(py, w, mat_tz)?;
+                    let started = if lo.inc {
+                        dt.bind(py).ge(lo.b.obj.bind(py))?
+                    } else {
+                        dt.bind(py).gt(lo.b.obj.bind(py))?
+                    };
+                    if !started {
+                        continue;
+                    }
+                    out.push(if cache_on {
+                        Stored::Wall { w, idx: raw - 1 }
+                    } else {
+                        Stored::Obj { obj: dt }
+                    });
+                    continue;
+                }
+                if hi_fail(wus, hi.b.wall_us, hi.margin) {
+                    return Ok(Some(BatchDone {
+                        answer: Answer::List(out),
+                        kept,
+                        raw,
+                        exhausted: false,
+                    }));
+                }
+                if hi_mid(wus, hi.b.wall_us, hi.margin) {
+                    out.push(Stored::Wall { w, idx: raw - 1 });
+                    continue;
+                }
+                let dt = wall_to_py(py, w, mat_tz)?;
+                let over = if hi.inc {
+                    dt.bind(py).gt(hi.b.obj.bind(py))?
+                } else {
+                    dt.bind(py).ge(hi.b.obj.bind(py))?
+                };
+                if over {
+                    return Ok(Some(BatchDone {
+                        answer: Answer::List(out),
+                        kept,
+                        raw,
+                        exhausted: false,
+                    }));
+                }
+                out.push(if cache_on {
+                    Stored::Wall { w, idx: raw - 1 }
+                } else {
+                    Stored::Obj { obj: dt }
+                });
+            }
+        }
+    }
+}
+
+/// Batch inputs behind one owner: the pull plus the shared reference tz,
+/// its measured offset, and the awareness bit for bound checks.
+struct Prepared {
+    pull: Pull,
+    mat_tz: Option<PyObject>,
+    o_rule: i128,
+    rule_aware: bool,
+}
+
+fn prepare(py: Python<'_>, owner: &Owner) -> PyResult<Option<Prepared>> {
+    match owner {
+        Owner::Rule(r) => {
+            let snap = match snap_rule(py, r)? {
+                Some(s) => s,
+                None => return Ok(None),
+            };
+            let o_rule = match rule_offset_us(py, &snap.tz, snap.dtstart_obj.bind(py)) {
+                Some(o) => o,
+                None => return Ok(None),
+            };
+            let aware = snap.aware;
+            let tz = clone_opt(py, &snap.tz);
+            let cur = match open_cursor(py, snap)? {
+                Some(c) => c,
+                None => return Ok(None),
+            };
+            Ok(Some(Prepared { pull: Pull::Single(Box::new(cur)), mat_tz: tz, o_rule, rule_aware: aware }))
+        }
+        Owner::Set(s) => prepare_set(py, s),
+    }
+}
+
+/// One rdate/exdate member: wall triple, tz, and the original object.
+type RawPoint = (Wall, Option<PyObject>, PyObject);
+
+/// Read rdate/exdate members as walls; `Ok(None)` slow-paths (non-datetime,
+/// bad attrs, or nonzero fold, which would break wall==instant reasoning).
+fn read_points(py: Python<'_>, objs: &[PyObject]) -> PyResult<Option<Vec<RawPoint>>> {
+    let mut out = Vec::with_capacity(objs.len());
+    for o in objs {
+        let ob = o.bind(py);
+        if !is_exact_datetime(py, ob)? {
+            return Ok(None);
+        }
+        let p = match parts_of(ob) {
+            Ok(p) => p,
+            Err(_) => return Ok(None),
+        };
+        if p.fold != 0 {
+            return Ok(None);
+        }
+        out.push((
+            Wall {
+                ord: civil::to_ordinal(p.y, p.m as u8, p.d as u8),
+                hh: p.hh,
+                mm: p.mm,
+                ss: p.ss,
+                us: p.us,
+            },
+            p.tz,
+            o.clone_ref(py),
+        ));
+    }
+    Ok(Some(out))
+}
+
+/// Build the merged pull behind a set: sub-rules as engine cursors, date
+/// lists as sorted wall streams. Any member the batch cannot prove
+/// wall-ordered (non-`rrule` rule members, non-datetime or folded dates,
+/// mixed awareness, differing tz objects) slow-paths the whole query.
+/// The `py_sort` of the date lists mirrors `fresh_set_merge`, so the side
+/// effect survives even when the query later slow-paths (it re-sorts
+/// idempotently).
+fn prepare_set(py: Python<'_>, s: &Py<Rruleset>) -> PyResult<Option<Prepared>> {
+    let (rrules, rdates, exrules, exdates) = {
+        let b = s.bind(py);
+        let inner = b.borrow();
+        let mut lists = inner.lists.lock();
+        py_sort(py, &mut lists.rdates)?;
+        py_sort(py, &mut lists.exdates)?;
+        (
+            clone_vec(py, &lists.rrules),
+            clone_vec(py, &lists.rdates),
+            clone_vec(py, &lists.exrules),
+            clone_vec(py, &lists.exdates),
+        )
+    };
+    let rtype = py.get_type::<Rrule>();
+    for m in rrules.iter().chain(exrules.iter()) {
+        if m.bind(py).get_type().as_ptr() != rtype.as_ptr() {
+            return Ok(None);
+        }
+    }
+    let mut rule_snaps = Vec::with_capacity(rrules.len());
+    for m in &rrules {
+        let r: Py<Rrule> = m.extract(py)?;
+        match snap_rule(py, &r)? {
+            Some(sn) => rule_snaps.push(sn),
+            None => return Ok(None),
+        }
+    }
+    let mut ex_snaps = Vec::with_capacity(exrules.len());
+    for m in &exrules {
+        let r: Py<Rrule> = m.extract(py)?;
+        match snap_rule(py, &r)? {
+            Some(sn) => ex_snaps.push(sn),
+            None => return Ok(None),
+        }
+    }
+    let rdate_pts = match read_points(py, &rdates)? {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+    let exdate_pts = match read_points(py, &exdates)? {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+    // Reference awareness/tz across every source (deterministic order).
+    let mut cands: Vec<(Option<PyObject>, PyObject)> = Vec::new();
+    for sn in rule_snaps.iter().chain(ex_snaps.iter()) {
+        cands.push((clone_opt(py, &sn.tz), sn.dtstart_obj.clone_ref(py)));
+    }
+    for (_, t, o) in rdate_pts.iter().chain(exdate_pts.iter()) {
+        cands.push((clone_opt(py, t), o.clone_ref(py)));
+    }
+    let mut aware: Option<bool> = None;
+    let mut ref_tz: Option<PyObject> = None;
+    let mut ref_dt: Option<PyObject> = None;
+    for (tz, obj) in &cands {
+        match aware {
+            None => {
+                aware = Some(tz.is_some());
+                if tz.is_some() {
+                    ref_tz = clone_opt(py, tz);
+                    ref_dt = Some(obj.clone_ref(py));
+                }
+            }
+            Some(a) => {
+                if tz.is_some() != a {
+                    return Ok(None);
+                }
+                if let Some(t) = tz {
+                    if !py_eq(py, t.bind(py), ref_tz.as_ref().unwrap().bind(py))? {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+    }
+    let rule_aware = aware.unwrap_or(false);
+    let o_rule = if rule_aware {
+        match offset_us(py, ref_tz.as_ref().unwrap(), ref_dt.as_ref().unwrap().bind(py)) {
+            Some(o) => o,
+            None => return Ok(None),
+        }
+    } else {
+        0
+    };
+    // Streams (inclusive: rdates then sub-rules; exclusive: exdates then
+    // sub-rules), mirroring `fresh_set_merge` source order so tie order
+    // matches. Point walls are stably sorted by wall; ties keep the Python
+    // (instant) order, and equal walls are equal instants here.
+    let mut rd: Vec<Wall> = rdate_pts.into_iter().map(|(w, _, _)| w).collect();
+    rd.sort();
+    let mut ed: Vec<Wall> = exdate_pts.into_iter().map(|(w, _, _)| w).collect();
+    ed.sort();
+    let mut inc: Vec<Stream> = Vec::new();
+    if !rd.is_empty() {
+        inc.push(Stream::Points { walls: rd, idx: 0 });
+    }
+    for sn in rule_snaps {
+        match open_cursor(py, sn)? {
+            Some(c) => inc.push(Stream::Engine(Box::new(c))),
+            None => return Ok(None),
+        }
+    }
+    let mut exc: Vec<Stream> = Vec::new();
+    if !ed.is_empty() {
+        exc.push(Stream::Points { walls: ed, idx: 0 });
+    }
+    for sn in ex_snaps {
+        match open_cursor(py, sn)? {
+            Some(c) => exc.push(Stream::Engine(Box::new(c))),
+            None => return Ok(None),
+        }
+    }
+    let (n_inc, n_exc) = (inc.len(), exc.len());
+    Ok(Some(Prepared {
+        pull: Pull::Merged(Merge {
+            inc,
+            exc,
+            inc_head: vec![Head::Fresh; n_inc],
+            exc_head: vec![Head::Fresh; n_exc],
+            last: None,
+        }),
+        mat_tz: ref_tz,
+        o_rule,
+        rule_aware,
+    }))
+}
+
+/// Resolve one window bound against the prepared pull; `Ok(None)`
+/// slow-paths (unreadable bound or unmargined pair).
+fn resolve_win(
+    py: Python<'_>,
+    prep: &Prepared,
+    dt: &Bound<'_, PyAny>,
+    inc: bool,
+) -> PyResult<Option<Win>> {
+    let b = match read_qbound(py, dt, prep.rule_aware)? {
+        Some(b) => b,
+        None => return Ok(None),
+    };
+    let margin = match pair_margin_us(py, prep.rule_aware, prep.o_rule, &b.tz, dt) {
+        Some(m) => m,
+        None => return Ok(None),
+    };
+    Ok(Some(Win { b, inc, margin }))
+}
+
+/// Cache block size mirroring `fill_batch` (10 pulls per lock hold).
+const FILL_BLOCK: usize = 10;
+
+/// Materialized batch answer.
+enum Finished {
+    Count(usize),
+    One(Option<PyObject>),
+    List(Vec<PyObject>),
+}
+
+/// Commit a finished batch: readahead to the 10-block cover, fill the
+/// shared cache under the cache lock, set `len` at exhaustion, and map
+/// stored refs to objects. Cache indices reuse the cached objects, so
+/// `answer[i] is _cache[j]` identity matches the slow path. `Ok(None)`
+/// slow-paths (late engine error); nothing shared is touched before the
+/// commit, so the slow path resumes cleanly.
+fn finish_batch(
+    py: Python<'_>,
+    owner: &Owner,
+    pull: &mut Pull,
+    mut done: BatchDone,
+    mat_tz: &Option<PyObject>,
+    cache_on: bool,
+) -> PyResult<Option<Finished>> {
+    if cache_on && !done.exhausted {
+        let target = done.raw.div_ceil(FILL_BLOCK) * FILL_BLOCK;
+        while done.kept.len() < target {
+            match pull_next(py, pull)? {
+                Step::Item(w) => {
+                    done.kept.push(w);
+                    done.raw += 1;
+                }
+                Step::Done => {
+                    done.exhausted = true;
+                    break;
+                }
+                Step::Slow => return Ok(None),
+            }
+        }
+    }
+    let total = done.raw;
+    let mut cache_objs: Option<Vec<PyObject>> = None;
+    if cache_on {
+        let lock = with_shared(py, owner, |sh| Ok(clone_opt(py, &sh.cache_lock)))?;
+        if let Some(l) = &lock {
+            l.bind(py).call_method0("acquire")?;
+        }
+        let mut objs = Vec::with_capacity(done.kept.len());
+        let mut err: Option<PyErr> = None;
+        for w in &done.kept {
+            match wall_to_py(py, *w, mat_tz) {
+                Ok(o) => objs.push(o),
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            }
+        }
+        if let Some(l) = &lock {
+            l.bind(py).call_method0("release")?;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        with_shared(py, owner, |sh| {
+            let items = sh.cache_items.as_mut().unwrap();
+            let have = items.len();
+            if objs.len() > have {
+                // Deterministic recompute: the kept prefix agrees with the
+                // cached one, so only the genuinely-new suffix extends it.
+                for o in &objs[have..] {
+                    items.push(o.clone_ref(py));
+                }
+                sh.fill_total = items.len();
+            }
+            if done.exhausted {
+                sh.cache_complete = true;
+                sh.len = Some(total);
+            }
+            sh.merge = None;
+            Ok(())
+        })?;
+        cache_objs = Some(with_shared(py, owner, |sh| {
+            Ok(clone_vec(py, sh.cache_items.as_ref().unwrap()))
+        })?);
+    } else if done.exhausted {
+        with_shared(py, owner, |sh| {
+            sh.len = Some(total);
+            Ok(())
+        })?;
+    }
+    let map_stored = |s: &Stored| -> PyResult<PyObject> {
+        match s {
+            Stored::Wall { w, idx } => match &cache_objs {
+                Some(objs) => Ok(objs[*idx].clone_ref(py)),
+                None => wall_to_py(py, *w, mat_tz),
+            },
+            Stored::Obj { obj } => Ok(obj.clone_ref(py)),
+        }
+    };
+    let out = match done.answer {
+        Answer::Count(n) => Finished::Count(n),
+        Answer::One(o) => {
+            let mapped = match o {
+                None => None,
+                Some(s) => Some(map_stored(&s)?),
+            };
+            Finished::One(mapped)
+        }
+        Answer::List(v) => {
+            let mut l = Vec::with_capacity(v.len());
+            for s in &v {
+                l.push(map_stored(s)?);
+            }
+            Finished::List(l)
+        }
+    };
+    Ok(Some(out))
+}
+
+/// Batch-or-slow outcome. `Slow` reruns the original pull logic, which is
+/// today's behavior by construction. (`Slow` after a commit is still safe:
+/// the commit leaves a valid cache prefix the slow path continues from.)
+enum Batched<T> {
+    Done(T),
+    Slow,
+}
+
+/// Shared preparation: cache-state gate plus pull build.
+fn batch_prepare(
+    py: Python<'_>,
+    owner: &Owner,
+    cache_on_out: &mut bool,
+) -> PyResult<Option<Prepared>> {
+    let (cache_on, complete) =
+        with_shared(py, owner, |sh| Ok((sh.cache_items.is_some(), sh.cache_complete)))?;
+    *cache_on_out = cache_on;
+    if complete {
+        // The cached vector serves these queries on the slow path with no
+        // engine work; keep that exact behavior.
+        return Ok(None);
+    }
+    prepare(py, owner)
+}
+
+fn batch_count(py: Python<'_>, owner: &Owner) -> PyResult<Batched<usize>> {
+    let mut cache_on = false;
+    let mut prep = match batch_prepare(py, owner, &mut cache_on)? {
+        Some(p) => p,
+        None => return Ok(Batched::Slow),
+    };
+    let done = match run_query(py, &mut prep.pull, &Query::Count, &prep.mat_tz, cache_on)? {
+        Some(d) => d,
+        None => return Ok(Batched::Slow),
+    };
+    let fin = match finish_batch(py, owner, &mut prep.pull, done, &prep.mat_tz, cache_on)? {
+        Some(f) => f,
+        None => return Ok(Batched::Slow),
+    };
+    match fin {
+        Finished::Count(n) => Ok(Batched::Done(n)),
+        _ => Ok(Batched::Slow),
+    }
+}
+
+fn batch_before(
+    py: Python<'_>,
+    owner: &Owner,
+    dt: Bound<'_, PyAny>,
+    inc: Option<Bound<'_, PyAny>>,
+) -> PyResult<Batched<PyObject>> {
+    let inc_b: bool = inc.map(|v| v.is_truthy()).transpose()?.unwrap_or(false);
+    let mut cache_on = false;
+    let mut prep = match batch_prepare(py, owner, &mut cache_on)? {
+        Some(p) => p,
+        None => return Ok(Batched::Slow),
+    };
+    let win = match resolve_win(py, &prep, &dt, inc_b)? {
+        Some(w) => w,
+        None => return Ok(Batched::Slow),
+    };
+    let done = match run_query(py, &mut prep.pull, &Query::Before(win), &prep.mat_tz, cache_on)? {
+        Some(d) => d,
+        None => return Ok(Batched::Slow),
+    };
+    let fin = match finish_batch(py, owner, &mut prep.pull, done, &prep.mat_tz, cache_on)? {
+        Some(f) => f,
+        None => return Ok(Batched::Slow),
+    };
+    match fin {
+        Finished::One(o) => Ok(Batched::Done(o.unwrap_or_else(|| py.None()))),
+        _ => Ok(Batched::Slow),
+    }
+}
+
+fn batch_after(
+    py: Python<'_>,
+    owner: &Owner,
+    dt: Bound<'_, PyAny>,
+    inc: Option<Bound<'_, PyAny>>,
+) -> PyResult<Batched<PyObject>> {
+    let inc_b: bool = inc.map(|v| v.is_truthy()).transpose()?.unwrap_or(false);
+    let mut cache_on = false;
+    let mut prep = match batch_prepare(py, owner, &mut cache_on)? {
+        Some(p) => p,
+        None => return Ok(Batched::Slow),
+    };
+    let win = match resolve_win(py, &prep, &dt, inc_b)? {
+        Some(w) => w,
+        None => return Ok(Batched::Slow),
+    };
+    let done = match run_query(py, &mut prep.pull, &Query::After(win), &prep.mat_tz, cache_on)? {
+        Some(d) => d,
+        None => return Ok(Batched::Slow),
+    };
+    let fin = match finish_batch(py, owner, &mut prep.pull, done, &prep.mat_tz, cache_on)? {
+        Some(f) => f,
+        None => return Ok(Batched::Slow),
+    };
+    match fin {
+        Finished::One(o) => Ok(Batched::Done(o.unwrap_or_else(|| py.None()))),
+        _ => Ok(Batched::Slow),
+    }
+}
+
+fn batch_between(
+    py: Python<'_>,
+    owner: &Owner,
+    after: Bound<'_, PyAny>,
+    before: Bound<'_, PyAny>,
+    inc: Option<Bound<'_, PyAny>>,
+    count: Option<Bound<'_, PyAny>>,
+) -> PyResult<Batched<PyObject>> {
+    // `count` is accepted and ignored upstream; mirrored here.
+    let _ = count;
+    let inc_b: bool = inc.map(|v| v.is_truthy()).transpose()?.unwrap_or(false);
+    let mut cache_on = false;
+    let mut prep = match batch_prepare(py, owner, &mut cache_on)? {
+        Some(p) => p,
+        None => return Ok(Batched::Slow),
+    };
+    let lo = match resolve_win(py, &prep, &after, inc_b)? {
+        Some(w) => w,
+        None => return Ok(Batched::Slow),
+    };
+    let hi = match resolve_win(py, &prep, &before, inc_b)? {
+        Some(w) => w,
+        None => return Ok(Batched::Slow),
+    };
+    let done = match run_query(py, &mut prep.pull, &Query::Between(lo, hi), &prep.mat_tz, cache_on)? {
+        Some(d) => d,
+        None => return Ok(Batched::Slow),
+    };
+    let fin = match finish_batch(py, owner, &mut prep.pull, done, &prep.mat_tz, cache_on)? {
+        Some(f) => f,
+        None => return Ok(Batched::Slow),
+    };
+    match fin {
+        Finished::List(v) => {
+            let list = PyList::new(py, v.iter().map(|o| o.bind(py)))?;
+            Ok(Batched::Done(list.into_any().unbind()))
+        }
+        _ => Ok(Batched::Slow),
+    }
+}
 
 #[pymethods]
 impl Rrule {
