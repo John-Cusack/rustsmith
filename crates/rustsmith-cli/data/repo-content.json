@@ -2526,6 +2526,205 @@
         "probe": "from dateutil.rrule import rrule; from datetime import datetime; print(len(list(rrule(2, count=4096, dtstart=datetime(2020, 1, 1)))))"
       },
       "candidate_pool": []
+    },
+    "markdown-it-py": {
+      "differential": {
+        "script": "import sys\nfrom markdown_it import MarkdownIt\nmd = MarkdownIt()\nprint(md.render(sys.argv[1]), end='')\n",
+        "argvs": [
+          [
+            "# Hello\n\nworld **bold** and *italic*"
+          ],
+          [
+            "[link](https://example.com \"title\") and ![img](/i.png)"
+          ],
+          [
+            "```py\nx = 1\n```\n\n- a\n- b\n"
+          ],
+          [
+            "> quote\n>\n> - item\n"
+          ],
+          [
+            "| a | b |\n|---|---|\n| 1 | 2 |\n"
+          ],
+          [
+            "AT&T &amp; <b>html</b> `code`"
+          ],
+          [
+            "<https://example.com> and <user@example.com>"
+          ],
+          [
+            "a -- b --- c ... (c)"
+          ],
+          [
+            "[ref]\n\n[ref]: /url \"t\"\n"
+          ],
+          [
+            ""
+          ]
+        ]
+      },
+      "heldout_descriptors": {
+        "distribution": "CommonMark block/inline constructs, GFM tables/strikethrough, typographer replacements/smartquotes, link normalization/validation, reference definitions, plugin ruler/state APIs, Token helpers; adversarial emphasis nesting and odd-match closers",
+        "adversarial_shapes": [
+          "quintuple-emphasis runs (*****)",
+          "mismatched closer/opener parity (*a **b* c**)",
+          "intra-word __ without emphasis",
+          "backtick info strings (not fences)",
+          "empty reference definitions",
+          "invalid html-like text staying literal"
+        ],
+        "coverage_complement": [
+          "plugin rule insertion + short-circuit order",
+          "StateBlock line-cache arrays",
+          "normalizeLink punycode + validateLink schemes",
+          "enableOnly/ruler cache invalidation",
+          "terminator-char extension"
+        ],
+        "heldout_sizes": [
+          "12 core-API tests",
+          "11 render tests",
+          "9 state tests"
+        ],
+        "visible_sizes": [
+          "1031 oracle tests"
+        ],
+        "identity_sensitive_repeats": []
+      },
+      "heldout_suites": [
+        {
+          "name": "test_heldout_core_api.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): MarkdownIt core API surface.\n\nCovers presets, enable/disable, options, plugins, Token helpers, and the\nparse/render/renderInline entry points. A visible-only hardcode fails these:\nthey exercise configuration combinations the oracle never constructs.\n\"\"\"\n\nimport pytest\n\nfrom markdown_it import MarkdownIt\nfrom markdown_it.token import Token\n\n\ndef test_zero_preset_rules():\n    md = MarkdownIt(\"zero\")\n    active = md.get_active_rules()\n    assert active[\"block\"] == [\"paragraph\"]\n    assert active[\"inline\"] == [\"text\"]\n    assert active[\"inline2\"] == [\"balance_pairs\", \"fragments_join\"]\n    assert md.render(\"hello *world*\") == \"<p>hello *world*</p>\\n\"\n\n\ndef test_commonmark_preset_no_linkify_or_typographer():\n    md = MarkdownIt(\"commonmark\")\n    assert md.options[\"linkify\"] is False\n    assert md.render(\"www.example.com\") == \"<p>www.example.com</p>\\n\"\n    assert md.render('\"hi\"') == '<p>&quot;hi&quot;</p>\\n'\n\n\ndef test_gfm_like_enables_table_and_strikethrough():\n    md = MarkdownIt(\"gfm-like\")\n    assert md.render(\"| a |\\n|---|\\n| b |\\n\") == (\n        \"<table>\\n<thead>\\n<tr>\\n<th>a</th>\\n</tr>\\n</thead>\\n\"\n        \"<tbody>\\n<tr>\\n<td>b</td>\\n</tr>\\n</tbody>\\n</table>\\n\"\n    )\n    assert md.render(\"~~gone~~\") == \"<p><s>gone</s></p>\\n\"\n\n\ndef test_enable_disable_roundtrip():\n    md = MarkdownIt(\"gfm-like\")\n    md.disable(\"table\")\n    assert \"<table>\" not in md.render(\"| a |\\n|---|\\n| b |\\n\")\n    md.enable(\"table\")\n    assert \"<table>\" in md.render(\"| a |\\n|---|\\n| b |\\n\")\n    md.disable([\"emphasis\", \"backticks\"])\n    assert md.render(\"*a* `b`\") == \"<p>*a* `b`</p>\\n\"\n    with pytest.raises(ValueError):\n        md.enable(\"no-such-rule\")\n    md.enable(\"no-such-rule\", ignoreInvalid=True)\n\n\ndef test_reset_rules_context():\n    md = MarkdownIt()\n    before = md.get_active_rules()\n    with md.reset_rules():\n        md.disable(\"emphasis\")\n        assert \"emphasis\" not in md.get_active_rules()[\"inline\"]\n    assert md.get_active_rules() == before\n\n\ndef test_options_effects():\n    md = MarkdownIt(\"commonmark\", {\"html\": False})\n    assert md.render(\"<b>x</b>\") == \"<p>&lt;b&gt;x&lt;/b&gt;</p>\\n\"\n    md = MarkdownIt(\"commonmark\", {\"breaks\": True})\n    assert md.render(\"a\\nb\") == \"<p>a<br />\\nb</p>\\n\"\n    md = MarkdownIt(\"commonmark\", {\"maxNesting\": 1})\n    assert md.render(\"> > > deep\") == \"<blockquote></blockquote>\\n\"\n\n\ndef test_render_inline_and_parse():\n    md = MarkdownIt()\n    assert md.renderInline(\"**bold**\") == \"<strong>bold</strong>\"\n    tokens = md.parse(\"# head\\n\\nbody\", {})\n    assert [t.type for t in tokens] == [\n        \"heading_open\",\n        \"inline\",\n        \"heading_close\",\n        \"paragraph_open\",\n        \"inline\",\n        \"paragraph_close\",\n    ]\n    assert tokens[0].tag == \"h1\"\n    assert tokens[0].markup == \"#\"\n    assert tokens[1].children[0].content == \"head\"\n\n\ndef test_plugin_block_rule_called():\n    seen = []\n\n    def my_rule(state, start, end, silent):\n        seen.append((start, end, silent))\n        return False\n\n    md = MarkdownIt().use(lambda m: m.block.ruler.before(\"paragraph\", \"my_rule\", my_rule))\n    md.render(\"hello\")\n    assert seen == [(0, 1, False)]\n\n\ndef test_plugin_inline_rule_with_state_mutation():\n    def bang_rule(state, silent):\n        if state.src[state.pos] != \"!\":\n            return False\n        state.pos += 1\n        tok = state.push(\"text_special\", \"\", 0)\n        tok.content = \"BANG\"\n        tok.markup = \"!\"\n        return True\n\n    md = MarkdownIt().use(lambda m: m.inline.ruler.before(\"text\", \"bang\", bang_rule))\n    assert md.render(\"a!b\") == \"<p>aBANGb</p>\\n\"\n\n\ndef test_add_render_rule_override():\n    md = MarkdownIt()\n\n    def fence_renderer(self, tokens, idx, options, env):\n        return \"<CUSTOM-FENCE>\\n\"\n\n    md.add_render_rule(\"fence\", fence_renderer)\n    assert md.render(\"```py\\nx = 1\\n```\\n\") == \"<CUSTOM-FENCE>\\n\"\n\n\ndef test_token_helpers():\n    tok = Token(\"link_open\", \"a\", 1)\n    assert tok.attrs == {}\n    tok.attrSet(\"href\", \"https://example.com\")\n    assert tok.attrGet(\"href\") == \"https://example.com\"\n    assert tok.attrGet(\"missing\") is None\n    tok.attrJoin(\"class\", \"x\")\n    tok.attrJoin(\"class\", \"y\")\n    assert tok.attrGet(\"class\") == \"x y\"\n    tok.attrPush([\"title\", \"t\"])\n    assert list(tok.attrs) == [\"href\", \"class\", \"title\"]\n    assert tok.attrItems() == [\n        (\"href\", \"https://example.com\"),\n        (\"class\", \"x y\"),\n        (\"title\", \"t\"),\n    ]\n    assert tok.as_dict()[\"attrs\"] == [\n        [\"href\", \"https://example.com\"],\n        [\"class\", \"x y\"],\n        [\"title\", \"t\"],\n    ]\n    assert Token(\"x\", \"y\", 0).as_dict()[\"attrs\"] is None\n    assert Token.from_dict(tok.as_dict()) == tok\n    assert tok.copy(content=\"c\").content == \"c\"\n\n\ndef test_token_nesting_levels_propagate():\n    md = MarkdownIt()\n    toks = md.parse(\"> quote\")\n    assert toks[0].type == \"blockquote_open\"\n    assert toks[0].level == 0\n    assert toks[1].type == \"paragraph_open\"\n    assert toks[1].level == 1\n"
+        },
+        {
+          "name": "test_heldout_render.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): adversarial render shapes.\n\nNested/escaped emphasis, link edge cases, autolink, code spans, fences,\nreference definitions, setext/lists/blockquote nesting, typographer, and\nHTML passthrough. Expected values verified against the pristine original.\n\"\"\"\n\nfrom markdown_it import MarkdownIt\n\n\ndef _r(src, preset=\"commonmark\", opts=None):\n    return MarkdownIt(preset, opts).render(src)\n\n\ndef test_emphasis_nesting_and_intraword():\n    assert _r(\"*a **b** c*\") == \"<p><em>a <strong>b</strong> c</em></p>\\n\"\n    assert _r(\"**a *b* c**\") == \"<p><strong>a <em>b</em> c</strong></p>\\n\"\n    assert _r(\"foo __bar__ baz\") == \"<p>foo <strong>bar</strong> baz</p>\\n\"\n    assert _r(\"a*b*c\") == \"<p>a<em>b</em>c</p>\\n\"\n    assert _r(\"a**b**c\") == \"<p>a<strong>b</strong>c</p>\\n\"\n    assert _r(\"a__b__c\") == \"<p>a__b__c</p>\\n\"\n    assert _r(\"***a***\") == \"<p><em><strong>a</strong></em></p>\\n\"\n    assert _r(\"*****a*****\") == \"<p><em><strong><strong>a</strong></strong></em></p>\\n\"\n    assert _r(\"*a **b* c**\") == \"<p><em>a <em><em>b</em> c</em></em></p>\\n\"\n\n\ndef test_emphasis_odd_match_and_empty():\n    assert _r(\"**a***\") == \"<p><strong>a</strong>*</p>\\n\"\n    assert _r(\"*a****\") == \"<p><em>a</em>***</p>\\n\"\n    assert _r(\"****a**\") == \"<p>**<strong>a</strong></p>\\n\"\n    assert _r(\"__a___\") == \"<p><strong>a</strong>_</p>\\n\"\n\n\ndef test_links_titles_and_escapes():\n    assert _r('[a](https://example.com \"t\")') == (\n        '<p><a href=\"https://example.com\" title=\"t\">a</a></p>\\n'\n    )\n    assert _r(\"[a](https://example.com 't')\") == (\n        '<p><a href=\"https://example.com\" title=\"t\">a</a></p>\\n'\n    )\n    assert _r(\"[a](https://example.com (t))\") == (\n        '<p><a href=\"https://example.com\" title=\"t\">a</a></p>\\n'\n    )\n    assert _r(\"[a](</my uri>)\") == '<p><a href=\"/my%20uri\">a</a></p>\\n'\n    assert _r(\"[a](\\\\*foo*)\") == '<p><a href=\"*foo*\">a</a></p>\\n'\n    assert _r(\"[link](/url\\\\))\") == '<p><a href=\"/url)\">link</a></p>\\n'\n\n\ndef test_reference_definitions():\n    src = \"[foo]\\n\\n[foo]: /url \\\"title\\\"\\n\"\n    assert _r(src) == '<p><a href=\"/url\" title=\"title\">foo</a></p>\\n'\n    src = \"[FOO]\\n\\n[foo]: /url\\n\"\n    assert _r(src) == '<p><a href=\"/url\">FOO</a></p>\\n'\n    src = \"[a][b]\\n\\n[b]: /u1\\n[a]: /u2\\n\"\n    assert _r(src) == '<p><a href=\"/u1\">a</a></p>\\n'\n    src = \"[a]\\n\\n[a]: /u1\\n[a]: /u2\\n\"\n    assert _r(src) == '<p><a href=\"/u1\">a</a></p>\\n'\n    src = \"[a]\\n\\n[a]:\\n\"\n    assert _r(src) == \"<p>[a]</p>\\n<p>[a]:</p>\\n\"\n\n\ndef test_autolink_and_entities():\n    assert _r(\"<https://example.com/x?y=1&z=2>\") == (\n        '<p><a href=\"https://example.com/x?y=1&amp;z=2\">'\n        \"https://example.com/x?y=1&amp;z=2</a></p>\\n\"\n    )\n    assert _r(\"<user@example.com>\") == (\n        '<p><a href=\"mailto:user@example.com\">user@example.com</a></p>\\n'\n    )\n    assert _r(\"&amp; &lt; &gt; &quot; &#169; &#xA9; &unknown;\") == (\n        \"<p>&amp; &lt; &gt; &quot; © © &amp;unknown;</p>\\n\"\n    )\n    assert _r(\"AT&T\") == \"<p>AT&amp;T</p>\\n\"\n\n\ndef test_code_spans_and_fences():\n    assert _r(\"`` `a` ``\") == \"<p><code>`a`</code></p>\\n\"\n    assert _r(\"`a\\\\`b`\") == \"<p><code>a\\\\</code>b`</p>\\n\"\n    assert _r(\"    a  b\") == \"<pre><code>a  b\\n</code></pre>\\n\"\n    assert _r(\"```js\\nvar a = 1;\\n```\") == (\n        '<pre><code class=\"language-js\">var a = 1;\\n</code></pre>\\n'\n    )\n    assert _r(\"``` info `ok` \\nx\\n```\") == (\n        \"<p>``` info <code>ok</code>\\nx</p>\\n<pre><code></code></pre>\\n\"\n    )\n    assert _r(\"~~~ a b c ~~~\\nx\\n~~~\") == (\n        '<pre><code class=\"language-a\">x\\n</code></pre>\\n'\n    )\n\n\ndef test_setext_lists_blockquote():\n    assert _r(\"a\\n=\\nb\\n-\\n\") == \"<h1>a</h1>\\n<h2>b</h2>\\n\"\n    assert _r(\"- a\\n- b\\n  - c\\n\") == (\n        \"<ul>\\n<li>a</li>\\n<li>b\\n<ul>\\n<li>c</li>\\n</ul>\\n</li>\\n</ul>\\n\"\n    )\n    assert _r(\"1) a\\n2) b\\n\") == \"<ol>\\n<li>a</li>\\n<li>b</li>\\n</ol>\\n\"\n    assert _r(\"3) a\\n4) b\\n\") == '<ol start=\"3\">\\n<li>a</li>\\n<li>b</li>\\n</ol>\\n'\n    assert _r(\"> a\\n> > b\\n\") == (\n        \"<blockquote>\\n<p>a</p>\\n<blockquote>\\n<p>b</p>\\n</blockquote>\\n\"\n        \"</blockquote>\\n\"\n    )\n    assert _r(\"- a\\n\\n- b\\n\") == (\n        \"<ul>\\n<li>\\n<p>a</p>\\n</li>\\n<li>\\n<p>b</p>\\n</li>\\n</ul>\\n\"\n    )\n\n\ndef test_html_passthrough_and_escape():\n    assert _r(\"<div>\\n*hi*\\n</div>\\n\") == \"<div>\\n*hi*\\n</div>\\n\"\n    assert _r(\"a <b>c</b> d\") == \"<p>a <b>c</b> d</p>\\n\"\n    assert _r(\"a <b c> d\") == \"<p>a <b c> d</p>\\n\"\n    assert _r(\"<http://x>\", preset=\"zero\") == \"<p>&lt;http://x&gt;</p>\\n\"\n\n\ndef test_typographer_replacements_and_quotes():\n    md = MarkdownIt(\"commonmark\", {\"typographer\": True}).enable(\n        [\"replacements\", \"smartquotes\"]\n    )\n    assert md.render('\"a\"') == \"<p>“a”</p>\\n\"\n    assert md.render(\"'a'\") == \"<p>‘a’</p>\\n\"\n    assert md.render(\"a -- b --- c ...\") == \"<p>a – b — c …</p>\\n\"\n    assert md.render(\"(c) (r) (tm) +-\") == \"<p>© ® ™ ±</p>\\n\"\n    assert md.render(\"???? !!,,\") == \"<p>??? !!,</p>\\n\"\n\n\ndef test_strikethrough_gfm_like():\n    md = MarkdownIt(\"gfm-like\")\n    assert md.render(\"~~a~~\") == \"<p><s>a</s></p>\\n\"\n    assert md.render(\"~~a~~~\") == \"<p><s>a</s>~</p>\\n\"\n    assert md.render(\"a~~b~~c\") == \"<p>a<s>b</s>c</p>\\n\"\n\n\ndef test_hardbreaks_and_paragraph_edges():\n    assert _r(\"a  \\nb\") == \"<p>a<br />\\nb</p>\\n\"\n    assert _r(\"a\\\\\\nb\") == \"<p>a<br />\\nb</p>\\n\"\n    assert _r(\"a\\nb\") == \"<p>a\\nb</p>\\n\"\n    assert _r(\"# a #\\n\") == \"<h1>a</h1>\\n\"\n    assert _r(\"####### x\") == \"<p>####### x</p>\\n\"\n    assert _r(\"***\\n\") == \"<hr />\\n\"\n    assert _r(\"   ***   \\n\") == \"<hr />\\n\"\n"
+        },
+        {
+          "name": "test_heldout_states.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): parser/ruler/state surface.\n\nRuler enable/disable/ordering, StateBlock line-cache helpers, link\nvalidation, reference env shape, and terminator-char extension. Expected\nvalues verified against the pristine original.\n\"\"\"\n\nfrom markdown_it import MarkdownIt\nfrom markdown_it.common.normalize_url import normalizeLink, normalizeLinkText, validateLink\nfrom markdown_it.rules_block.state_block import StateBlock\n\n\ndef _md(preset=\"commonmark\"):\n    return MarkdownIt(preset)\n\n\ndef test_ruler_lists_and_enable_only():\n    md = _md()\n    assert md.block.ruler.get_all_rules() == [\n        \"table\",\n        \"code\",\n        \"fence\",\n        \"blockquote\",\n        \"hr\",\n        \"list\",\n        \"reference\",\n        \"html_block\",\n        \"heading\",\n        \"lheading\",\n        \"paragraph\",\n    ]\n    assert len(md.block.ruler.getRules(\"\")) == len(md.block.ruler.get_active_rules())\n    md.block.ruler.enableOnly([\"paragraph\", \"heading\"])\n    assert md.get_active_rules()[\"block\"] == [\"heading\", \"paragraph\"]\n    assert md.render(\"# hi\") == \"<h1>hi</h1>\\n\"\n    # fence disabled: backticks (still active inline) parse it as a code span\n    assert md.render(\"```x\\ny\\n```\") == \"<p><code>x y </code></p>\\n\"\n\n\ndef test_ruler_before_after_positions_and_short_circuit():\n    md = _md(\"zero\")\n    calls = []\n\n    def rec(name):\n        def rule(state, start, end, silent):\n            calls.append((name, start, end, silent))\n            return False\n\n        return rule\n\n    md.block.ruler.before(\"paragraph\", \"first\", rec(\"first\"))\n    md.block.ruler.after(\"paragraph\", \"last\", rec(\"last\"))\n    names = md.block.ruler.get_all_rules()\n    assert names.index(\"first\") < names.index(\"paragraph\") < names.index(\"last\")\n    md.render(\"hi\")\n    # paragraph consumes the line, so the rule after it never runs\n    assert calls == [(\"first\", 0, 1, False)]\n\n\ndef test_state_block_line_caches():\n    md = _md()\n    st = StateBlock(\"  hello\\n    world\\n\\nnext\", md, {}, [])\n    assert st.bMarks == [0, 8, 18, 19, 23]\n    assert st.eMarks == [7, 17, 18, 23, 23]\n    assert st.tShift == [2, 4, 0, 0, 0]\n    assert st.sCount == [2, 4, 0, 0, 0]\n    assert st.bsCount == [0, 0, 0, 0, 0]\n    assert st.blkIndent == 0\n    assert st.lineMax == 4\n    assert st.isEmpty(2) is True\n    assert st.isEmpty(0) is False\n    assert st.skipEmptyLines(0) == 0\n    assert st.skipEmptyLines(2) == 3\n    assert st.skipSpaces(0) == 2\n    assert st.skipSpacesBack(6, 0) == 6\n    assert st.skipSpacesBack(2, 0) == 0\n    assert st.skipChars(0, 0x20) == 2\n    assert st.skipCharsBack(6, 0x6F, 0) == 6\n    assert st.getLines(0, 2, 0, False) == \"  hello\\n    world\"\n\n\ndef test_state_block_push_level_tracking():\n    md = _md()\n    st = StateBlock(\"x\", md, {}, [])\n    t = st.push(\"paragraph_open\", \"p\", 1)\n    assert t.block is True\n    assert t.map is None\n    assert t.level == 0\n    assert st.level == 1\n    assert st.tokens == [t]\n    c = st.push(\"paragraph_close\", \"p\", -1)\n    assert c.level == 0\n    assert st.level == 0\n\n\ndef test_inline_children_shapes():\n    md = _md()\n    (inline,) = [t for t in md.parse(\"[a](/u) and [b]\") if t.type == \"inline\"]\n    assert [c.type for c in inline.children] == [\n        \"link_open\",\n        \"text\",\n        \"link_close\",\n        \"text\",\n    ]\n    assert inline.children[0].attrs == {\"href\": \"/u\"}\n    assert inline.children[0].markup == \"\"\n    assert inline.children[0].info == \"\"\n\n\ndef test_normalize_and_validate_link():\n    assert normalizeLink(\"https://example.com/a b\") == \"https://example.com/a%20b\"\n    assert normalizeLinkText(\"https://example.com/a%20b\") == \"https://example.com/a b\"\n    assert normalizeLink(\"http://exämple.com/\") == \"http://xn--exmple-cua.com/\"\n    assert normalizeLink(\"mailto:user@example.com\") == \"mailto:user@example.com\"\n    assert validateLink(\"javascript:alert(1)\") is False\n    assert validateLink(\"JAVASCRIPT:x\") is False\n    assert validateLink(\"data:image/png;base64,AAA\") is True\n    assert validateLink(\"data:text/html,x\") is False\n    assert validateLink(\"https://example.com\") is True\n    assert validateLink(\"https://example.com\", lambda u: u.startswith(\"https\")) is True\n\n\ndef test_reference_env_shape():\n    md = _md()\n    env = {}\n    md.parse(\"[a]\\n\\n[a]: /url\\n\\n[a]\\n\", env)\n    assert env[\"references\"] == {\"A\": {\"title\": \"\", \"href\": \"/url\", \"map\": [2, 3]}}\n\n\ndef test_footnotes_absent_by_default():\n    assert _md().render(\"[^a]\") == \"<p>[^a]</p>\\n\"\n\n\ndef test_inline_terminator_extension():\n    md = _md()\n    md.inline.add_terminator_char(\"w\")\n    assert \"w\" in md.inline._extra_terminator_chars\n    hits = []\n\n    def w_rule(state, silent):\n        if state.src[state.pos] != \"w\":\n            return False\n        hits.append(state.pos)\n        state.pos += 1\n        return True\n\n    md.inline.ruler.push(\"w_rule\", w_rule)\n    assert md.render(\"awb\") == \"<p>ab</p>\\n\"\n    assert hits == [1]\n"
+        }
+      ],
+      "hotspot_descriptors": [
+        "render:paragraph-text-run",
+        "parse:block-fence-info-string",
+        "parse:inline-emphasis-delimiter-scan",
+        "parse:inline-link-destination-title",
+        "render:link-normalize-via-mdurl"
+      ],
+      "porting_rules": [
+        {
+          "title": "index strings by character, never by byte",
+          "original": "Original (Python): `src[pos]`, `src[pos:posMax]`, and all cursor arithmetic address Unicode scalar values; `len(src)` counts characters",
+          "rust": "Rust: decode the source once into `Vec<char>` (or a char-boundary-checked rope); every `pos`/`posMax`/marker is a char index, never a byte index",
+          "example": "Example: `state.src[state.pos]` reads the char at `pos`; slicing uses char ranges, not `&src[a..b]`"
+        },
+        {
+          "title": "lookahead regexes have no regex-crate equivalent",
+          "original": "Original: `html_block.py` and `replacements.py` use `(?=...)` lookahead (`^<(script|pre|style|textarea)(?=(\\s|>|$))`, `(^|[^-])---(?=[^-]|$)`)",
+          "rust": "Rust: match these with `fancy-regex` or hand-rolled char scanners; never silently drop the lookahead (it changes fence/html/divergence behavior)",
+          "example": "Example: `EM_DASH_RE` keeps the `(^|[^-])` prefix outside the match via manual scan"
+        },
+        {
+          "title": "mdurl and linkify stay host callbacks",
+          "original": "Original: `normalizeLink`/`normalizeLinkText` call `mdurl.parse/format/encode/decode`; the linkify rules call methods on the `linkify-it-py` object in `md.linkify` (absent installs raise `ModuleNotFoundError`)",
+          "rust": "Rust: call back into the Python `mdurl` module and the `Py<PyAny>` linkify object through the GIL; absence (`None`) follows the exact original raise/skip path",
+          "example": "Example: `normalize_link` imports `mdurl` once per parse and calls `parse`/`format` on it"
+        },
+        {
+          "title": "plugin rules are opaque Python callables",
+          "original": "Original: `Ruler` stores arbitrary Python rule functions (`before`/`after`/`at`/`push`); block/inline parsing short-circuits on the first truthy return and passes live `State*` objects",
+          "rust": "Rust: store `Py<PyAny>` callables in the rule table; invoke with the live pyclass state and convert the truthy return; never snapshot state across the call",
+          "example": "Example: `Ruler.call_block` does `rule.call1((state, start, end, silent))` and checks `is_truthy`"
+        },
+        {
+          "title": "Token children and meta are shared references",
+          "original": "Original: `Token` is a mutable dataclass; `children` lists and `meta` dicts are aliased across rules, `copy()` is shallow (`dc.replace`), `as_dict(as_upstream=True)` maps `{}` attrs to `None` and dict attrs to lists of pairs",
+          "rust": "Rust: `Token` pyclass holds `Option<Vec<Py<Token>>>` children and `Py<PyDict>` attrs/meta with clone-on-clone reference semantics; `as_dict` reproduces the upstream `{}`/`None`/pairs mapping exactly",
+          "example": "Example: `token.copy(content='c')` shares children with the original"
+        },
+        {
+          "title": "options are validated properties, not a dict",
+          "original": "Original: `OptionsDict` supports both `options['maxNesting']` and `options.maxNesting`, with type/range validation on set (e.g. `maxNesting` must be a non-negative int) and a `highlight` callable slot",
+          "rust": "Rust: options pyclass implements `__getitem__`/`__setitem__` plus property getters/setters with the same validation errors; `maxNesting` drives the renderer's nesting-limit elision",
+          "example": "Example: `md = MarkdownIt('commonmark', {'maxNesting': 1})` still renders `'<blockquote></blockquote>`"
+        },
+        {
+          "title": "emphasis closers follow the odd-match rule",
+          "original": "Original: `emphasis.py` post-processing pairs closers with openers of the same marker, skipping pairs where the opener can-close and the sum of lengths is odd (`can_open`/`can_close` flank analysis); `*****a*****` nests strong inside strong, it does not alternate",
+          "rust": "Rust: port the delimiter-pairing loop verbatim, including the odd-match skip and the `*` vs `_` intra-word difference; golden-file the quintuple cases",
+          "example": "Example: `*****a*****` renders `<em><strong><strong>a</strong></strong></em>`"
+        },
+        {
+          "title": "smartquotes replacements read the inline content, not children",
+          "original": "Original: `replacements.replace` gates `replace_scoped`/`replace_rare` on regex searches over the parent inline token's `content`, then rewrites the text children; autolink interiors are excluded via the `inside_autolink` counter keyed on `info == 'auto'`",
+          "rust": "Rust: keep the two-level gate (parent content search, then child rewrite) and the autolink counter; never apply replacements to already-linked text",
+          "example": "Example: `(c)` becomes `©` in text but stays literal inside `<http://x(c)>`"
+        },
+        {
+          "title": "reference labels normalize before lookup",
+          "original": "Original: `reference.py` normalizes labels (case-fold, collapse whitespace) and the FIRST definition wins; `env['references']` maps the normalized label to `{title, href, map}`; an empty destination is not a definition",
+          "rust": "Rust: normalize with the same fold-and-collapse function at store and at lookup; keep first-wins; expose `map` line ranges in env",
+          "example": "Example: `[FOO]` resolves `[foo]: /url`, and `[a]:` alone stays a paragraph"
+        },
+        {
+          "title": "ruler caches invalidate on every mutation",
+          "original": "Original: `Ruler.__cache__` compiles per-chain rule lists on first `getRules` and resets to `None` on every `at`/`before`/`after`/`push`/`enable`/`disable`/`enableOnly`; `enableOnly` preserves registration order, not the argument order",
+          "rust": "Rust: cache `Option<HashMap<String, Vec<Rule>>>` cleared on every mutation; active-rule listing follows registration order",
+          "example": "Example: `enableOnly(['paragraph', 'heading'])` activates `['heading', 'paragraph']`"
+        }
+      ],
+      "workload_contract": {
+        "primary": "wall_time_p50",
+        "secondary": "throughput",
+        "distribution": "CommonMark render of docs from 100B one-liners through 200KB spec-shaped documents; share API-shaped (render 60%, parse-tokens 25%, renderInline 15%)",
+        "out_of_scope": "inputs >1MB; linkify-it scanning of pathological URLs; pygments-style highlight callbacks",
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+      },
+      "workload_probe": {
+        "script": "import sys; from markdown_it import MarkdownIt; print(len(MarkdownIt().render(sys.argv[1])))",
+        "argvs": [
+          "# Hello\n\nworld **bold** and *italic* with [a link](https://example.com)"
+        ]
+      },
+      "workloads": {
+        "visible": [
+          {
+            "name": "vis-render-doc",
+            "setup": "from markdown_it import MarkdownIt\nmd = MarkdownIt()\nDOC = ('# Title\\n\\nIntro *emph* **strong** with [link](https://example.com).\\n\\n- item one\\n- item two\\n\\n```py\\nx = 1\\n```\\n\\n> quote\\n' * 20)",
+            "stmt": "md.render(DOC)",
+            "iters": 50
+          },
+          {
+            "name": "vis-parse-tokens",
+            "setup": "from markdown_it import MarkdownIt\nmd = MarkdownIt()\nDOC = ('## H\\n\\nText with `code`, ![img](/i.png), and <https://example.com>.\\n' * 20)",
+            "stmt": "md.parse(DOC, {})",
+            "iters": 50
+          }
+        ],
+        "heldout": [
+          {
+            "name": "held-render-table",
+            "setup": "from markdown_it import MarkdownIt\nmd = MarkdownIt('gfm-like')\nDOC = ('| a | b |\\n|---|---|\\n| 1 | 2 |\\n\\n~~gone~~ **kept**\\n' * 20)",
+            "stmt": "md.render(DOC)",
+            "iters": 50
+          }
+        ],
+        "tiny": [
+          {
+            "name": "tiny-render",
+            "setup": "from markdown_it import MarkdownIt\nmd = MarkdownIt()",
+            "stmt": "md.render('# hi')",
+            "iters": 10
+          }
+        ]
+      },
+      "heldout_gen": {
+        "kind": "pairs3",
+        "probe": "import json, sys\nfrom markdown_it import MarkdownIt\nmd = MarkdownIt()\nhs = sys.argv[1:]\nout = []\nfor i in range(0, len(hs), 2):\n    a = bytes.fromhex(hs[i]).decode('utf-8', 'replace')\n    b = bytes.fromhex(hs[i + 1]).decode('utf-8', 'replace')\n    out.append([md.render(a), md.render(b), md.render(a + b)])\nprint(json.dumps(out, allow_nan=False))",
+        "header": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom markdown_it import MarkdownIt\n\n\ndef _render(s):\n    return MarkdownIt().render(s)\n\n\ndef test_generated_pins():\n",
+        "line": "    assert _render({A}) == {V0}\n    assert _render({B}) == {V1}\n    assert _render({A} + {B}) == {V2}\n"
+      },
+      "candidate_pool": []
     }
   }
 }
