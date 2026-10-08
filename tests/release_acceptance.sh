@@ -86,13 +86,13 @@ print('readme receipt OK')
 EOF
 RMD_PATH="$(tar tzf "$OUT"/dist/*.tar.gz | grep 'README.md$' | head -n 1)"
 test -n "$RMD_PATH" || (echo "FAIL: no README.md in sdist"; exit 1)
-tar xzOf "$OUT"/dist/*.tar.gz "$RMD_PATH" | grep -q 'RUSTSMITH-PERF:BEGIN' \
+test -n "$(tar xzOf "$OUT"/dist/*.tar.gz "$RMD_PATH" | grep 'RUSTSMITH-PERF:BEGIN')" \
   || (echo "FAIL: receipt missing from sdist README"; exit 1)
 echo "sdist receipt OK"
 
 echo "-- sdist carries the core (independent re-check, not just prep's word)"
-tar tzf "$OUT"/dist/*.tar.gz | grep -q 'crc-core/Cargo.toml' || (echo "FAIL: core missing from sdist"; exit 1)
-tar tzf "$OUT"/dist/*.tar.gz | grep -q 'crc/__init__.py' || (echo "FAIL: shim missing from sdist"; exit 1)
+test -n "$(tar tzf "$OUT"/dist/*.tar.gz | grep 'crc-core/Cargo.toml')" || (echo "FAIL: core missing from sdist"; exit 1)
+test -n "$(tar tzf "$OUT"/dist/*.tar.gz | grep 'crc/__init__.py')" || (echo "FAIL: shim missing from sdist"; exit 1)
 echo "sdist contents OK"
 
 echo "-- workflow: configured artifacts, TestPyPI lane, same-file publish, prod release steps"

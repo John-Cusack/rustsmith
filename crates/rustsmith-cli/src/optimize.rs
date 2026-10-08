@@ -59,6 +59,21 @@ pub struct PoolSpec {
     pub est_cost: f64,
 }
 
+/// Normalize the `tiny` workload shape: object (older entries) or
+/// one-element array (newer entries). Missing/empty is an honest error,
+/// never an empty-stmt harness.
+fn tiny_workload(v: &serde_json::Value) -> Result<serde_json::Value, String> {
+    if let Some(arr) = v.as_array() {
+        arr.first()
+            .cloned()
+            .ok_or_else(|| "tiny workload array is empty".to_string())
+    } else if v.is_object() {
+        Ok(v.clone())
+    } else {
+        Err("no tiny workload for package".to_string())
+    }
+}
+
 fn workload_of(v: &serde_json::Value) -> Result<profile::Workload, String> {
     Ok(profile::Workload {
         name: v["name"].as_str().unwrap_or("").to_string(),
@@ -106,7 +121,11 @@ pub fn workloads_for(package: &str) -> Result<PkgWorkloads, String> {
     Ok(PkgWorkloads {
         visible,
         heldout,
-        tiny: workload_of(&w["tiny"])?,
+        // `tiny` is a single workload in older entries and a one-element
+        // array in newer ones (by analogy with `visible`/`heldout`); an
+        // array-shaped `tiny` deserialized as an object silently produced an
+        // empty stmt, whose harness fails with IndentationError (ADR-020).
+        tiny: workload_of(&tiny_workload(&w["tiny"])?)?,
         probe_script: entry["workload_probe"]["script"].as_str().unwrap_or("").to_string(),
         probe_argvs: entry["workload_probe"]["argvs"]
             .as_array()
@@ -1394,12 +1413,15 @@ pub fn run_optimize(a: &OptimizeArgs, store: &Store) -> Result<serde_json::Value
     // from the repo, never a fixture switch).
     let package = crate::repo::facts_package(&a.recon_out)?;
     let staged = a.work.join("orig_src_staged");
+    // Flat layouts stage the whole tree (mirror-consistent): the import dir
+    // is not derivable from the dist name (`markdown-it-py` imports as
+    // `markdown_it`), so probes resolve the package via cwd. (ADR-019.)
     let staged_src = if crate::repo::is_src_layout(&a.orig, &package) {
         a.orig.join("src")
     } else if crate::repo::is_lib_layout(&a.orig) {
         a.orig.join("lib")
     } else {
-        a.orig.join(package.replace('-', "_"))
+        a.orig.clone()
     };
     copy_tree(&staged_src, &staged)?;
     // Stage-2 scratch must never enter commits (venvs, candidates, reports).
@@ -2052,7 +2074,8 @@ pub fn grade_plant(
     let staging = out.join(".origparent");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(staging.join("orig_src_staged")).map_err(|e| e.to_string())?;
-    let staged_src = if crate::repo::is_src_layout(orig, &package) { orig.join("src") } else if crate::repo::is_lib_layout(orig) { orig.join("lib") } else { orig.join(package.replace('-', "_")) };
+    // Flat layouts stage the whole tree (mirror-consistent; see ADR-019).
+    let staged_src = if crate::repo::is_src_layout(orig, &package) { orig.join("src") } else if crate::repo::is_lib_layout(orig) { orig.join("lib") } else { orig.to_path_buf() };
     copy_tree(&staged_src, &staging.join("orig_src_staged"))?;
     let ctx = OptCtx {
         heldout: heldout.to_path_buf(),

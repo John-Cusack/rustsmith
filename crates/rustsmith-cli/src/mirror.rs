@@ -1694,6 +1694,14 @@ fn merge_unit(
     git(fork, &["merge", "--no-commit", "--no-ff", &wt_branch])?;
     for t in deletes {
         if fork.join(t).exists() {
+            // Same-path replacement (flat layouts): the merge already staged
+            // the port content over the original, so there is nothing to
+            // delete — `git rm` would refuse the staged change. Only remove
+            // originals the merge left untouched (different-path ports).
+            // (ADR-018; `git diff --cached --quiet` exits nonzero when dirty.)
+            if git(fork, &["diff", "--cached", "--quiet", "--", t]).is_err() {
+                continue;
+            }
             git(fork, &["rm", "-q", t])?;
         }
     }
