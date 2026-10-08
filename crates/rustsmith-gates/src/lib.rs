@@ -590,6 +590,7 @@ mod tests {
                     launcher: None,
                     timeout_secs: None,
                     collect: vec![],
+                    stdin: None,
                 })
                 .collect(),
             config_hash: String::new(),

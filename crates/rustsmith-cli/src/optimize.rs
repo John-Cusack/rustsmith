@@ -312,6 +312,7 @@ fn startup_cpu(python: &Path, root: &Path) -> Result<f64, String> {
         launcher: None,
         timeout_secs: Some(120),
         collect: Vec::new(),
+        stdin: None,
     };
     let s = run_timed_wait4(&cmd, root)?;
     Ok(s.user_secs + s.sys_secs)
@@ -754,6 +755,7 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
         launcher: None,
         timeout_secs: None,
         collect: Vec::new(),
+        stdin: None,
     };
     let runs = execute_all(worktree, worktree, &[pip_cmd]).map_err(|e| e.to_string())?;
     for r in &runs {
@@ -786,6 +788,7 @@ fn build_release(worktree: &Path, venv: &Path) -> Result<String, String> {
         launcher: None,
         timeout_secs: None,
         collect: Vec::new(),
+        stdin: None,
     };
     let runs = execute_all(worktree, worktree, &[so_q]).map_err(|e| e.to_string())?;
     // Executor stdout carries the `$` transcript first line; skip it.
@@ -925,6 +928,7 @@ fn workload_probe(program: &Path, script: &str, arg: &str) -> TestCommand {
         launcher: None,
         timeout_secs: None,
         collect: Vec::new(),
+        stdin: None,
     }
 }
 /// Run one script over `inputs` on both sides: parent tree serves the

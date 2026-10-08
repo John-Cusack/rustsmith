@@ -246,6 +246,7 @@ fn run_probe(
         launcher: None,
         timeout_secs: None,
         collect: Vec::new(),
+        stdin: None,
     };
     let runs = execute_all(orig, orig, &[cmd]).map_err(|e| e.to_string())?;
     let out = runs.first().ok_or("probe produced no output")?;

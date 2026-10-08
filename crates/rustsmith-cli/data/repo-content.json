@@ -2076,7 +2076,8 @@
         "probes": [
           {
             "program": "matc/src/matc",
-            "args": []
+            "args": [],
+            "stdin": "1+2\nexit\n"
           }
         ]
       }

@@ -447,7 +447,7 @@ fn execute_one(
         child.env_remove(k);
     }
     let (exit_code, so, se) =
-        spawn_capture(&mut child, cmd.timeout_secs).map_err(SandboxError::Io)?;
+        spawn_capture(&mut child, cmd.timeout_secs, cmd.stdin.as_deref()).map_err(SandboxError::Io)?;
     let mut artifacts = collect_from(tree, cmd);
     if build_dir != tree {
         artifacts.extend(collect_from(build_dir, cmd));
@@ -471,10 +471,13 @@ const TIMEOUT_EXIT_CODE: i32 = 124;
 fn spawn_capture(
     cmd: &mut Command,
     timeout_secs: Option<u32>,
+    stdin_data: Option<&str>,
 ) -> std::io::Result<(i32, Vec<u8>, Vec<u8>)> {
-    use std::io::Read;
+    use std::io::{Read, Write};
     use std::process::Stdio;
-    if timeout_secs.is_none() {
+    // Legacy fast path: no timeout and no fed stdin — the child inherits the
+    // parent's stdin exactly as before (argv-only behavior byte-identical).
+    if timeout_secs.is_none() && stdin_data.is_none() {
         let out = cmd.output()?;
         return Ok((
             out.status.code().unwrap_or(-1),
@@ -482,9 +485,14 @@ fn spawn_capture(
             out.stderr,
         ));
     }
-    let limit = Duration::from_secs(u64::from(timeout_secs.unwrap_or(0)));
+    let limit = timeout_secs.map(|t| Duration::from_secs(u64::from(t)));
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    if stdin_data.is_some() {
+        cmd.stdin(Stdio::piped());
+    }
     let mut child = cmd.spawn()?;
+    // Output readers first: a chatty child must never block on a full stdout
+    // pipe while the parent is still writing stdin.
     let read_out = child.stdout.take().map(|mut pipe| {
         std::thread::spawn(move || {
             let mut buf = Vec::new();
@@ -499,13 +507,20 @@ fn spawn_capture(
             buf
         })
     });
+    // Fed stdin goes in whole, then the pipe drops: the child sees EOF, so
+    // stdin-fed REPLs (matc: `1+2\nexit\n`) terminate instead of hanging.
+    if let Some(text) = stdin_data {
+        if let Some(mut pipe) = child.stdin.take() {
+            let _ = pipe.write_all(text.as_bytes());
+        }
+    }
     let start = Instant::now();
     let mut timed_out = false;
     let status = loop {
         match child.try_wait()? {
             Some(s) => break s,
             None => {
-                if start.elapsed() >= limit {
+                if limit.is_some_and(|l| start.elapsed() >= l) {
                     timed_out = true;
                     let _ = child.kill();
                     break child.wait()?;
@@ -850,6 +865,7 @@ mod polyglot_regression_tests {
             launcher: None,
             timeout_secs: None,
             collect: Vec::new(),
+            stdin: None,
         }
     }
 
@@ -1043,6 +1059,7 @@ mod polyglot_regression_tests {
             launcher: None,
             timeout_secs: None,
             collect: vec!["*.xml".to_string()],
+            stdin: None,
         };
         let run = execute_one(&cmd, &tree, &build).unwrap();
         assert_eq!(run.exit_code, 0);
@@ -1091,6 +1108,7 @@ mod polyglot_regression_tests {
             launcher: None,
             timeout_secs: None,
             collect: Vec::new(),
+            stdin: None,
         };
         let run = execute_one(&cmd, &tree, &build).unwrap();
         assert_eq!(run.exit_code, 0);
@@ -1103,5 +1121,41 @@ mod polyglot_regression_tests {
         );
         let body = run.stdout.lines().skip(1).collect::<Vec<_>>().join("\n");
         assert_eq!(body, "one\ntwo");
+    }
+
+    #[test]
+    fn executor_pipes_stdin_then_eof() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        let build = dir.path().join("build");
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::create_dir_all(&build).unwrap();
+        // `cat` echoes exactly what it reads: the body proves the fed bytes
+        // arrived, exit 0 under a timeout proves EOF closed the pipe (a
+        // stdin-fed REPL that never saw EOF would hang to 124 instead).
+        let mut cmd = simple_cmd("cat", &[], Cwd::Tree);
+        cmd.timeout_secs = Some(30);
+        cmd.stdin = Some("1+2\nexit\n".to_string());
+        let run = execute_one(&cmd, &tree, &build).unwrap();
+        assert_eq!(run.exit_code, 0);
+        let body = run.stdout.lines().skip(1).collect::<Vec<_>>().join("\n");
+        assert_eq!(body, "1+2\nexit");
+    }
+
+    #[test]
+    fn executor_argv_only_leaves_stdin_unset() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        let build = dir.path().join("build");
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::create_dir_all(&build).unwrap();
+        // `echo` never reads stdin: with `stdin: None` the child inherits the
+        // parent's stdin and the transcript keeps its legacy bytes.
+        let cmd = simple_cmd("echo", &["argv-ok"], Cwd::Tree);
+        assert_eq!(cmd.stdin, None);
+        let run = execute_one(&cmd, &tree, &build).unwrap();
+        assert_eq!(run.exit_code, 0);
+        let body = run.stdout.lines().skip(1).collect::<Vec<_>>().join("\n");
+        assert_eq!(body, "argv-ok");
     }
 }

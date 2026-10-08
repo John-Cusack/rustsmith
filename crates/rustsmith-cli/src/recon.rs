@@ -685,6 +685,7 @@ fn discover_ctest_baseline(
         launcher: None,
         timeout_secs: Some(300),
         collect: Vec::new(),
+        stdin: None,
     };
     let runs = execute_all(repo, build_dir, &[list]).map_err(|e| e.to_string())?;
     let run = runs.first().ok_or("ctest -N produced no output")?;
@@ -817,9 +818,10 @@ mod recon_regression_tests {
                 cwd: Cwd::Tree,
                 env_set: Vec::new(),
                 env_remove: Vec::new(),
-                launcher: None,
-                timeout_secs: None,
-                collect: Vec::new(),
+            launcher: None,
+            timeout_secs: None,
+            collect: Vec::new(),
+            stdin: None,
             }]
         }
         fn config_hash(&self, _cx: &BuildCtx) -> Result<String, AdapterError> {
@@ -837,6 +839,7 @@ mod recon_regression_tests {
             launcher: None,
             timeout_secs: None,
             collect: Vec::new(),
+            stdin: None,
         }]
     }
 
@@ -1065,6 +1068,7 @@ mod recon_regression_tests {
             launcher: None,
             timeout_secs: None,
             collect: Vec::new(),
+            stdin: None,
         }];
         assert_eq!(
             ctest_list_args(&labeled),
@@ -1079,6 +1083,7 @@ mod recon_regression_tests {
             launcher: None,
             timeout_secs: None,
             collect: Vec::new(),
+            stdin: None,
         }];
         assert_eq!(ctest_list_args(&plain), vec!["-N".to_string()]);
         let empty: Vec<TestCommand> = Vec::new();
