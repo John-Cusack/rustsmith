@@ -1,0 +1,19 @@
+[package]
+name = "pyparsing-rust"
+version = "3.3.3"
+edition = "2021"
+description = "Pure-Rust character-scan engine with Python bindings (rustsmith Stage-1 mirror of pyparsing/pyparsing)"
+license = "MIT"
+repository = "https://github.com/John-Cusack/pyparsing-rust"
+homepage = "https://github.com/pyparsing/pyparsing"
+
+[lib]
+name = "_pyparsing"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyparsing-rust-core = { path = "pyparsing-core", version = "3.3.3" }
+pyo3 = { version = "0.23", features = ["macros"] }
+
+[workspace]
+members = ["pyparsing-core"]

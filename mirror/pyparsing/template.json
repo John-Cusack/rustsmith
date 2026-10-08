@@ -1,0 +1,33 @@
+{
+  "package": "pyparsing",
+  "extension_module": "pyparsing._pyparsing",
+  "src_layout": false,
+  "files": [
+    ["Cargo.toml", "Cargo.toml"],
+    ["Cargo.lock", "Cargo.lock"],
+    ["pyproject.toml", "pyproject.toml"],
+    ["release.toml", "release.toml"],
+    ["NOTICE", "NOTICE"],
+    ["README.md", "README.md"],
+    ["src/lib.rs", "src/lib.rs"],
+    ["pyparsing-core/Cargo.toml", "pyparsing-core/Cargo.toml"],
+    ["pyparsing-core/src/lib.rs", "pyparsing-core/src/lib.rs"],
+    ["pyparsing/core.py", "pyparsing/core.py"]
+  ],
+  "extra_files": {},
+  "delete_on_merge": {
+    "python:pyparsing/actions.py": [],
+    "python:pyparsing/ai/show_best_practices/__main__.py": [],
+    "python:pyparsing/common.py": [],
+    "python:pyparsing/core.py": [],
+    "python:pyparsing/exceptions.py": [],
+    "python:pyparsing/helpers.py": [],
+    "python:pyparsing/results.py": [],
+    "python:pyparsing/testing.py": [],
+    "python:pyparsing/tools/cvt_pyparsing_pep8_names.py": [],
+    "python:pyparsing/unicode.py": [],
+    "python:pyparsing/util.py": [],
+    "python:pyparsing/warnings.py": []
+  },
+  "orig_source": {}
+}

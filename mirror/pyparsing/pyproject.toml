@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pyparsing-rust"
+version = "3.3.3"
+description = "Python parsing module (rustsmith Stage-1 mirror of pyparsing/pyparsing: scan kernels in Rust, same API)"
+authors = [{ name = "Paul McGuire" }]
+maintainers = [{ name = "Paul McGuire", email = "ptmcg.gm+pyparsing@gmail.com" }]
+requires-python = ">=3.9"
+readme = "README.md"
+license = "MIT"
+keywords = ["parsing", "grammar", "parser", "rust"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Rust",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Compilers",
+  "Topic :: Text Processing",
+]
+
+[project.urls]
+Homepage = "https://github.com/John-Cusack/pyparsing-rust"
+Upstream = "https://github.com/pyparsing/pyparsing"
+
+[tool.maturin]
+module-name = "pyparsing._pyparsing"
+bindings = "pyo3"
+features = ["pyo3/extension-module"]
+# The reusable Rust core ships inside the sdist as a path dependency
+# (verified by `release-prep`: the sdist rebuild test builds the wheel
+# from the unpacked sdist with no network checkout).
+sdist-include = ["pyparsing-core/**/*", "NOTICE", "release.toml"]

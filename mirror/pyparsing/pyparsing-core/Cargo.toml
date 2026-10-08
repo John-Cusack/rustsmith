@@ -1,0 +1,12 @@
+[package]
+name = "pyparsing-rust-core"
+version = "3.3.3"
+edition = "2021"
+description = "Pure-Rust character-scan engine for pyparsing grammars (rustsmith Stage-1 mirror of pyparsing/pyparsing); no Python dependency"
+license = "MIT"
+repository = "https://github.com/John-Cusack/pyparsing-rust"
+homepage = "https://github.com/pyparsing/pyparsing"
+
+[lib]
+name = "pyparsing_rust_core"
+crate-type = ["rlib"]
