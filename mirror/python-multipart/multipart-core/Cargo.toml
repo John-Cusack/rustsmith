@@ -1,0 +1,12 @@
+[package]
+name = "multipart-rust-core"
+version = "0.0.32"
+edition = "2021"
+description = "Pure-Rust multipart/querystring parsing core (rustsmith Stage-1 mirror of Kludex/python-multipart); no Python dependency"
+license = "Apache-2.0"
+repository = "https://github.com/John-Cusack/python-multipart-rust"
+homepage = "https://github.com/Kludex/python-multipart"
+
+[lib]
+name = "multipart_core"
+crate-type = ["rlib"]

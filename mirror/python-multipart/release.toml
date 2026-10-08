@@ -1,0 +1,57 @@
+# Release configuration for the `python-multipart` converted project.
+#
+# This file is the single source of truth for publishing the rustsmith output
+# as a reusable Rust core crate (crates.io) plus a Python package calling that
+# same core (PyPI). `rustsmith release-prep --project mirror/python-multipart ...`
+# reads it; every name/version here MUST match the manifests below or prep
+# fails. Copied from `mirror/packaging/release.toml`; field meanings are
+# documented in `docs/RELEASE.md`.
+
+[release]
+schema = 1
+# Original package identity (matches `template.json` `package` and recon facts).
+project = "python-multipart"
+# Rust core crate published to crates.io (`multipart-core/Cargo.toml [package] name`).
+rust_crate = "multipart-rust-core"
+# Python distribution published to PyPI (`pyproject.toml [project] name`).
+# MUST differ from `project`: the original name stays with upstream.
+pypi_dist = "python-multipart-rust"
+# Python import name. MUST equal the package's import name: users swap the
+# install with zero import changes (`pip install python-multipart-rust`
+# still does `import python_multipart`; the legacy `multipart` alias shim
+# ships alongside, as upstream).
+python_import = "python_multipart"
+# Release version. MUST equal `[package] version` in `Cargo.toml`,
+# `multipart-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
+# Snapshot of upstream 0.0.32 at port time.
+version = "0.0.32"
+# Supported Python versions (workflow matrix) and the matching floor.
+requires_python = ">=3.11"
+python_versions = ["3.11", "3.12", "3.13", "3.14"]
+# GitHub runners the release workflow builds and tests on.
+platforms = ["ubuntu-22.04", "macos-14", "windows-2022"]
+
+# Publishing repository and workflow identity (trusted publishing, no tokens).
+# The repo below is the publishing home for the converted project: create it,
+# push the prepared tree, then register the trusted publishers.
+github_repo = "John-Cusack/python-multipart-rust"
+release_workflow = ".github/workflows/release.yml"
+pypi_environment = "pypi"
+testpypi_environment = "testpypi"
+
+# License and upstream attribution.
+license_spdx = "Apache-2.0"
+upstream = "Kludex/python-multipart"
+upstream_url = "https://github.com/Kludex/python-multipart"
+upstream_license = "Apache-2.0"
+upstream_authors = "Andrew Dunham"
+
+# Smoke checks run against the installed wheel (Python expressions; each must
+# evaluate truthy). Kept to stdlib-only, deterministic vectors.
+smoke_exprs = [
+  "python_multipart.multipart.parse_options_header('form-data; name=\"a\"')[0] == b'form-data'",
+  "python_multipart.multipart.MultipartParser(b'B').state is not None",
+  "python_multipart.multipart.QuerystringParser().write(b'a=1') == 3",
+  "python_multipart.multipart.parse_options_header(None) == (b'', {})",
+  "len(python_multipart.__version__) > 0",
+]
