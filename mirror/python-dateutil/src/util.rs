@@ -3,7 +3,125 @@
 //! comparisons, constructors, and error shapes.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::sync::GILOnceCell;
+use pyo3::types::{PyDict, PyList, PyModule};
+
+// --- Cached module/class objects (no `py.import` on hot paths) ---
+//
+// Every helper below imports its module once per process (first use wins,
+// via `GILOnceCell`) and hands out a `Bound` ref tied to the caller's
+// `Python` token. Init is lazy, not `#[pymodule]`-init time, so import order
+// is identical to the pre-cache code: a module is first imported exactly
+// when the old code would have imported it, and circular-import behavior
+// cannot change. The cached object is the same `sys.modules` entry
+// `py.import` would return.
+macro_rules! cached_module {
+    ($cell:ident, $func:ident, $name:literal) => {
+        static $cell: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+        pub fn $func(py: Python<'_>) -> PyResult<&Bound<'_, PyModule>> {
+            Ok($cell
+                .get_or_try_init(py, || py.import($name).map(|m| m.unbind()))?
+                .bind(py))
+        }
+    };
+}
+macro_rules! cached_attr {
+    ($cell:ident, $func:ident, $modfunc:ident, $attr:literal) => {
+        static $cell: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+        pub fn $func(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
+            Ok($cell
+                .get_or_try_init(py, || $modfunc(py)?.getattr($attr).map(|o| o.unbind()))?
+                .bind(py))
+        }
+    };
+}
+cached_module!(DATETIME_MOD_CELL, datetime_mod, "datetime");
+cached_module!(BUILTINS_MOD_CELL, builtins_mod, "builtins");
+cached_module!(CALENDAR_MOD_CELL, calendar_mod, "calendar");
+cached_module!(TIME_MOD_CELL, time_mod, "time");
+cached_module!(MATH_MOD_CELL, math_mod, "math");
+cached_module!(ITERTOOLS_MOD_CELL, itertools_mod, "itertools");
+cached_module!(THREAD_MOD_CELL, thread_mod, "_thread");
+cached_module!(COPYREG_MOD_CELL, copyreg_mod, "copyreg");
+cached_module!(IO_MOD_CELL, io_mod, "io");
+cached_module!(WARNINGS_MOD_CELL, warnings_mod, "warnings");
+cached_module!(DU_TZ_MOD_CELL, dateutil_tz_mod, "dateutil.tz");
+cached_module!(DU_PARSER_MOD_CELL, dateutil_parser_mod, "dateutil.parser");
+cached_module!(
+    DU_PARSER_INNER_CELL,
+    dateutil_parser_inner,
+    "dateutil.parser._parser"
+);
+cached_module!(DU_RRULE_MOD_CELL, dateutil_rrule_mod, "dateutil.rrule");
+cached_module!(
+    DU_RD_MOD_CELL,
+    dateutil_relativedelta_mod,
+    "dateutil.relativedelta"
+);
+cached_module!(OPERATOR_MOD_CELL, operator_mod, "operator");
+cached_module!(DU_EXT_MOD_CELL, dateutil_ext_mod, "dateutil._dateutil");
+cached_attr!(DATETIME_CLS_CELL, datetime_cls, datetime_mod, "datetime");
+cached_attr!(DATE_CLS_CELL, date_cls, datetime_mod, "date");
+cached_attr!(TIME_CLS_CELL, time_cls, datetime_mod, "time");
+cached_attr!(TIMEDELTA_CLS_CELL, timedelta_cls, datetime_mod, "timedelta");
+cached_attr!(TZINFO_CLS_CELL, tzinfo_cls, datetime_mod, "tzinfo");
+cached_attr!(INT_FN_CELL, int_fn, builtins_mod, "int");
+cached_attr!(FLOAT_FN_CELL, float_fn, builtins_mod, "float");
+cached_attr!(ORD_FN_CELL, ord_fn, builtins_mod, "ord");
+cached_attr!(ABS_FN_CELL, abs_fn, builtins_mod, "abs");
+cached_attr!(SET_FN_CELL, set_fn, builtins_mod, "set");
+cached_attr!(SORTED_FN_CELL, sorted_fn, builtins_mod, "sorted");
+cached_attr!(TUPLE_FN_CELL, tuple_fn, builtins_mod, "tuple");
+cached_attr!(ITER_FN_CELL, iter_fn, builtins_mod, "iter");
+cached_attr!(DIVMOD_FN_CELL, divmod_fn, builtins_mod, "divmod");
+cached_attr!(BYTEARRAY_CLS_CELL, bytearray_cls, builtins_mod, "bytearray");
+cached_attr!(STRINGIO_CLS_CELL, stringio_cls, io_mod, "StringIO");
+cached_attr!(GCD_FN_CELL, gcd_fn, math_mod, "gcd");
+cached_attr!(ISLICE_FN_CELL, islice_fn, itertools_mod, "islice");
+cached_attr!(UTC_OBJ_CELL, utc_obj, dateutil_tz_mod, "UTC");
+cached_attr!(TZOFFSET_CLS_CELL, tzoffset_cls, dateutil_tz_mod, "tzoffset");
+cached_attr!(TZSTR_CLS_CELL, tzstr_cls, dateutil_tz_mod, "tzstr");
+cached_attr!(TZLOCAL_CLS_CELL, tzlocal_cls, dateutil_tz_mod, "tzlocal");
+cached_attr!(GETTZ_FN_CELL, gettz_fn, dateutil_tz_mod, "gettz");
+cached_attr!(
+    PARSER_PARSE_CELL,
+    parser_parse_fn,
+    dateutil_parser_mod,
+    "parse"
+);
+cached_attr!(
+    PARSER_ERROR_CELL,
+    parser_error_cls,
+    dateutil_parser_inner,
+    "ParserError"
+);
+cached_attr!(
+    PARSETZ_FN_CELL,
+    parsetz_fn,
+    dateutil_parser_inner,
+    "_parsetz"
+);
+cached_attr!(WEEKDAY_CLS_CELL, weekday_cls, dateutil_rrule_mod, "weekday");
+cached_attr!(RRULE_CLS_CELL, rrule_cls, dateutil_rrule_mod, "rrule");
+cached_attr!(
+    RD_CLS_CELL,
+    relativedelta_cls,
+    dateutil_relativedelta_mod,
+    "relativedelta"
+);
+cached_attr!(
+    WEEKDAYS_OBJ_CELL,
+    weekdays_obj,
+    dateutil_relativedelta_mod,
+    "weekdays"
+);
+cached_attr!(OPERATOR_ADD_CELL, operator_add_fn, operator_mod, "add");
+cached_attr!(
+    DEFAULTPARSER_CELL,
+    defaultparser_obj,
+    dateutil_ext_mod,
+    "DEFAULTPARSER"
+);
 
 /// Wall datetime fields read from a Python `datetime`.
 pub struct Parts {
@@ -59,14 +177,14 @@ pub fn date_parts(obj: &Bound<'_, PyAny>) -> PyResult<(i64, i64, i64)> {
 
 /// True when `obj` is a `datetime.datetime` (subclasses included).
 pub fn is_datetime(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let dt = py.import("datetime")?.getattr("datetime")?;
-    obj.is_instance(&dt)
+    let dt = datetime_cls(py)?;
+    obj.is_instance(dt)
 }
 
 /// True when `obj` is a `datetime.date` (datetimes included).
 pub fn is_date(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let dt = py.import("datetime")?.getattr("date")?;
-    obj.is_instance(&dt)
+    let dt = date_cls(py)?;
+    obj.is_instance(dt)
 }
 
 /// Construct `datetime(y, m, d, hh, mm, ss, us, tzinfo=tz, fold=fold)`.
@@ -84,7 +202,7 @@ pub fn make_datetime(
     tz: Option<&PyObject>,
     fold: i64,
 ) -> PyResult<PyObject> {
-    let cls = py.import("datetime")?.getattr("datetime")?;
+    let cls = datetime_cls(py)?;
     let kwargs = PyDict::new(py);
     if let Some(t) = tz {
         kwargs.set_item("tzinfo", t)?;
@@ -95,19 +213,19 @@ pub fn make_datetime(
 
 /// Construct `datetime.date(y, m, d)`.
 pub fn make_date(py: Python<'_>, y: i64, m: i64, d: i64) -> PyResult<PyObject> {
-    let cls = py.import("datetime")?.getattr("date")?;
+    let cls = date_cls(py)?;
     Ok(cls.call1((y, m, d))?.unbind())
 }
 
 /// Construct `datetime.timedelta(days=d, seconds=s, microseconds=u)`.
 pub fn make_delta(py: Python<'_>, days: i64, seconds: i64, micros: i64) -> PyResult<PyObject> {
-    let cls = py.import("datetime")?.getattr("timedelta")?;
+    let cls = timedelta_cls(py)?;
     Ok(cls.call1((days, seconds, micros))?.unbind())
 }
 
 /// `timedelta(seconds=float_secs)` (fractional offsets preserved).
 pub fn make_delta_secs(py: Python<'_>, secs: f64) -> PyResult<PyObject> {
-    let cls = py.import("datetime")?.getattr("timedelta")?;
+    let cls = timedelta_cls(py)?;
     let kwargs = PyDict::new(py);
     kwargs.set_item("seconds", secs)?;
     Ok(cls.call((), Some(&kwargs))?.unbind())
@@ -176,7 +294,7 @@ pub fn zero_division_error<T>(msg: String) -> PyResult<T> {
 /// Emit a warning with an explicit category object (e.g. a
 /// `DeprecationWarning` subclass from the kept package init).
 pub fn warn_with(py: Python<'_>, category: &Bound<'_, PyAny>, msg: &str) -> PyResult<()> {
-    let warnings = py.import("warnings")?;
+    let warnings = warnings_mod(py)?;
     warnings.call_method1("warn", (msg, category))?;
     Ok(())
 }

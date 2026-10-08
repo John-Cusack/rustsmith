@@ -247,7 +247,7 @@ impl TtInfo {
 
 /// Cached `timedelta(0)` equivalent (constructed per call; cheap).
 fn zero_delta(py: Python<'_>) -> PyObject {
-    let td = py.import("datetime").unwrap().getattr("timedelta").unwrap();
+    let td = timedelta_cls(py).unwrap();
     td.call1((0, 0, 0)).unwrap().unbind()
 }
 
@@ -270,8 +270,8 @@ fn check_fromutc<'py>(
     slf_obj: &Bound<'py, PyAny>,
     dt: &'py Bound<'py, PyAny>,
 ) -> PyResult<&'py Bound<'py, PyAny>> {
-    let dt_mod = py.import("datetime")?;
-    if !dt.is_instance(&dt_mod.getattr("datetime")?)? {
+    let dt_cls = datetime_cls(py)?;
+    if !dt.is_instance(dt_cls)? {
         return type_error("fromutc() requires a datetime argument".to_string());
     }
     if !dt.getattr("tzinfo")?.is(slf_obj) {
@@ -435,11 +435,11 @@ pub fn datetime_exists(dt: Bound<'_, PyAny>, tz: Option<Bound<'_, PyAny>>) -> Py
             ti
         }
     };
-    let utc = py.import("dateutil.tz")?.getattr("UTC")?;
+    let utc = utc_obj(py)?;
     // Round trip to UTC (uses real `astimezone`, fold included).
     let dt_r = replace_tzinfo(py, &dt, py.None())?;
     let rt = replace_tzinfo(py, &dt_r, tz.clone().unbind())?;
-    let rt = rt.call_method1("astimezone", (&utc,))?;
+    let rt = rt.call_method1("astimezone", (utc,))?;
     let rt = rt.call_method1("astimezone", (&tz,))?;
     let rt = replace_tzinfo(py, &rt, py.None())?;
     Ok(bool_obj(py, py_eq(py, &dt_r, &rt)?))
@@ -454,7 +454,7 @@ pub fn resolve_imaginary(dt: Bound<'_, PyAny>) -> PyResult<PyObject> {
         let exists = datetime_exists(dt.clone(), Some(ti.clone()))?;
         let ex: bool = exists.extract(py)?;
         if !ex {
-            let td = py.import("datetime")?.getattr("timedelta")?;
+            let td = timedelta_cls(py)?;
             let curr = dt.add(td.call1((1, 0, 0))?)?;
             let old = dt.sub(td.call1((1, 0, 0))?)?;
             let curr_off = curr.call_method0("utcoffset")?;
@@ -629,7 +629,7 @@ impl TzOffset {
                     }
                 }
             };
-            let td = py.import("datetime")?.getattr("timedelta")?;
+            let td = timedelta_cls(py)?;
             let kw = PyDict::new(py);
             kw.set_item("seconds", secs)?;
             self.offset = Some(td.call((), Some(&kw))?.unbind());
@@ -659,7 +659,7 @@ pub struct TzLocal {
 
 /// Read `time.timezone`/`altzone`/`daylight`/`tzname` (Python `time`).
 fn time_attrs(py: Python<'_>) -> PyResult<(PyObject, PyObject, bool, PyObject)> {
-    let time = py.import("time")?;
+    let time = time_mod(py)?;
     let timezone: Bound<'_, PyAny> = time.getattr("timezone")?;
     let daylight: bool = time.getattr("daylight")?.extract::<i64>()? != 0;
     let altzone: Bound<'_, PyAny> = time.getattr("altzone")?;
@@ -673,7 +673,7 @@ impl TzLocal {
     #[pyo3(signature = ())]
     fn new(py: Python<'_>) -> PyResult<Self> {
         let (timezone, altzone, daylight, tzname) = time_attrs(py)?;
-        let td = py.import("datetime")?.getattr("timedelta")?;
+        let td = timedelta_cls(py)?;
         let kw = PyDict::new(py);
         let tz_o = timezone.bind(py);
         let tz_i: i64 = tz_o.extract()?;
@@ -838,7 +838,7 @@ impl TzLocal {
 /// `_naive_is_dst(dt)`: `time.localtime(timestamp + time.timezone).tm_isdst`.
 fn tzlocal_naive_is_dst(_slf: &TzLocal, py: Python<'_>, dt: Bound<'_, PyAny>) -> PyResult<i64> {
     let ts = datetime_to_timestamp(py, &dt)?;
-    let time = py.import("time")?;
+    let time = time_mod(py)?;
     let timezone: f64 = time.getattr("timezone")?.extract()?;
     let lt = time.call_method1("localtime", (ts + timezone,))?;
     lt.getattr("tm_isdst")?.extract()
@@ -1429,11 +1429,8 @@ impl TzFile {
         let filename = self.filename.clone_ref(py);
         let args = PyTuple::new(py, [py.None(), filename])?;
         let state = self.state_dict(py)?;
-        let builtins = py.import("builtins")?;
-        let tup = builtins.getattr("tuple")?;
         // (cls, args, state)
         let out = PyTuple::new(py, [cls.into_any(), args.into_any(), state.into_bound(py)])?;
-        let _ = tup;
         Ok(out.into_any().unbind())
     }
 
@@ -1508,7 +1505,7 @@ fn coerce_offset(py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<PyObject> {
             }
         }
     };
-    let td = py.import("datetime")?.getattr("timedelta")?;
+    let td = timedelta_cls(py)?;
     let kw = PyDict::new(py);
     kw.set_item("seconds", secs)?;
     Ok(td.call((), Some(&kw))?.unbind())
@@ -1576,13 +1573,13 @@ fn tzrange_init(
     };
     // `if dstabbr and start/end is None`: default April/October rules.
     let default_delta = |py: Python<'_>, hours: i64, month: i64, day: i64, wd: i64| -> PyResult<PyObject> {
-        let rd = py.import("dateutil.relativedelta")?;
+        let rd = dateutil_relativedelta_mod(py)?;
         let kw = PyDict::new(py);
         kw.set_item("hours", hours)?;
         kw.set_item("month", month)?;
         kw.set_item("day", day)?;
         kw.set_item("weekday", rd.getattr("SU")?.call1((wd,))?)?;
-        Ok(rd.getattr("relativedelta")?.call((), Some(&kw))?.unbind())
+        Ok(relativedelta_cls(py)?.call((), Some(&kw))?.unbind())
     };
     // Explicit `None` also counts as absent (`start is None`).
     let is_absent = |o: &Option<PyObject>| -> bool {
@@ -1671,9 +1668,8 @@ impl TzRange {
         if !self.hasdst {
             return Ok(py.None());
         }
-        let dt_mod = py.import("datetime")?;
         let y: i64 = year.extract()?;
-        let base = dt_mod.getattr("datetime")?.call1((y, 1, 1))?;
+        let base = datetime_cls(py)?.call1((y, 1, 1))?;
         let start = base.add(opt_clone(py, &self.start_delta))?;
         let end = base.add(opt_clone(py, &self.end_delta))?;
         let tup = PyTuple::new(py, [start, end])?;
@@ -1851,7 +1847,7 @@ impl TzRange {
         // class call (`cls.__new__(cls)` + `__setstate__`).
         use pyo3::conversion::IntoPyObject;
         let cls = slf_type(py, &slf);
-        let copyreg = py.import("copyreg")?;
+        let copyreg = copyreg_mod(py)?;
         let newobj = copyreg.getattr("__newobj__")?;
         let args = PyTuple::new(py, [cls])?;
         let state = slf.__getstate__(py)?;
@@ -1965,8 +1961,8 @@ pub struct TzStr {
 /// Build the `_delta` relativedelta kwargs from a `_parsetz` start/end
 /// attribute object (mirrors `tzstr._delta`).
 fn tzstr_delta(py: Python<'_>, x: &Bound<'_, PyAny>, isend: bool, std_s: i64, dst_s: i64) -> PyResult<PyObject> {
-    let rd_mod = py.import("dateutil.relativedelta")?;
-    let rd_cls = rd_mod.getattr("relativedelta")?;
+    let rd_mod = dateutil_relativedelta_mod(py)?;
+    let rd_cls = relativedelta_cls(py)?;
     let kw = PyDict::new(py);
     let month: Bound<'_, PyAny> = x.getattr("month")?;
     if !month.is_none() {
@@ -2058,8 +2054,7 @@ impl TzStr {
             }
         };
         // `parser._parsetz(s)` through the kept parser module.
-        let parser = py.import("dateutil.parser")?;
-        let parsetz = parser.getattr("_parser")?.getattr("_parsetz")?;
+        let parsetz = parsetz_fn(py)?;
         let res = parsetz.call1((s_o.as_ref().unwrap().bind(py),))?;
         if res.is_none() {
             return value_error("unknown string format".to_string());

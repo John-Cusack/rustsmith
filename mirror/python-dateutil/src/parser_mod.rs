@@ -102,11 +102,7 @@ impl<'py> PyInfo<'py> {
         if let Ok(i) = v.extract::<i64>() {
             return Ok(i);
         }
-        let ival = self
-            .py
-            .import("builtins")?
-            .getattr("int")?
-            .call1((v,))?;
+        let ival = crate::util::int_fn(self.py)?.call1((v,))?;
         ival.extract::<i64>()
     }
 
@@ -191,7 +187,7 @@ impl Info for PyInfo<'_> {
         _century: i64,
     ) -> String {
         let r: PyResult<String> = (|| {
-            let int_fn = self.py.import("builtins")?.getattr("int")?;
+            let int_fn = crate::util::int_fn(self.py)?;
             let y = int_fn.call1((year,))?;
             let v = self.obj.bind(self.py).call_method1(
                 "convertyear",
@@ -204,8 +200,8 @@ impl Info for PyInfo<'_> {
 
     fn days_in_month(&self, year: &str, month: &str) -> Result<u8, Fail> {
         let r: PyResult<u8> = (|| {
-            let cal = self.py.import("calendar")?;
-            let int_fn = self.py.import("builtins")?.getattr("int")?;
+            let cal = crate::util::calendar_mod(self.py)?;
+            let int_fn = crate::util::int_fn(self.py)?;
             let y = int_fn.call1((year,))?;
             let m = int_fn.call1((month,))?;
             let mr = cal.call_method1("monthrange", (y, m))?;
@@ -243,7 +239,7 @@ struct Tables {
 }
 
 fn local_year(py: Python<'_>) -> PyResult<i64> {
-    py.import("time")?
+    crate::util::time_mod(py)?
         .getattr("localtime")?
         .call0()?
         .getattr("tm_year")?
@@ -565,9 +561,8 @@ fn normalize_input(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<String> {
     if obj.is_instance_of::<PyString>() {
         return obj.extract::<String>();
     }
-    let builtins = py.import("builtins")?;
-    let bytearray_t = builtins.getattr("bytearray")?;
-    if obj.is_instance_of::<PyBytes>() || obj.is_instance(&bytearray_t)? {
+    let bytearray_t = crate::util::bytearray_cls(py)?;
+    if obj.is_instance_of::<PyBytes>() || obj.is_instance(bytearray_t)? {
         return obj.call_method0("decode")?.extract::<String>();
     }
     if obj.hasattr("read")? {
@@ -575,7 +570,7 @@ fn normalize_input(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<String> {
         if data.is_instance_of::<PyString>() {
             return data.extract::<String>();
         }
-        if data.is_instance_of::<PyBytes>() || data.is_instance(&bytearray_t)? {
+        if data.is_instance_of::<PyBytes>() || data.is_instance(bytearray_t)? {
             return data.call_method0("decode")?.extract::<String>();
         }
         return crate::util::type_error(type_error_name(&data)?);
@@ -584,8 +579,7 @@ fn normalize_input(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<String> {
 }
 
 fn parser_error_cls(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
-    py.import("dateutil.parser._parser")?
-        .getattr("ParserError")
+    Ok(crate::util::parser_error_cls(py)?.to_owned())
 }
 
 fn raise_parser_error(py: Python<'_>, fmt: &str, arg: &Bound<'_, PyAny>) -> PyErr {
@@ -614,7 +608,7 @@ fn build_naive(
     default_obj: &Bound<'_, PyAny>,
     timestr: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
-    let int_fn = py.import("builtins")?.getattr("int")?;
+    let int_fn = crate::util::int_fn(py)?;
     let pint = |s: &str| -> PyResult<PyObject> { Ok(int_fn.call1((s,))?.unbind()) };
     let kwargs = PyDict::new(py);
     if let Some(y) = &ok.year {
@@ -652,7 +646,7 @@ fn build_naive(
                 Some(d) => pint(d)?,
                 None => default_obj.getattr("day")?.unbind(),
             };
-            let cal = py.import("calendar")?;
+            let cal = crate::util::calendar_mod(py)?;
             let mr = cal.call_method1(
                 "monthrange",
                 (cyear.bind(py), cmonth.bind(py)),
@@ -688,10 +682,7 @@ fn build_naive(
         let kw = PyDict::new(py);
         kw.set_item("weekday", wd)?;
         let rd = rd_t.call((), Some(&kw))?;
-        let shifted = py
-            .import("operator")?
-            .getattr("add")?
-            .call1((naive.bind(py), rd))?;
+        let shifted = crate::util::operator_add_fn(py)?.call1((naive.bind(py), rd))?;
         naive = shifted.unbind();
     }
     Ok(naive)
@@ -742,19 +733,16 @@ fn build_tzinfo(
     tzname: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
     use pyo3::types::PyString;
-    let dt_tzinfo = py.import("datetime")?.getattr("tzinfo")?;
-    if tzdata.is_instance(&dt_tzinfo)? || tzdata.is_none() {
+    let dt_tzinfo = crate::util::tzinfo_cls(py)?;
+    if tzdata.is_instance(dt_tzinfo)? || tzdata.is_none() {
         return Ok(tzdata.clone().unbind());
     }
     if tzdata.is_instance_of::<PyString>() {
-        let tzmod = py.import("dateutil.tz")?;
-        return Ok(tzmod.getattr("tzstr")?.call1((tzdata,))?.unbind());
+        return Ok(crate::util::tzstr_cls(py)?.call1((tzdata,))?.unbind());
     }
-    let long_t = py.import("builtins")?.getattr("int")?;
-    if tzdata.is_instance(&long_t)? {
-        let tzmod = py.import("dateutil.tz")?;
-        return Ok(tzmod
-            .getattr("tzoffset")?
+    let long_t = crate::util::int_fn(py)?;
+    if tzdata.is_instance(long_t)? {
+        return Ok(crate::util::tzoffset_cls(py)?
             .call1((tzname, tzdata))?
             .unbind());
     }
@@ -773,7 +761,7 @@ fn build_tzaware(
     fast: bool,
 ) -> PyResult<PyObject> {
     use pyo3::types::PyString;
-    let int_fn = py.import("builtins")?.getattr("int")?;
+    let int_fn = crate::util::int_fn(py)?;
     let tzname_obj: PyObject = match &ok.tzname {
         Some(n) => PyString::new(py, n).into_any().unbind(),
         None => py.None(),
@@ -797,9 +785,8 @@ fn build_tzaware(
     }
     if !tzn.is_truthy()? {
         // No tzname: offset alone decides below.
-    } else if py.import("time")?.getattr("tzname")?.contains(tzn)? {
-        let tzmod = py.import("dateutil.tz")?;
-        let local = tzmod.getattr("tzlocal")?.call0()?;
+    } else if crate::util::time_mod(py)?.getattr("tzname")?.contains(tzn)? {
+        let local = crate::util::tzlocal_cls(py)?.call0()?;
         let aware =
             naive.call_method("replace", (), Some(&tz_kwargs(py, &local)?))?;
         let aware = assign_tzname(py, &aware, tzn)?;
@@ -808,9 +795,9 @@ fn build_tzaware(
         if !crate::util::py_eq(py, &cur, tzn)?
             && info_utczone(py, info, fast, ok.tzname.as_deref().unwrap_or(""))?
         {
-            let utc = tzmod.getattr("UTC")?;
+            let utc = crate::util::utc_obj(py)?;
             return Ok(aware_b
-                .call_method("replace", (), Some(&tz_kwargs(py, &utc)?))?
+                .call_method("replace", (), Some(&tz_kwargs(py, utc)?))?
                 .unbind());
         }
         return Ok(aware);
@@ -818,16 +805,13 @@ fn build_tzaware(
     let off_zero = matches!(&ok.tzoffset, Some(o) if o.is_zero());
     let off_some = ok.tzoffset.is_some();
     if off_zero {
-        let utc = py.import("dateutil.tz")?.getattr("UTC")?;
+        let utc = crate::util::utc_obj(py)?;
         return Ok(naive
-            .call_method("replace", (), Some(&tz_kwargs(py, &utc)?))?
+            .call_method("replace", (), Some(&tz_kwargs(py, utc)?))?
             .unbind());
     }
     if off_some {
-        let tzmod = py.import("dateutil.tz")?;
-        let off = tzmod
-            .getattr("tzoffset")?
-            .call1((tzn, tzoff_obj.bind(py)))?;
+        let off = crate::util::tzoffset_cls(py)?.call1((tzn, tzoff_obj.bind(py)))?;
         return Ok(naive
             .call_method("replace", (), Some(&tz_kwargs(py, &off)?))?
             .unbind());
@@ -836,9 +820,7 @@ fn build_tzaware(
         return Ok(naive.clone().unbind());
     }
     let tzname_s: String = tzn.str()?.to_string();
-    let warn_cls = py
-        .import("dateutil.parser._parser")?
-        .getattr("UnknownTimezoneWarning")?;
+    let warn_cls = crate::util::dateutil_parser_inner(py)?.getattr("UnknownTimezoneWarning")?;
     crate::util::warn_with(
         py,
         &warn_cls,
@@ -974,7 +956,7 @@ fn parse_impl(
     let default_obj = match default {
         Some(d) => d,
         None => {
-            let dt = py.import("datetime")?.getattr("datetime")?;
+            let dt = crate::util::datetime_cls(py)?;
             let now = dt.call_method0("now")?;
             let kw = PyDict::new(py);
             kw.set_item("hour", 0)?;
@@ -1008,7 +990,7 @@ fn parse_impl(
 
 
 fn fill_result_full(py: Python<'_>, ns: &Bound<'_, PyAny>, ok: &ParseOk) -> PyResult<()> {
-    let int_fn = py.import("builtins")?.getattr("int")?;
+    let int_fn = crate::util::int_fn(py)?;
     let pint = |s: &str| -> PyResult<PyObject> { Ok(int_fn.call1((s,))?.unbind()) };
     let opt_int = |v: &Option<String>| -> PyResult<PyObject> {
         match v {
@@ -1075,7 +1057,7 @@ fn read_result(py: Python<'_>, ns: &Bound<'_, PyAny>, ok: &mut ParseOk) -> PyRes
         if v.is_none() {
             return Ok(None);
         }
-        let int_fn = py.import("builtins")?.getattr("int")?;
+        let int_fn = crate::util::int_fn(py)?;
         Ok(Some(int_fn.call1((v,))?.str()?.to_string()))
     };
     ok.year = canon(ns.getattr("year")?)?;
@@ -1300,19 +1282,18 @@ impl TimelexObj {
     #[new]
     fn new(py: Python<'_>, instream: Bound<'_, PyAny>) -> PyResult<Self> {
         use pyo3::types::{PyBytes, PyString};
-        let builtins = py.import("builtins")?;
-        let bytearray_t = builtins.getattr("bytearray")?;
+        let bytearray_t = crate::util::bytearray_cls(py)?;
         if instream.is_instance_of::<PyString>() {
             let text: String = instream.extract()?;
-            let sio = py.import("io")?.getattr("StringIO")?.call1((text.clone(),))?;
+            let sio = crate::util::stringio_cls(py)?.call1((text.clone(),))?;
             return Ok(TimelexObj {
                 lx: Timelex::new(&text),
                 instream: sio.unbind(),
             });
         }
-        if instream.is_instance_of::<PyBytes>() || instream.is_instance(&bytearray_t)? {
+        if instream.is_instance_of::<PyBytes>() || instream.is_instance(bytearray_t)? {
             let text: String = instream.call_method0("decode")?.extract()?;
-            let sio = py.import("io")?.getattr("StringIO")?.call1((text.clone(),))?;
+            let sio = crate::util::stringio_cls(py)?.call1((text.clone(),))?;
             return Ok(TimelexObj {
                 lx: Timelex::new(&text),
                 instream: sio.unbind(),
@@ -1422,9 +1403,7 @@ fn parse_fn(
 ) -> PyResult<PyObject> {
     match parserinfo {
         None => {
-            let dp = py
-                .import("dateutil._dateutil")?
-                .getattr("DEFAULTPARSER")?;
+            let dp = crate::util::defaultparser_obj(py)?;
             let meth = dp.getattr("parse")?;
             let kw = PyDict::new(py);
             if let Some(v) = default {

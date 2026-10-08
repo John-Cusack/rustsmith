@@ -45,8 +45,8 @@ fn opt_ref_clone(py: Python<'_>, o: &Option<PyObject>) -> Option<PyObject> {
 }
 
 fn is_timedelta(py: Python<'_>, o: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let td = py.import("datetime")?.getattr("timedelta")?;
-    o.is_instance(&td)
+    let td = timedelta_cls(py)?;
+    o.is_instance(td)
 }
 
 /// `other.x if other.x is not None else self.x` (for `__add__` absolutes).
@@ -95,7 +95,7 @@ fn weekday_n(w: &Bound<'_, PyAny>) -> PyResult<Option<i64>> {
 }
 
 fn float_of(py: Python<'_>, o: &Bound<'_, PyAny>) -> PyResult<f64> {
-    let f = py.import("builtins")?.getattr("float")?;
+    let f = float_fn(py)?;
     f.call1((o,))?.extract()
 }
 /// Wrap a computed state in an instance of `cls` (mirrors
@@ -217,11 +217,11 @@ impl Relativedelta {
             // on the float product, mirroring `int()` exactly.
             let prod = v * f;
             let as_int = if prod.is_finite() {
-                let i = py.import("builtins")?.getattr("int")?;
+                let i = int_fn(py)?;
                 i.call1((prod,))?.unbind()
             } else {
                 // `int(inf)` raises OverflowError, like the original.
-                let i = py.import("builtins")?.getattr("int")?;
+                let i = int_fn(py)?;
                 i.call1((prod,))?.unbind()
             };
             Ok(as_int)
@@ -258,8 +258,7 @@ fn add_to(py: Python<'_>, rd: &Relativedelta, other: &Bound<'_, PyAny>) -> PyRes
         if !is_dt {
             // `datetime.fromordinal(other.toordinal())`, like the original.
             let o: i64 = other.call_method0("toordinal")?.extract()?;
-            let dt_mod = py.import("datetime")?;
-            other_o = dt_mod.getattr("datetime")?.call_method1("fromordinal", (o,))?.unbind();
+            other_o = datetime_cls(py)?.call_method1("fromordinal", (o,))?.unbind();
         }
     }
     let other_b = other_o.bind(py);
@@ -322,7 +321,7 @@ fn add_to(py: Python<'_>, rd: &Relativedelta, other: &Bound<'_, PyAny>) -> PyRes
     } else {
         leap = 0.0;
     }
-    let td = py.import("datetime")?.getattr("timedelta")?;
+    let td = timedelta_cls(py)?;
     let kw = PyDict::new(py);
     kw.set_item("days", num_to_f64(py, rd.days.bind(py))? + leap)?;
     kw.set_item("hours", rd.hours.bind(py))?;
@@ -389,7 +388,7 @@ impl Relativedelta {
         }
         // Integral years/months (ValueError otherwise, like the original):
         // `x != int(x)` with `int()` errors propagating.
-        let int_fn = py.import("builtins")?.getattr("int")?;
+        let int_fn = int_fn(py)?;
         for v in [years.as_ref(), months.as_ref()].into_iter().flatten() {
             let iv = int_fn.call1((v,))?;
             let eq: bool = v.rich_compare(&iv, CompareOp::Eq)?.extract()?;
@@ -448,8 +447,7 @@ impl Relativedelta {
             None => None,
             Some(w) => {
                 if let Ok(i) = w.extract::<i64>() {
-                    let shim = py.import("dateutil.relativedelta")?;
-                    Some(shim.getattr("weekdays")?.get_item(i)?.unbind())
+                    Some(weekdays_obj(py)?.get_item(i)?.unbind())
                 } else {
                     Some(w.unbind())
                 }
@@ -515,18 +513,18 @@ impl Relativedelta {
         let dt1_is_dt = is_datetime(py, &dt1)?;
         let dt2_is_dt = is_datetime(py, &dt2)?;
         let (dt1, dt2) = if dt1_is_dt != dt2_is_dt {
-            let dt_mod = py.import("datetime")?;
+            let dt_cls = datetime_cls(py)?;
             if !dt1_is_dt {
                 let o = dt1.call_method0("toordinal")?.extract::<i64>()?;
                 (
-                    dt_mod.getattr("datetime")?.call_method1("fromordinal", (o,))?,
+                    dt_cls.call_method1("fromordinal", (o,))?,
                     dt2,
                 )
             } else {
                 let o = dt2.call_method0("toordinal")?.extract::<i64>()?;
                 (
                     dt1,
-                    dt_mod.getattr("datetime")?.call_method1("fromordinal", (o,))?,
+                    dt_cls.call_method1("fromordinal", (o,))?,
                 )
             }
         } else {
@@ -1037,6 +1035,5 @@ fn or_objs(py: Python<'_>, a: &PyObject, b: &PyObject) -> PyResult<PyObject> {
 }
 
 fn abs_obj(py: Python<'_>, a: &PyObject) -> PyResult<PyObject> {
-    let builtins = py.import("builtins")?;
-    Ok(builtins.getattr("abs")?.call1((a.bind(py),))?.unbind())
+    Ok(abs_fn(py)?.call1((a.bind(py),))?.unbind())
 }
