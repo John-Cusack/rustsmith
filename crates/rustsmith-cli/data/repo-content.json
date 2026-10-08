@@ -2700,6 +2700,12 @@
           "original": "Original (Python): `wrap` validators / `default` callbacks invoked per item from Rust",
           "rust": "Rust: Python callbacks inside Rust loops re-impose GIL + conversion per item - bound mismatch, rejected at proposal review before costing a graded run",
           "title": "binding: no Python callbacks in hot loops"
+        },
+        {
+          "example": "Example: timing work goes in bench_parser/bench.py (median+MAD, Tukey flags, noise threshold); Rust `#[bench]` never appears",
+          "original": "Original (Python): ad-hoc timing scripts with no statistics",
+          "rust": "Rust: graded measurement runs on statistical harnesses only (criterion/divan/hyperfine class); libtest `#[bench]` is nightly-only with no statistics and is never a graded measurement (SPEC_STAGE2 10.4; m5 acceptance greps it out structurally)",
+          "title": "measure: libtest #[bench] banned"
         }
       ],
       "workload_contract": {

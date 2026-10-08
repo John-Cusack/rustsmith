@@ -10,9 +10,15 @@ echo "== M5: work=$WORK"
 echo "-- unit tests (gates, profile math, store schema)"
 cargo test -q -p rustsmith-gates -p rustsmith-store -p rustsmith-profile || (echo "FAIL: unit tests"; exit 1)
 # A3: libtest #[bench] (nightly-only, no statistics) is never a graded
-# measurement. Structural: the harness tree must not contain it at all.
-if grep -rn '#\[bench\]' "$ROOT/crates/" 2>/dev/null | grep -q .; then
-  echo "FAIL: #[bench] in graded harness tree"; grep -rn '#\[bench\]' "$ROOT/crates/"; exit 1
+# measurement (SPEC_STAGE2 10.4; per-package PORTING rulebooks carry the
+# rule). Structural: no Rust source in the harness or mirror trees may use
+# it. Both greps are *.rs-scoped so prose naming the ban (PORTING rules,
+# WORKLOAD.md, harness comments) never trips them.
+if grep -rn --include='*.rs' '#\[bench\]' "$ROOT/crates/" 2>/dev/null | grep -q .; then
+  echo "FAIL: #[bench] in graded harness tree"; grep -rn --include='*.rs' '#\[bench\]' "$ROOT/crates/"; exit 1
+fi
+if grep -rn --include='*.rs' '#\[bench\]' "$ROOT/mirror/" 2>/dev/null | grep -q .; then
+  echo "FAIL: #[bench] in mirror tree"; grep -rn --include='*.rs' '#\[bench\]' "$ROOT/mirror/"; exit 1
 fi
 
 echo "-- fixtures + recon (WORKLOAD.md, benchmark freeze, held-out)"

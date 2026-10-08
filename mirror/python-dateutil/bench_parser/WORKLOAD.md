@@ -42,7 +42,18 @@ generated line is verified `fuzzy=True`-parseable before freezing.
 
 ## Exact repro command
 
+Cited figures MUST come from a release-built wheel: a develop-built wheel
+timed as "the Rust port" silently measures unoptimized code (re-audit V15).
+`bench.py` enforces this structurally in bench mode — it refuses (exit 3)
+unless the loaded extension reports a release profile via the
+`__build_profile__` probe (`cfg!(debug_assertions)`), and stamps every
+figure record with `profile` + `debug_allowed`. `--allow-debug` overrides
+for iteration but marks the figures non-citable. Pure-Python runs (no
+extension) record `profile: pure-python`: that is the baseline side.
+Parity mode is correctness, not speed, and stays ungated.
+
 ```sh
+maturin develop --release # iteration; or: maturin build --release && pip install target/wheels/*.whl
 python bench_parser/bench.py --reps 7 --iters 2000 --warmup 2
 python bench_parser/bench.py --reps 7 --iters 2000 --warmup 2 --out after.json
 python bench_parser/bench.py --mode parity
@@ -62,6 +73,10 @@ python bench_parser/bench.py --baseline before.json --out after.json --no-mem
   honestly: tracemalloc sees Python-level allocs only; native (Rust-side)
   allocs are invisible to it, favoring the ported side on allocation
   deltas. `rss_kb` is the honest cross-side column.
+- Release profile: bench mode times a Rust extension only when its
+  `__build_profile__` probe reads `release` (refuses with exit 3
+  otherwise); every record carries `profile` + `debug_allowed`, and
+  `--allow-debug` figures are non-citable by construction.
 
 ## Host checklist (doc-only until a staged container allows enforcement)
 

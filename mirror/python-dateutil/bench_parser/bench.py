@@ -27,8 +27,11 @@ Methodology (all numbers citable):
   ``--warmup`` reps executed and discarded, so no workload runs
   back-to-back to completion.
 - Every row emits a full figure record
-  ``{median, spread, reps, iters, host, commit, command}`` in the human
+  ``{median, spread, reps, iters, host, commit, command, profile}`` in the human
   table and JSON; bare point estimates are never the output.
+- Release-profile gate (re-audit V15): bench mode refuses to time a
+  non-release extension build (exit 3) unless `--allow-debug` stamps the
+  records non-citable; every record carries `profile` + `debug_allowed`.
 - Memory: ``peak_memory()`` runs each row in a fresh child process and
   reports per-row peak RSS (covers both sides: Python + native) and the
   tracemalloc allocation peak. Blind spot, stated honestly: tracemalloc
@@ -70,6 +73,22 @@ MEM_NOTE = ("tracemalloc sees Python-level allocs only; native (Rust-side) "
             "allocs are invisible to it, favoring the ported side on "
             "allocation deltas. rss_kb (child-process peak RSS) covers "
             "both sides and is the honest cross-side column.")
+
+
+def build_profile():
+    """Release-profile probe (re-audit V15/C13): what was the measured
+    extension built as?
+
+    Returns "release" (Rust extension, optimized), "debug" (Rust extension,
+    unoptimized), "unknown" (extension present but pre-probe -- rebuild with
+    maturin -r/--release), or "pure-python" (no extension at all: the
+    upstream baseline side, nothing Rust to mis-measure).
+    """
+    try:
+        from dateutil import _dateutil
+    except ImportError:
+        return "pure-python"
+    return getattr(_dateutil, "__build_profile__", "unknown")
 
 
 def load(name):
@@ -313,7 +332,7 @@ def commit_id():
     return "unknown"
 
 
-def build_records(samples, args, command, mem):
+def build_records(samples, args, command, mem, profile):
     host = host_id()
     commit = commit_id()
     records = []
@@ -341,6 +360,8 @@ def build_records(samples, args, command, mem):
             "iters": row_iters,
             "warmup": args.warmup,
             "noise_pct": args.noise_pct,
+            "profile": profile,
+            "debug_allowed": args.allow_debug,
             "rss_kb": rss_kb,
             "alloc_peak_b": alloc_b,
             "mem_note": MEM_NOTE,
@@ -349,6 +370,7 @@ def build_records(samples, args, command, mem):
             "command": command,
         })
     return records, {"host": host, "commit": commit, "command": command,
+                     "profile": profile, "debug_allowed": args.allow_debug,
                      "reps": args.reps, "iters": args.iters,
                      "warmup": args.warmup, "noise_pct": args.noise_pct}
 
@@ -408,6 +430,9 @@ def main():
                     help="override per-row probe iters (default: per-row)")
     ap.add_argument("--no-mem", action="store_true",
                     help="skip the child-process memory pass")
+    ap.add_argument("--allow-debug", action="store_true",
+                    help="time a non-release build anyway; records are stamped "
+                    "non-citable (profile + debug_allowed)")
     ap.add_argument("--baseline", default=None,
                     help="baseline JSON for faster/slower/no-change verdicts")
     ap.add_argument("--probe-row", default=None,
@@ -458,6 +483,19 @@ def main():
             print(text)
         return 1 if out["mismatch"] else 0
 
+    # V15/C13 structural guard: a develop-built wheel timed as "the Rust
+    # port" silently measures unoptimized code. Refuse bench mode unless the
+    # loaded extension reports a release profile; --allow-debug overrides
+    # and stamps the records non-citable. Parity mode (above) is correctness,
+    # not speed, and stays ungated. Pure-Python runs (no extension) are the
+    # baseline side and proceed.
+    profile = build_profile()
+    if profile not in ("release", "pure-python") and not args.allow_debug:
+        print("PROFILE: refusing to time a non-release build (profile=%r). "
+              "Build with `maturin develop --release` (iteration) or install "
+              "a `maturin build --release` wheel, or pass --allow-debug to "
+              "mark the figures non-citable." % profile, file=sys.stderr)
+        return 3
     command = " ".join(sys.argv)
     samples = bench_interleaved(ROWS, args.reps, args.iters, args.warmup)
     mem = {}
@@ -465,7 +503,7 @@ def main():
         for name, _, _, _, mem_iters in ROWS:
             n = args.mem_iters if args.mem_iters is not None else mem_iters
             mem[name] = peak_memory(name, n)
-    records, meta = build_records(samples, args, command, mem)
+    records, meta = build_records(samples, args, command, mem, profile)
     print_table(records)
     if args.baseline:
         with open(args.baseline) as f:
