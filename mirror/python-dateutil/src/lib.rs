@@ -47,6 +47,10 @@ fn _dateutil(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // calls to this same object).
     let utc = tz_mod::TzUtc::new_singleton(py)?;
     m.add("UTC", utc)?;
+    // Build-profile probe for the bench harness (re-audit V15): bench.py
+    // refuses to publish timing figures unless this reads "release", so a
+    // develop-built wheel can never silently pose as the measured port.
+    m.add("__build_profile__", if cfg!(debug_assertions) { "debug" } else { "release" })?;
     // Parser surface: whole `_parse` path + isoparser in Rust.
     parser_mod::register(py, m)?;
     isoparser_mod::register(py, m)?;
