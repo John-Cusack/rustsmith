@@ -38,9 +38,16 @@ fn tables_pristine(py: Python<'_>, info: &Bound<'_, PyAny>) -> PyResult<bool> {
         return Ok(false);
     }
     let cls = info.get_type();
-    let pris = cls.getattr("_rust_pristine")?;
+    let pris = cls.getattr(pyo3::intern!(py, "_rust_pristine"))?;
     let names = [
-        "JUMP", "WEEKDAYS", "MONTHS", "HMS", "AMPM", "UTCZONE", "PERTAIN", "TZOFFSET",
+        pyo3::intern!(py, "JUMP"),
+        pyo3::intern!(py, "WEEKDAYS"),
+        pyo3::intern!(py, "MONTHS"),
+        pyo3::intern!(py, "HMS"),
+        pyo3::intern!(py, "AMPM"),
+        pyo3::intern!(py, "UTCZONE"),
+        pyo3::intern!(py, "PERTAIN"),
+        pyo3::intern!(py, "TZOFFSET"),
     ];
     for (i, n) in names.iter().enumerate() {
         if !cls.getattr(*n)?.is(&pris.get_item(i)?) {
@@ -57,16 +64,29 @@ fn tables_pristine(py: Python<'_>, info: &Bound<'_, PyAny>) -> PyResult<bool> {
 pub struct PyInfo<'py> {
     py: Python<'py>,
     obj: PyObject,
+    /// `builtins.int` fetched once per parse (hot `int()`-protocol path).
+    int_fn: PyObject,
+    /// `UTCZONE` table fetched once per parse; `None` falls back to a live
+    /// lookup per token (preserves error behavior for exotic subclasses).
+    utczone: Option<PyObject>,
     stashed: RefCell<Option<PyErr>>,
 }
 
 impl<'py> PyInfo<'py> {
-    fn new(py: Python<'py>, obj: PyObject) -> Self {
-        PyInfo {
+    fn new(py: Python<'py>, obj: PyObject) -> PyResult<Self> {
+        let int_fn = crate::util::int_fn(py)?.clone().unbind();
+        let utczone = obj
+            .bind(py)
+            .getattr(pyo3::intern!(py, "UTCZONE"))
+            .map(|v| v.unbind())
+            .ok();
+        Ok(PyInfo {
             py,
             obj,
+            int_fn,
+            utczone,
             stashed: RefCell::new(None),
-        }
+        })
     }
 
     fn take_stashed(&self) -> Option<PyErr> {
@@ -91,7 +111,7 @@ impl<'py> PyInfo<'py> {
 
     fn call1(
         &self,
-        name: &str,
+        name: &Bound<'py, pyo3::types::PyString>,
         arg: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
         self.obj.bind(self.py).call_method1(name, (arg,))
@@ -102,11 +122,11 @@ impl<'py> PyInfo<'py> {
         if let Ok(i) = v.extract::<i64>() {
             return Ok(i);
         }
-        let ival = crate::util::int_fn(self.py)?.call1((v,))?;
+        let ival = self.int_fn.bind(self.py).call1((v,))?;
         ival.extract::<i64>()
     }
 
-    fn probe(&self, name: &str, tok: &str) -> Result<Option<i64>, Fail> {
+    fn probe(&self, name: &Bound<'py, pyo3::types::PyString>, tok: &str) -> Result<Option<i64>, Fail> {
         let r: PyResult<Option<i64>> = (|| {
             let v = self.call1(name, &PyString::new(self.py, tok).into_any())?;
             if v.is_none() {
@@ -121,47 +141,59 @@ impl<'py> PyInfo<'py> {
 impl Info for PyInfo<'_> {
     fn jump(&self, tok: &str) -> bool {
         let r: PyResult<bool> = (|| {
-            self.call1("jump", &PyString::new(self.py, tok).into_any())?
-                .is_truthy()
+            self.call1(
+                pyo3::intern!(self.py, "jump"),
+                &PyString::new(self.py, tok).into_any(),
+            )?
+            .is_truthy()
         })();
         self.trap(r, false).unwrap_or(false)
     }
 
     fn weekday(&self, tok: &str) -> Option<i64> {
-        self.probe("weekday", tok).unwrap_or(None)
+        self.probe(pyo3::intern!(self.py, "weekday"), tok).unwrap_or(None)
     }
 
     fn month(&self, tok: &str) -> Option<i64> {
-        self.probe("month", tok).unwrap_or(None)
+        self.probe(pyo3::intern!(self.py, "month"), tok).unwrap_or(None)
     }
 
     fn hms(&self, tok: &str) -> Option<i64> {
-        self.probe("hms", tok).unwrap_or(None)
+        self.probe(pyo3::intern!(self.py, "hms"), tok).unwrap_or(None)
     }
 
     fn ampm(&self, tok: &str) -> Option<i64> {
-        self.probe("ampm", tok).unwrap_or(None)
+        self.probe(pyo3::intern!(self.py, "ampm"), tok).unwrap_or(None)
     }
 
     fn pertain(&self, tok: &str) -> bool {
         let r: PyResult<bool> = (|| {
-            self.call1("pertain", &PyString::new(self.py, tok).into_any())?
-                .is_truthy()
+            self.call1(
+                pyo3::intern!(self.py, "pertain"),
+                &PyString::new(self.py, tok).into_any(),
+            )?
+            .is_truthy()
         })();
         self.trap(r, false).unwrap_or(false)
     }
 
     fn utczone(&self, tok: &str) -> bool {
         let r: PyResult<bool> = (|| {
-            self.call1("utczone", &PyString::new(self.py, tok).into_any())?
-                .is_truthy()
+            self.call1(
+                pyo3::intern!(self.py, "utczone"),
+                &PyString::new(self.py, tok).into_any(),
+            )?
+            .is_truthy()
         })();
         self.trap(r, false).unwrap_or(false)
     }
 
     fn tzoffset(&self, name: &str) -> Option<TzOff> {
         let r: PyResult<Option<TzOff>> = (|| {
-            let v = self.call1("tzoffset", &PyString::new(self.py, name).into_any())?;
+            let v = self.call1(
+                pyo3::intern!(self.py, "tzoffset"),
+                &PyString::new(self.py, name).into_any(),
+            )?;
             if v.is_none() {
                 return Ok(None);
             }
@@ -173,7 +205,15 @@ impl Info for PyInfo<'_> {
 
     fn is_utc_abbr(&self, token: &str) -> bool {
         let r: PyResult<bool> = (|| {
-            let zone = self.obj.bind(self.py).getattr("UTCZONE")?;
+            // Table fetched once per parse (`PyInfo::new`); only exotic
+            // subclasses without `UTCZONE` pay a live lookup per token.
+            let zone = match &self.utczone {
+                Some(z) => z.bind(self.py).clone(),
+                None => self
+                    .obj
+                    .bind(self.py)
+                    .getattr(pyo3::intern!(self.py, "UTCZONE"))?,
+            };
             zone.contains(PyString::new(self.py, token).into_any())
         })();
         self.trap(r, false).unwrap_or(false)
@@ -187,10 +227,9 @@ impl Info for PyInfo<'_> {
         _century: i64,
     ) -> String {
         let r: PyResult<String> = (|| {
-            let int_fn = crate::util::int_fn(self.py)?;
-            let y = int_fn.call1((year,))?;
+            let y = self.int_fn.bind(self.py).call1((year,))?;
             let v = self.obj.bind(self.py).call_method1(
-                "convertyear",
+                pyo3::intern!(self.py, "convertyear"),
                 (y, century_specified),
             )?;
             Ok(v.str()?.to_string())
@@ -201,10 +240,10 @@ impl Info for PyInfo<'_> {
     fn days_in_month(&self, year: &str, month: &str) -> Result<u8, Fail> {
         let r: PyResult<u8> = (|| {
             let cal = crate::util::calendar_mod(self.py)?;
-            let int_fn = crate::util::int_fn(self.py)?;
+            let int_fn = self.int_fn.bind(self.py);
             let y = int_fn.call1((year,))?;
             let m = int_fn.call1((month,))?;
-            let mr = cal.call_method1("monthrange", (y, m))?;
+            let mr = cal.call_method1(pyo3::intern!(self.py, "monthrange"), (y, m))?;
             mr.get_item(1)?.extract::<u8>()
         })();
         self.trap(r, 0)
@@ -607,48 +646,48 @@ fn build_naive(
     ok: &ParseOk,
     default_obj: &Bound<'_, PyAny>,
     timestr: &Bound<'_, PyAny>,
+    int_fn: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
-    let int_fn = crate::util::int_fn(py)?;
     let pint = |s: &str| -> PyResult<PyObject> { Ok(int_fn.call1((s,))?.unbind()) };
     let kwargs = PyDict::new(py);
     if let Some(y) = &ok.year {
-        kwargs.set_item("year", pint(y)?)?;
+        kwargs.set_item(pyo3::intern!(py, "year"), pint(y)?)?;
     }
     if let Some(m) = &ok.month {
-        kwargs.set_item("month", pint(m)?)?;
+        kwargs.set_item(pyo3::intern!(py, "month"), pint(m)?)?;
     }
     if let Some(d) = &ok.day {
-        kwargs.set_item("day", pint(d)?)?;
+        kwargs.set_item(pyo3::intern!(py, "day"), pint(d)?)?;
     }
     if let Some(h) = &ok.hour {
-        kwargs.set_item("hour", pint(h)?)?;
+        kwargs.set_item(pyo3::intern!(py, "hour"), pint(h)?)?;
     }
     if let Some(m) = &ok.minute {
-        kwargs.set_item("minute", pint(m)?)?;
+        kwargs.set_item(pyo3::intern!(py, "minute"), pint(m)?)?;
     }
     if let Some(s) = &ok.second {
-        kwargs.set_item("second", pint(s)?)?;
+        kwargs.set_item(pyo3::intern!(py, "second"), pint(s)?)?;
     }
     if let Some(u) = ok.micro {
-        kwargs.set_item("microsecond", pint(&u.to_string())?)?;
+        kwargs.set_item(pyo3::intern!(py, "microsecond"), pint(&u.to_string())?)?;
     }
     let naive = (|| -> PyResult<PyObject> {
-        if !kwargs.contains("day")? {
+        if !kwargs.contains(pyo3::intern!(py, "day"))? {
             let cyear = match &ok.year {
                 Some(y) => pint(y)?,
-                None => default_obj.getattr("year")?.unbind(),
+                None => default_obj.getattr(pyo3::intern!(py, "year"))?.unbind(),
             };
             let cmonth = match &ok.month {
                 Some(m) => pint(m)?,
-                None => default_obj.getattr("month")?.unbind(),
+                None => default_obj.getattr(pyo3::intern!(py, "month"))?.unbind(),
             };
             let cday = match &ok.day {
                 Some(d) => pint(d)?,
-                None => default_obj.getattr("day")?.unbind(),
+                None => default_obj.getattr(pyo3::intern!(py, "day"))?.unbind(),
             };
             let cal = crate::util::calendar_mod(py)?;
             let mr = cal.call_method1(
-                "monthrange",
+                pyo3::intern!(py, "monthrange"),
                 (cyear.bind(py), cmonth.bind(py)),
             )?;
             let dim = mr.get_item(1)?;
@@ -657,11 +696,11 @@ fn build_naive(
                 .rich_compare(&dim, CompareOp::Gt)?
                 .extract()?;
             if over {
-                kwargs.set_item("day", dim)?;
+                kwargs.set_item(pyo3::intern!(py, "day"), dim)?;
             }
         }
         Ok(default_obj
-            .call_method("replace", (), Some(&kwargs))?
+            .call_method(pyo3::intern!(py, "replace"), (), Some(&kwargs))?
             .unbind())
     })();
     let mut naive = match naive {
@@ -680,7 +719,7 @@ fn build_naive(
         let wd = ok.weekday.unwrap();
         let rd_t = py.get_type::<crate::relativedelta_mod::Relativedelta>();
         let kw = PyDict::new(py);
-        kw.set_item("weekday", wd)?;
+        kw.set_item(pyo3::intern!(py, "weekday"), wd)?;
         let rd = rd_t.call((), Some(&kw))?;
         let shifted = crate::util::operator_add_fn(py)?.call1((naive.bind(py), rd))?;
         naive = shifted.unbind();
@@ -693,12 +732,12 @@ fn tz_kwargs<'py>(
     tzinfo: &Bound<'_, PyAny>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let kw = PyDict::new(py);
-    kw.set_item("tzinfo", tzinfo)?;
+    kw.set_item(pyo3::intern!(py, "tzinfo"), tzinfo)?;
     Ok(kw)
 }
 
 fn info_utczone(
-    _py: Python<'_>,
+    py: Python<'_>,
     info: &Bound<'_, PyAny>,
     fast: bool,
     name: &str,
@@ -706,7 +745,7 @@ fn info_utczone(
     if fast {
         return Ok(DefaultInfo.utczone(name));
     }
-    info.call_method1("utczone", (name,))?
+    info.call_method1(pyo3::intern!(py, "utczone"), (name,))?
         .is_truthy()
 }
 
@@ -715,11 +754,13 @@ fn assign_tzname(
     dt: &Bound<'_, PyAny>,
     tzname: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
-    let cur = dt.call_method0("tzname")?;
+    let cur = dt.call_method0(pyo3::intern!(py, "tzname"))?;
     if !crate::util::py_eq(py, &cur, tzname)? {
         let one = 1i64.into_pyobject(py)?.into_any();
         let folded = crate::tz_mod::enfold(dt.clone(), Some(one))?;
-        let cur2 = folded.bind(py).call_method0("tzname")?;
+        let cur2 = folded
+            .bind(py)
+            .call_method0(pyo3::intern!(py, "tzname"))?;
         if crate::util::py_eq(py, &cur2, tzname)? {
             return Ok(folded);
         }
@@ -731,6 +772,7 @@ fn build_tzinfo(
     py: Python<'_>,
     tzdata: &Bound<'_, PyAny>,
     tzname: &Bound<'_, PyAny>,
+    int_fn: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
     use pyo3::types::PyString;
     let dt_tzinfo = crate::util::tzinfo_cls(py)?;
@@ -740,8 +782,7 @@ fn build_tzinfo(
     if tzdata.is_instance_of::<PyString>() {
         return Ok(crate::util::tzstr_cls(py)?.call1((tzdata,))?.unbind());
     }
-    let long_t = crate::util::int_fn(py)?;
-    if tzdata.is_instance(long_t)? {
+    if tzdata.is_instance(int_fn)? {
         return Ok(crate::util::tzoffset_cls(py)?
             .call1((tzname, tzdata))?
             .unbind());
@@ -759,9 +800,9 @@ fn build_tzaware(
     tzinfos: &Bound<'_, PyAny>,
     info: &Bound<'_, PyAny>,
     fast: bool,
+    int_fn: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
     use pyo3::types::PyString;
-    let int_fn = crate::util::int_fn(py)?;
     let tzname_obj: PyObject = match &ok.tzname {
         Some(n) => PyString::new(py, n).into_any().unbind(),
         None => py.None(),
@@ -777,27 +818,41 @@ fn build_tzaware(
         let tzdata = if tzinfos.is_callable() {
             tzinfos.call1((tzn, tzoff_obj.bind(py)))?
         } else {
-            tzinfos.call_method1("get", (tzn,))?
+            tzinfos.call_method1(pyo3::intern!(py, "get"), (tzn,))?
         };
-        let tzinfo = build_tzinfo(py, &tzdata, tzn)?;
-        let aware = naive.call_method("replace", (), Some(&tz_kwargs(py, tzinfo.bind(py))?))?;
+        let tzinfo = build_tzinfo(py, &tzdata, tzn, int_fn)?;
+        let aware = naive.call_method(
+            pyo3::intern!(py, "replace"),
+            (),
+            Some(&tz_kwargs(py, tzinfo.bind(py))?),
+        )?;
         return assign_tzname(py, &aware, tzn);
     }
     if !tzn.is_truthy()? {
         // No tzname: offset alone decides below.
-    } else if crate::util::time_mod(py)?.getattr("tzname")?.contains(tzn)? {
+    } else if crate::util::time_mod(py)?
+        .getattr(pyo3::intern!(py, "tzname"))?
+        .contains(tzn)?
+    {
         let local = crate::util::tzlocal_cls(py)?.call0()?;
-        let aware =
-            naive.call_method("replace", (), Some(&tz_kwargs(py, &local)?))?;
+        let aware = naive.call_method(
+            pyo3::intern!(py, "replace"),
+            (),
+            Some(&tz_kwargs(py, &local)?),
+        )?;
         let aware = assign_tzname(py, &aware, tzn)?;
         let aware_b = aware.bind(py);
-        let cur = aware_b.call_method0("tzname")?;
+        let cur = aware_b.call_method0(pyo3::intern!(py, "tzname"))?;
         if !crate::util::py_eq(py, &cur, tzn)?
             && info_utczone(py, info, fast, ok.tzname.as_deref().unwrap_or(""))?
         {
             let utc = crate::util::utc_obj(py)?;
             return Ok(aware_b
-                .call_method("replace", (), Some(&tz_kwargs(py, utc)?))?
+                .call_method(
+                    pyo3::intern!(py, "replace"),
+                    (),
+                    Some(&tz_kwargs(py, utc)?),
+                )?
                 .unbind());
         }
         return Ok(aware);
@@ -807,20 +862,29 @@ fn build_tzaware(
     if off_zero {
         let utc = crate::util::utc_obj(py)?;
         return Ok(naive
-            .call_method("replace", (), Some(&tz_kwargs(py, utc)?))?
+            .call_method(
+                pyo3::intern!(py, "replace"),
+                (),
+                Some(&tz_kwargs(py, utc)?),
+            )?
             .unbind());
     }
     if off_some {
         let off = crate::util::tzoffset_cls(py)?.call1((tzn, tzoff_obj.bind(py)))?;
         return Ok(naive
-            .call_method("replace", (), Some(&tz_kwargs(py, &off)?))?
+            .call_method(
+                pyo3::intern!(py, "replace"),
+                (),
+                Some(&tz_kwargs(py, &off)?),
+            )?
             .unbind());
     }
     if tzn.is_none() {
         return Ok(naive.clone().unbind());
     }
     let tzname_s: String = tzn.str()?.to_string();
-    let warn_cls = crate::util::dateutil_parser_inner(py)?.getattr("UnknownTimezoneWarning")?;
+    let warn_cls = crate::util::dateutil_parser_inner(py)?
+        .getattr(pyo3::intern!(py, "UnknownTimezoneWarning"))?;
     crate::util::warn_with(
         py,
         &warn_cls,
@@ -860,36 +924,46 @@ fn parse_impl(
     let fwt = truthy(fuzzy_with_tokens)?;
     let fz = truthy(fuzzy)? || fwt;
     let fast = tables_pristine(py, info_obj)?;
+    // `builtins.int` fetched once per parse; the tails below share it
+    // instead of re-fetching per field.
+    let int_fn = crate::util::int_fn(py)?;
     let (ok, info_for_tz) = if fast {
         let df = match dayfirst {
             Some(o) => o.is_truthy()?,
-            None => info_obj.getattr("dayfirst")?.is_truthy()?,
+            None => info_obj
+                .getattr(pyo3::intern!(py, "dayfirst"))?
+                .is_truthy()?,
         };
         let yf = match yearfirst {
             Some(o) => o.is_truthy()?,
-            None => info_obj.getattr("yearfirst")?.is_truthy()?,
+            None => info_obj
+                .getattr(pyo3::intern!(py, "yearfirst"))?
+                .is_truthy()?,
         };
-        let year: i64 = info_obj.getattr("_year")?.extract()?;
-        let century: i64 = info_obj.getattr("_century")?.extract()?;
-        let info = DefaultInfo;
-        let mut toks = Timelex::split(&s);
-        let mut ok = parse_tokens(
-            &mut toks,
-            &info,
-            &ParseOptions {
-                dayfirst: df,
-                yearfirst: yf,
-                fuzzy: fz,
-                cur_year: year,
-                century,
-            },
-        )
-        .map_err(|e| match e {
-            Fail::NoResult | Fail::Aborted => {
-                raise_parser_error(py, "Unknown string format: %s", timestr)
-            }
-            Fail::Empty => unreachable!("core never returns Empty"),
-        })?;
+        let year: i64 = info_obj.getattr(pyo3::intern!(py, "_year"))?.extract()?;
+        let century: i64 = info_obj
+            .getattr(pyo3::intern!(py, "_century"))?
+            .extract()?;
+        // Pure-Rust section on owned inputs: lexer + `_parse` + default
+        // tables never touch Python, so the GIL is released here.
+        let opts = ParseOptions {
+            dayfirst: df,
+            yearfirst: yf,
+            fuzzy: fz,
+            cur_year: year,
+            century,
+        };
+        let mut ok = py
+            .allow_threads(|| {
+                let mut toks = Timelex::split(&s);
+                parse_tokens(&mut toks, &DefaultInfo, &opts)
+            })
+            .map_err(|e| match e {
+                Fail::NoResult | Fail::Aborted => {
+                    raise_parser_error(py, "Unknown string format: %s", timestr)
+                }
+                Fail::Empty => unreachable!("core never returns Empty"),
+            })?;
         if ok.is_empty() {
             return Err(raise_parser_error(
                 py,
@@ -902,13 +976,18 @@ fn parse_impl(
     } else {
         let df = match dayfirst {
             Some(o) => o.is_truthy()?,
-            None => info_obj.getattr("dayfirst")?.is_truthy()?,
+            None => info_obj
+                .getattr(pyo3::intern!(py, "dayfirst"))?
+                .is_truthy()?,
         };
         let yf = match yearfirst {
             Some(o) => o.is_truthy()?,
-            None => info_obj.getattr("yearfirst")?.is_truthy()?,
+            None => info_obj
+                .getattr(pyo3::intern!(py, "yearfirst"))?
+                .is_truthy()?,
         };
-        let bridge = PyInfo::new(py, info_obj.clone().unbind());
+        // Slow path stays attached: the bridge calls Python per token.
+        let bridge = PyInfo::new(py, info_obj.clone().unbind())?;
         let mut toks = Timelex::split(&s);
         let r = parse_tokens(
             &mut toks,
@@ -939,10 +1018,10 @@ fn parse_impl(
         }
         let cls = py
             .import("dateutil.parser._parser")?
-            .getattr("_result")?;
+            .getattr(pyo3::intern!(py, "_result"))?;
         let ns = cls.call0()?;
-        fill_result_full(py, &ns, &ok)?;
-        let valid = info_obj.call_method1("validate", (ns.clone(),))?;
+        fill_result_full(py, &ns, &ok, int_fn)?;
+        let valid = info_obj.call_method1(pyo3::intern!(py, "validate"), (ns.clone(),))?;
         if !valid.is_truthy()? {
             return Err(raise_parser_error(
                 py,
@@ -957,16 +1036,16 @@ fn parse_impl(
         Some(d) => d,
         None => {
             let dt = crate::util::datetime_cls(py)?;
-            let now = dt.call_method0("now")?;
+            let now = dt.call_method0(pyo3::intern!(py, "now"))?;
             let kw = PyDict::new(py);
-            kw.set_item("hour", 0)?;
-            kw.set_item("minute", 0)?;
-            kw.set_item("second", 0)?;
-            kw.set_item("microsecond", 0)?;
-            now.call_method("replace", (), Some(&kw))?
+            kw.set_item(pyo3::intern!(py, "hour"), 0)?;
+            kw.set_item(pyo3::intern!(py, "minute"), 0)?;
+            kw.set_item(pyo3::intern!(py, "second"), 0)?;
+            kw.set_item(pyo3::intern!(py, "microsecond"), 0)?;
+            now.call_method(pyo3::intern!(py, "replace"), (), Some(&kw))?
         }
     };
-    let naive = build_naive(py, &ok, &default_obj, timestr)?;
+    let naive = build_naive(py, &ok, &default_obj, timestr, int_fn)?;
     let naive_b = naive.bind(py);
     let ret = if truthy(ignoretz)? {
         naive_b.clone().unbind()
@@ -975,7 +1054,7 @@ fn parse_impl(
             Some(t) => t,
             None => py.None().into_bound(py),
         };
-        build_tzaware(py, naive_b, &ok, &tz, info_obj, info_for_tz)?
+        build_tzaware(py, naive_b, &ok, &tz, info_obj, info_for_tz, int_fn)?
     };
     if fwt {
         let tup = pyo3::types::PyTuple::new(
@@ -989,8 +1068,12 @@ fn parse_impl(
 }
 
 
-fn fill_result_full(py: Python<'_>, ns: &Bound<'_, PyAny>, ok: &ParseOk) -> PyResult<()> {
-    let int_fn = crate::util::int_fn(py)?;
+fn fill_result_full(
+    py: Python<'_>,
+    ns: &Bound<'_, PyAny>,
+    ok: &ParseOk,
+    int_fn: &Bound<'_, PyAny>,
+) -> PyResult<()> {
     let pint = |s: &str| -> PyResult<PyObject> { Ok(int_fn.call1((s,))?.unbind()) };
     let opt_int = |v: &Option<String>| -> PyResult<PyObject> {
         match v {
@@ -998,28 +1081,28 @@ fn fill_result_full(py: Python<'_>, ns: &Bound<'_, PyAny>, ok: &ParseOk) -> PyRe
             None => Ok(py.None()),
         }
     };
-    ns.setattr("year", opt_int(&ok.year)?)?;
-    ns.setattr("month", opt_int(&ok.month)?)?;
-    ns.setattr("day", opt_int(&ok.day)?)?;
+    ns.setattr(pyo3::intern!(py, "year"), opt_int(&ok.year)?)?;
+    ns.setattr(pyo3::intern!(py, "month"), opt_int(&ok.month)?)?;
+    ns.setattr(pyo3::intern!(py, "day"), opt_int(&ok.day)?)?;
     ns.setattr(
-        "weekday",
+        pyo3::intern!(py, "weekday"),
         ok.weekday
             .map(|w| w.into_pyobject(py).map(|v| v.into_any().unbind()))
             .transpose()?
             .unwrap_or_else(|| py.None()),
     )?;
-    ns.setattr("hour", opt_int(&ok.hour)?)?;
-    ns.setattr("minute", opt_int(&ok.minute)?)?;
-    ns.setattr("second", opt_int(&ok.second)?)?;
+    ns.setattr(pyo3::intern!(py, "hour"), opt_int(&ok.hour)?)?;
+    ns.setattr(pyo3::intern!(py, "minute"), opt_int(&ok.minute)?)?;
+    ns.setattr(pyo3::intern!(py, "second"), opt_int(&ok.second)?)?;
     ns.setattr(
-        "microsecond",
+        pyo3::intern!(py, "microsecond"),
         ok.micro
             .map(|u| pint(&u.to_string()))
             .transpose()?
             .unwrap_or_else(|| py.None()),
     )?;
     ns.setattr(
-        "tzname",
+        pyo3::intern!(py, "tzname"),
         ok.tzname
             .clone()
             .map(|n| n.into_pyobject(py).map(|v| v.into_any().unbind()))
@@ -1027,7 +1110,7 @@ fn fill_result_full(py: Python<'_>, ns: &Bound<'_, PyAny>, ok: &ParseOk) -> PyRe
             .unwrap_or_else(|| py.None()),
     )?;
     ns.setattr(
-        "tzoffset",
+        pyo3::intern!(py, "tzoffset"),
         ok.tzoffset
             .as_ref()
             .map(|o| pint(&o.as_str()))
@@ -1035,13 +1118,16 @@ fn fill_result_full(py: Python<'_>, ns: &Bound<'_, PyAny>, ok: &ParseOk) -> PyRe
             .unwrap_or_else(|| py.None()),
     )?;
     ns.setattr(
-        "ampm",
+        pyo3::intern!(py, "ampm"),
         ok.ampm
             .map(|a| a.into_pyobject(py).map(|v| v.into_any().unbind()))
             .transpose()?
             .unwrap_or_else(|| py.None()),
     )?;
-    ns.setattr("century_specified", ok.century_specified)?;
+    ns.setattr(
+        pyo3::intern!(py, "century_specified"),
+        ok.century_specified,
+    )?;
     Ok(())
 }
 
@@ -1172,13 +1258,18 @@ impl Parser {
         let fz = truthy(&fuzzy)? || fwt;
         let info_obj = self.info.bind(py);
         let fast = tables_pristine(py, info_obj)?;
+        let int_fn = crate::util::int_fn(py)?;
         let df = match &dayfirst {
             Some(o) => o.is_truthy()?,
-            None => info_obj.getattr("dayfirst")?.is_truthy()?,
+            None => info_obj
+                .getattr(pyo3::intern!(py, "dayfirst"))?
+                .is_truthy()?,
         };
         let yf = match &yearfirst {
             Some(o) => o.is_truthy()?,
-            None => info_obj.getattr("yearfirst")?.is_truthy()?,
+            None => info_obj
+                .getattr(pyo3::intern!(py, "yearfirst"))?
+                .is_truthy()?,
         };
         // `_parse` returns `(res, skipped)` with `(None, None)` on failure
         // and `skipped=None` unless `fuzzy_with_tokens` (unlike `parse`,
@@ -1195,9 +1286,9 @@ impl Parser {
         let fill_pair = |py: Python<'_>, ok: &ParseOk| -> PyResult<PyObject> {
             let cls = py
                 .import("dateutil.parser._parser")?
-                .getattr("_result")?;
+                .getattr(pyo3::intern!(py, "_result"))?;
             let ns = cls.call0()?;
-            fill_result_full(py, &ns, ok)?;
+            fill_result_full(py, &ns, ok, int_fn)?;
             let skips: PyObject = if fwt {
                 pyo3::types::PyTuple::new(py, ok.skipped.iter().map(|t| t.as_str()))?
                     .into_any()
@@ -1208,21 +1299,22 @@ impl Parser {
             pair(py, ns.unbind(), skips)
         };
         if fast {
-            let year: i64 = info_obj.getattr("_year")?.extract()?;
-            let century: i64 = info_obj.getattr("_century")?.extract()?;
-            let info = DefaultInfo;
-            let mut toks = Timelex::split(&s);
-            let r = parse_tokens(
-                &mut toks,
-                &info,
-                &ParseOptions {
-                    dayfirst: df,
-                    yearfirst: yf,
-                    fuzzy: fz,
-                    cur_year: year,
-                    century,
-                },
-            );
+            let year: i64 = info_obj.getattr(pyo3::intern!(py, "_year"))?.extract()?;
+            let century: i64 = info_obj
+                .getattr(pyo3::intern!(py, "_century"))?
+                .extract()?;
+            // Pure-Rust section on owned inputs; the GIL is released here.
+            let opts = ParseOptions {
+                dayfirst: df,
+                yearfirst: yf,
+                fuzzy: fz,
+                cur_year: year,
+                century,
+            };
+            let r = py.allow_threads(|| {
+                let mut toks = Timelex::split(&s);
+                parse_tokens(&mut toks, &DefaultInfo, &opts)
+            });
             let mut ok = match r {
                 Ok(v) => v,
                 Err(_) => return none_pair(),
@@ -1230,7 +1322,8 @@ impl Parser {
             validate_default(&mut ok, year, century);
             return fill_pair(py, &ok);
         }
-        let bridge = PyInfo::new(py, self.info.clone_ref(py));
+        // Slow path stays attached: the bridge calls Python per token.
+        let bridge = PyInfo::new(py, self.info.clone_ref(py))?;
         let mut toks = Timelex::split(&s);
         let r = parse_tokens(
             &mut toks,
@@ -1252,10 +1345,10 @@ impl Parser {
         };
         let cls = py
             .import("dateutil.parser._parser")?
-            .getattr("_result")?;
+            .getattr(pyo3::intern!(py, "_result"))?;
         let ns = cls.call0()?;
-        fill_result_full(py, &ns, &ok)?;
-        let valid = info_obj.call_method1("validate", (ns.clone(),))?;
+        fill_result_full(py, &ns, &ok, int_fn)?;
+        let valid = info_obj.call_method1(pyo3::intern!(py, "validate"), (ns.clone(),))?;
         if !valid.is_truthy()? {
             return none_pair();
         }
@@ -1347,11 +1440,13 @@ impl TimelexObj {
 
     #[classmethod]
     fn split(_cls: &Bound<'_, PyType>, py: Python<'_>, s: Bound<'_, PyAny>) -> PyResult<Vec<String>> {
-        let owned = normalize_input(py, &s)?;
-        Ok(Timelex::split(&owned)
-            .into_iter()
-            .map(|t| t.into_owned())
-            .collect())
+        let text = normalize_input(py, &s)?;
+        Ok(py.allow_threads(|| {
+            Timelex::split(&text)
+                .into_iter()
+                .map(|t| t.into_owned())
+                .collect()
+        }))
     }
 
     #[classmethod]
@@ -1416,28 +1511,28 @@ fn parse_fn(
     match parserinfo {
         None => {
             let dp = crate::util::defaultparser_obj(py)?;
-            let meth = dp.getattr("parse")?;
+            let meth = dp.getattr(pyo3::intern!(py, "parse"))?;
             let kw = PyDict::new(py);
             if let Some(v) = default {
-                kw.set_item("default", v)?;
+                kw.set_item(pyo3::intern!(py, "default"), v)?;
             }
             if let Some(v) = ignoretz {
-                kw.set_item("ignoretz", v)?;
+                kw.set_item(pyo3::intern!(py, "ignoretz"), v)?;
             }
             if let Some(v) = tzinfos {
-                kw.set_item("tzinfos", v)?;
+                kw.set_item(pyo3::intern!(py, "tzinfos"), v)?;
             }
             if let Some(v) = dayfirst {
-                kw.set_item("dayfirst", v)?;
+                kw.set_item(pyo3::intern!(py, "dayfirst"), v)?;
             }
             if let Some(v) = yearfirst {
-                kw.set_item("yearfirst", v)?;
+                kw.set_item(pyo3::intern!(py, "yearfirst"), v)?;
             }
             if let Some(v) = fuzzy {
-                kw.set_item("fuzzy", v)?;
+                kw.set_item(pyo3::intern!(py, "fuzzy"), v)?;
             }
             if let Some(v) = fuzzy_with_tokens {
-                kw.set_item("fuzzy_with_tokens", v)?;
+                kw.set_item(pyo3::intern!(py, "fuzzy_with_tokens"), v)?;
             }
             Ok(meth.call((timestr,), Some(&kw))?.unbind())
         }
