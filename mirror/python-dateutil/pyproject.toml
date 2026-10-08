@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/John-Cusack/python-dateutil-rust"
+Homepage = "https://github.com/John-Cusack/dateutil-rust"
 Upstream = "https://github.com/dateutil/dateutil"
 
 [tool.maturin]
