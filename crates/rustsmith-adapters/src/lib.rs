@@ -564,7 +564,10 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
 fn python_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
     let mut diagnostics = Vec::new();
     // Claimed-file filter. Mirrors the legacy walk: skip test/bench/docs
-    // paths and repo-root tooling; `__init__.py` carries no module unit.
+    // paths, demo programs (examples/ ships scripts that *use* the library,
+    // never library modules; porting them as units would delete them from
+    // the fork on merge while the oracle's example tests still run them),
+    // and repo-root tooling; `__init__.py` carries no module unit.
     let mut sources: Vec<(&Path, String, String)> = Vec::new();
     for src in cx.files {
         if src.extension().map(|x| x == "py").unwrap_or(false) {
@@ -573,7 +576,7 @@ fn python_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
             if rel_path.components().any(|c| {
                 matches!(
                     c.as_os_str().to_str(),
-                    Some("test") | Some("tests") | Some("bench") | Some("docs")
+                    Some("test") | Some("tests") | Some("bench") | Some("docs") | Some("example") | Some("examples")
                 )
             }) {
                 continue;
@@ -850,14 +853,16 @@ pub fn probe(repo: &Path) -> Result<ProbeReport, AdapterError> {
             python_claims += 1;
             continue;
         }
-        // Test-local non-Python sources are fixtures (compiled at test time,
-        // e.g. packaging's tests/hello-world.c), not build units: they count
-        // as claimed so the census stays quiet, but register no frontend, so
-        // a fixture alone cannot flip the repo to the CTest spine.
+        // Test/demo-local non-Python sources are fixtures (compiled at test
+        // time, e.g. packaging's tests/hello-world.c, or shipped alongside
+        // demo programs, e.g. pyparsing's examples/snmp_api.h), not build
+        // units: they count as claimed so the census stays quiet, but
+        // register no frontend, so a fixture alone cannot flip the repo to
+        // the CTest spine.
         let test_local = path.components().any(|c| {
             matches!(
                 c.as_os_str().to_str(),
-                Some("test") | Some("tests") | Some("bench")
+                Some("test") | Some("tests") | Some("bench") | Some("example") | Some("examples")
             )
         });
         if fortran.claims(&path, None) {
@@ -2380,6 +2385,33 @@ mod tests {
             assert!(ids.contains(&from.0.as_str()), "edge from unknown unit {from}");
             assert!(ids.contains(&to.0.as_str()), "edge to unknown unit {to}");
         }
+    }
+
+    #[test]
+    fn python_fragment_skips_demo_programs() {
+        // pyparsing shape: examples/ ships scripts that use the library;
+        // they are never library modules, so they must not become units
+        // (a unit merge would delete the demo from the fork while the
+        // oracle's example tests still run it).
+        let dir = tempfile::tempdir().unwrap();
+        write_tmp_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
+        write_tmp_file(&dir.path().join("examples/demo.py"), "import pkg.a\nprint(pkg.a.VALUE)\n");
+        write_tmp_file(&dir.path().join("example/other.py"), "import pkg.a\n");
+        let files = vec![
+            dir.path().join("pkg/a.py"),
+            dir.path().join("examples/demo.py"),
+            dir.path().join("example/other.py"),
+        ];
+        let compiler_ids = BTreeMap::new();
+        let cx = FragmentCtx {
+            repo: dir.path(),
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
+        let fragment = PythonFrontend.fragment(&cx).unwrap();
+        let ids: Vec<&str> = fragment.units.iter().map(|u| u.id.0.as_str()).collect();
+        assert_eq!(ids, vec!["python:pkg/a.py"]);
     }
 
     #[test]
@@ -5469,6 +5501,25 @@ mod track_i_tests {
         let (composite, _) = select_composite(dir.path()).unwrap();
         assert_eq!(composite.runner_id(), "pytest");
     }
+    #[test]
+    fn probe_ignores_examples_c_source_for_spine() {
+        // pyparsing shape: one C header under examples/ must not flip the
+        // repo to the CTest spine, and must not read as unclaimed either.
+        let dir = tempfile::tempdir().unwrap();
+        write_file(&dir.path().join("pkg/__init__.py"), "");
+        write_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
+        write_file(&dir.path().join("pyproject.toml"), "[project]\nname = \"a\"\n");
+        write_file(&dir.path().join("examples/demo.py"), "import pkg.a\n");
+        write_file(&dir.path().join("examples/snmp_api.h"), "int snmp_get(void);\n");
+        let report = probe(dir.path()).unwrap();
+        assert_eq!(report.frontends, vec!["python"]);
+        assert!(report.unclaimed.is_empty());
+        assert_eq!(report.unclaimed_share, 0.0);
+        assert!(!report.has_ctest);
+        let (composite, _) = select_composite(dir.path()).unwrap();
+        assert_eq!(composite.runner_id(), "pytest");
+    }
+
     #[test]
     fn select_composite_picks_ctest_spine_for_mixed_tree() {
         let mock = mock_tree();
