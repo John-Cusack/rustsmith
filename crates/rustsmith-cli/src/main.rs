@@ -122,6 +122,28 @@ fn load_run_config(path: Option<&str>) -> Result<RunConfig, String> {
     Ok(cfg)
 }
 
+/// Documented seat-identity switch: `--config PATH` carrying a `[models]`
+/// table also selects seat identities (providers + models) for this process,
+/// overriding `RUSTSMITH_MODELS_CONFIG`. A `--config` without `[models]`
+/// leaves seat identities untouched (env/default still apply).
+fn apply_models_config(path: Option<&str>) {
+    let p = match path {
+        Some(p) => p,
+        None => return,
+    };
+    let text = match std::fs::read_to_string(p) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+    let has_models = text.lines().any(|l| {
+        let t = l.trim();
+        t == "[models]"
+    });
+    if has_models {
+        std::env::set_var("RUSTSMITH_MODELS_CONFIG", p);
+    }
+}
+
 fn cmd_run(args: &[String]) -> Result<(), String> {
     let stage = flag(args, "--stage").unwrap_or_else(|| "full".into());
     // M0 legacy: `run --stage recon` with explicit --out (m0_acceptance.sh shape).
@@ -142,6 +164,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             return Err(format!("unknown --plant-live {p} (test-edit|hardcode)"));
         }
     }
+    apply_models_config(flag(args, "--config").as_deref());
     let cfg = load_run_config(flag(args, "--config").as_deref())?;
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     // Resolve repo: URL[#pin] clones into work/orig, else a local path.
@@ -887,6 +910,7 @@ fn cmd_worker_probe(args: &[String]) -> Result<(), String> {
 fn cmd_seat_probe(args: &[String]) -> Result<(), String> {
     use rustsmith_council::{model_for_seat, provider_for_seat, seat_commands_from_env, Council, Proposal, Seat, SeatDriver, StubDriver};
     use std::collections::HashMap;
+    apply_models_config(flag(args, "--config").as_deref());
     let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| "store.db".into()));
     let run_id = flag(args, "--run-id").unwrap_or_else(|| "m8s".into());
     let question = flag(args, "--question").unwrap_or_else(|| "adopt X".into());
@@ -949,6 +973,7 @@ fn cmd_run_batch(args: &[String]) -> Result<(), String> {
         return Err("--plant-live is single-run only".into());
     }
     let cfg = load_run_config(flag(args, "--config").as_deref())?;
+    apply_models_config(flag(args, "--config").as_deref());
     let work_root = PathBuf::from(flag(args, "--work").unwrap_or_else(|| "batch".into()));
     let store_default = work_root.join("store.db").display().to_string();
     let store_path = PathBuf::from(flag(args, "--store").unwrap_or_else(|| store_default.clone()));
@@ -992,6 +1017,7 @@ fn cmd_recon(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 fn cmd_mirror(args: &[String]) -> Result<(), String> {
+    apply_models_config(flag(args, "--config").as_deref());
     let repo = PathBuf::from(flag(args, "--repo").ok_or("missing --repo")?);
     let template = match flag(args, "--template") {
         Some(t) => PathBuf::from(t),

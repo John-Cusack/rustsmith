@@ -150,7 +150,7 @@ version-bump automation, signed provenance attestations.
 | `[optimize.regression]` | RSS / alloc / binary-size / compile-time tolerances |
 | `[optimize.final]` | PGO / BOLT / allocator-swap gating (never unconditional) |
 | `[measure]` / `[workload]` | primary instrument, wall-clock confirmation, workload contract |
-| `[models]` | swappable provider/model identities per seat — never hardcoded elsewhere; reviewers on distinct providers is structural |
+| `[models]` | swappable provider/model identities per seat — never hardcoded elsewhere; reviewers on distinct providers is structural. A `--config` file carrying `[models]` (e.g. `config/live.toml`) also selects seat identities for that run; live seats run through `scripts/rustsmith-seat.sh` (Claude seats via Claude Code, Muse/Codex via omp), printing bare `{stance, reasoning}` JSON |
 | `[privacy]` | `allow_training_tier_on_private_repos = false` enforced in code |
 
 ## Repository layout

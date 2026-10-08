@@ -1,8 +1,14 @@
 # Live run config: config/default.toml with real seat identities.
 # Use: rustsmith run ... --config config/live.toml
-# Seat identities are read from RUSTSMITH_MODELS_CONFIG (default
-# config/default.toml), not from --config, so a live run also sets
-# RUSTSMITH_MODELS_CONFIG=config/live.toml.
+# (--config also selects these seat identities: a [models] table overrides
+# RUSTSMITH_MODELS_CONFIG for the run, seat-probe, and mirror processes).
+# Live seats also need commands, one per seat (same dispatcher reads the
+# seat/model/provider from the prompt and routes: anthropic -> Claude Code
+# wrapper, meta/openai -> omp):
+#   export RUSTSMITH_SEAT_CMD_ARCHITECT=scripts/rustsmith-seat.sh
+#   export RUSTSMITH_SEAT_CMD_VERIFIER=scripts/rustsmith-seat.sh
+#   export RUSTSMITH_SEAT_CMD_PERFORMANCE=scripts/rustsmith-seat.sh
+#   export RUSTSMITH_SEAT_CMD_SCOPE=scripts/rustsmith-seat.sh
 
 [run]
 max_parallel_runs = 3
@@ -64,15 +70,13 @@ require_workload_contract = true
 
 [models]
 # Live seat identities. Provider labels must stay distinct across the two
-# review seats and never match the implementer (worker), the rule
-# assign_reviewers in crates/rustsmith-cli/src/mirror.rs enforces. With these
-# labels that rule seats verifier (anthropic) + performance (openai). The run
-# path does not pass these labels to assign_reviewers yet (it still uses the
-# built-in placeholder map), so until that is wired this table only labels
-# the seats in prompts and audit.
-# Routes verified 2026-10-06:
+# review seats and never match the implementer (worker); the rule
+# assign_reviewers in crates/rustsmith-cli/src/mirror.rs enforces it on the
+# configured providers (rustsmith_council::configured_providers), so this
+# table seats verifier (anthropic) + performance (openai) on the run path.
+# Provider routes (live seat-probe evidence recorded in the PR body):
 #   meta/muse-spark-1.3-contributor  -> omp --model muse-code/muse-spark-1.3-contributor
-#   anthropic/claude-opus-5-5        -> claude -p --model claude-opus-5-5 (Claude Code)
+#   anthropic/claude-opus-5-5        -> claude -p --model claude-opus-5-5 (Claude Code, result field)
 #   openai/gpt-6.1-sol               -> omp --model openai-codex/gpt-6.1-sol
 architect = { provider = "meta", model = "muse-spark-1.3-contributor" }
 verifier = { provider = "anthropic", model = "claude-opus-5-5" }
