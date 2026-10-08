@@ -104,7 +104,9 @@ impl EnginePull {
                 self.engine = None;
                 return Ok(None);
             }
-            let mut batch = match engine.next_step() {
+            // Pure-Rust step on owned engine state; the GIL is released
+            // here (filtering/datetime assembly above stays attached).
+            let mut batch = match py.allow_threads(|| engine.next_step()) {
                 Ok(b) => b,
                 Err(core::EngineError::EmptyRule) => {
                     return value_error(
@@ -3174,7 +3176,7 @@ fn parse_rfc(py: Python<'_>, s: &Bound<'_, PyAny>, opts: &RrOptions) -> PyResult
         let mut parms: Vec<&str> = name.split(';').collect();
         let pname = parms.remove(0).to_string();
         if pname == "RRULE" {
-            for parm in parms {
+            if let Some(parm) = parms.into_iter().next() {
                 return value_error(format!("unsupported RRULE parm: {}", parm));
             }
             rrulevals.push(value);
@@ -3186,7 +3188,7 @@ fn parse_rfc(py: Python<'_>, s: &Bound<'_, PyAny>, opts: &RrOptions) -> PyResult
             }
             rdatevals.push(value);
         } else if pname == "EXRULE" {
-            for parm in parms {
+            if let Some(parm) = parms.into_iter().next() {
                 return value_error(format!("unsupported EXRULE parm: {}", parm));
             }
             exrulevals.push(value);

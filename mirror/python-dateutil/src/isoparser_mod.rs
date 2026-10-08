@@ -132,11 +132,15 @@ impl Isoparser {
 
     fn isoparse(&self, py: Python<'_>, dt_str: Bound<'_, PyAny>) -> PyResult<PyObject> {
         let b = ascii_bytes(py, &dt_str)?;
-        let r = parse_dt(&b, self.sep).map_err(|e| iso_err(py, e))?;
+        let sep = self.sep;
+        // Pure-Rust parse on the owned bytes; the GIL is released here.
+        let r = py
+            .allow_threads(|| parse_dt(&b, sep))
+            .map_err(|e| iso_err(py, e))?;
         let dt = crate::util::datetime_cls(py)?;
         let tz = tz_object(py, r.tz)?;
         let kw = PyDict::new(py);
-        kw.set_item("tzinfo", tz)?;
+        kw.set_item(pyo3::intern!(py, "tzinfo"), tz)?;
         let mut obj = dt
             .call(
                 (
@@ -162,12 +166,15 @@ impl Isoparser {
 
     fn parse_isodate(&self, py: Python<'_>, datestr: Bound<'_, PyAny>) -> PyResult<PyObject> {
         let b = ascii_bytes(py, &datestr)?;
-        let (c, pos) = parse_date_only(&b).map_err(|e| iso_err(py, e))?;
+        // Pure-Rust parse on the owned bytes; the GIL is released here.
+        let (c, pos) = py
+            .allow_threads(|| parse_date_only(&b))
+            .map_err(|e| iso_err(py, e))?;
         if pos < b.len() {
             // Exact message via Python `repr` of the ASCII-decoded string.
             let decoded = String::from_utf8_lossy(&b).to_string();
             let rep = pyo3::types::PyString::new(py, &decoded)
-                .call_method0("__repr__")?;
+                .call_method0(pyo3::intern!(py, "__repr__"))?;
             return crate::util::value_error(format!(
                 "String contains unknown ISO components: {}",
                 rep
@@ -178,7 +185,10 @@ impl Isoparser {
 
     fn parse_isotime(&self, py: Python<'_>, timestr: Bound<'_, PyAny>) -> PyResult<PyObject> {
         let b = ascii_bytes(py, &timestr)?;
-        let (t, tz) = parse_time_only(&b).map_err(|e| iso_err(py, e))?;
+        // Pure-Rust parse on the owned bytes; the GIL is released here.
+        let (t, tz) = py
+            .allow_threads(|| parse_time_only(&b))
+            .map_err(|e| iso_err(py, e))?;
         let tzo = tz_object(py, tz)?;
         // `parse_isotime` folds 24:00 to midnight (unlike `isoparse`,
         // which rolls to the next day).
@@ -208,7 +218,10 @@ impl Isoparser {
             None => true,
             Some(o) => o.is_truthy()?,
         };
-        let tz = parse_tz_only(&b, zau).map_err(|e| iso_err(py, e))?;
+        // Pure-Rust parse on the owned bytes; the GIL is released here.
+        let tz = py
+            .allow_threads(|| parse_tz_only(&b, zau))
+            .map_err(|e| iso_err(py, e))?;
         tz_object(py, tz)
     }
 }
