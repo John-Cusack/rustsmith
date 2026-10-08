@@ -1346,9 +1346,17 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         );
         return Err(reason);
     }
-    // Unsafe audit: count + SAFETY + FFI-boundary (0 expected on the mirror).
+    // Unsafe audit: count + SAFETY + FFI-boundary (0 expected on pure
+    // mirrors; budgeted FFI sites pass, e.g. pyparsing's single scan-buffer
+    // site). A failing budget halts like any whole-repo gate.
     let unsafe_sites = audit_unsafe(&a.fork)?;
     let uv = gates::unsafe_budget(&unsafe_sites, 5.0, 10);
+    if !uv.passed {
+        let reason = format!("unsafe_budget whole-repo: {}", uv.detail);
+        store.set_halt(run_id, &reason).map_err(|e| e.to_string())?;
+        ev(store, run_id, "unsafe_budget", serde_json::json!({"reason": reason}));
+        return Err(reason);
+    }
     let units = store.list_units(run_id).map_err(|e| e.to_string())?;
     let decisions = store.count_decisions(run_id).map_err(|e| e.to_string())? as usize;
     let report = Report {
@@ -1819,11 +1827,14 @@ pub(crate) fn parse_heldout_rate(t: &str) -> Result<f64, String> {
 }
 
 pub(crate) fn audit_unsafe(fork: &Path) -> Result<Vec<gates::UnsafeSite>, String> {
-    // `cargo geiger` cross-check would go here; the mirror ships zero unsafe,
-    // so a textual audit plus geiger-if-present is the honest check.
-    // Every crate source root ships: the binding `src/` plus any nested
-    // crate `*/src/` (the publishable `crc-core/src/`, Elmer `rust/*/src/`).
-    let mut count = 0usize;
+    // Textual audit feeding the documented `unsafe_budget` gate (budget +
+    // FFI boundary + `SAFETY:` comment), not a zero-tolerance error: the
+    // first port needing raw FFI reads (pyparsing's unicode scan buffer)
+    // cannot ship zero `unsafe`, and erroring here made the budget gate
+    // below dead code. Every crate source root ships: the binding `src/`
+    // plus any nested crate `*/src/` (the publishable `crc-core/src/`,
+    // Elmer `rust/*/src/`).
+    let mut sites = Vec::new();
     let mut roots = vec![fork.join("src")];
     if let Ok(rd) = std::fs::read_dir(fork) {
         for e in rd.flatten() {
@@ -1845,27 +1856,37 @@ pub(crate) fn audit_unsafe(fork: &Path) -> Result<Vec<gates::UnsafeSite>, String
         for entry in walkdir_simple(&root) {
         if entry.extension().map(|x| x == "rs").unwrap_or(false) {
             let t = std::fs::read_to_string(&entry).map_err(|e| e.to_string())?;
+            // FFI boundary is a file property: binding crates name pyo3/ffi
+            // (imports, `#[pymodule]`); pure cores never do, so raw reads
+            // hiding in shared logic fail the gate instead of passing here.
+            let ffi_file = t.contains("pyo3") || t.contains("::ffi") || t.contains("pymodule");
+            let lines: Vec<&str> = t.lines().collect();
             // Strip comments? No: any `unsafe` token counts (conservative).
-            for line in t.lines() {
+            for (i, line) in lines.iter().enumerate() {
                 let s = line.trim();
                 if s.starts_with("//") {
                     continue;
                 }
                 if s.contains("unsafe") {
-                    count += 1;
+                    // `SAFETY:` must sit just above the site (comment or doc
+                    // comment); a distant or missing note fails the gate.
+                    let mut back = lines[..i].iter().rev().take(15);
+                    let has_safety_comment = back.any(|l| l.contains("SAFETY:"));
+                    sites.push(gates::UnsafeSite {
+                        file: entry.strip_prefix(fork).unwrap_or(&entry).display().to_string(),
+                        is_ffi_boundary: ffi_file,
+                        has_safety_comment,
+                    });
                 }
             }
         }
     }
     }
-    if count > 0 {
-        return Err(format!("{count} unsafe tokens found"));
-    }
     // Also try cargo-geiger when installed (informational).
     let _ = std::process::Command::new("cargo")
         .args(["geiger", "--manifest-path", &fork.join("Cargo.toml").display().to_string()])
         .output();
-    Ok(vec![])
+    Ok(sites)
 }
 
 fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
@@ -2501,5 +2522,38 @@ mod tests {
         let decl =
             grade_unit_decl(Path::new("/repo"), "fortran:src/y.F90", "src/y.F90", None);
         assert!(decl.exports.is_empty(), "unexpected: {:?}", decl.exports);
+    }
+
+    #[test]
+    fn audit_unsafe_collects_budgeted_ffi_sites() {
+        // Budgeted shape (pyparsing binding): one unsafe block at the FFI
+        // boundary with a SAFETY note collects as a passing site, not an
+        // error; a bare unsafe elsewhere fails the gate downstream.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("core/src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "use pyo3::ffi;\n// SAFETY: live buffer, GIL held.\nunsafe { ffi::Py_DECREF(p); }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("core/src/lib.rs"), "pub fn f() -> usize { 0 }\n").unwrap();
+        let sites = audit_unsafe(dir.path()).unwrap();
+        assert_eq!(sites.len(), 1, "unexpected: {sites:?}");
+        assert!(sites[0].is_ffi_boundary);
+        assert!(sites[0].has_safety_comment);
+        assert!(gates::unsafe_budget(&sites, 5.0, 10).passed);
+        // Bare unsafe in a non-FFI file: collected, then the gate refuses it.
+        std::fs::write(
+            dir.path().join("core/src/lib.rs"),
+            "pub fn f(p: *const u8) -> u8 { unsafe { *p } }\n",
+        )
+        .unwrap();
+        let sites = audit_unsafe(dir.path()).unwrap();
+        assert_eq!(sites.len(), 2, "unexpected: {sites:?}");
+        let bare = sites.iter().find(|s| s.file.contains("core")).unwrap();
+        assert!(!bare.is_ffi_boundary);
+        assert!(!bare.has_safety_comment);
+        assert!(!gates::unsafe_budget(&sites, 5.0, 10).passed);
     }
 }
