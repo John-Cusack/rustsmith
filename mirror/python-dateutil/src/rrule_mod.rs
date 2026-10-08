@@ -292,10 +292,9 @@ fn as_int_list(py: Python<'_>, tup: &Bound<'_, PyAny>) -> PyResult<Vec<i64>> {
 /// `tuple(sorted(set(items)))` through Python builtins (exact ordering,
 /// dedup, and errors).
 fn sorted_tuple(py: Python<'_>, items: Vec<PyObject>) -> PyResult<Bound<'_, PyAny>> {
-    let builtins = py.import("builtins")?;
-    let set = builtins.getattr("set")?;
-    let sorted = builtins.getattr("sorted")?;
-    let tuple = builtins.getattr("tuple")?;
+    let set = set_fn(py)?;
+    let sorted = sorted_fn(py)?;
+    let tuple = tuple_fn(py)?;
     let list = PyList::new(py, items.iter().map(|o| o.bind(py)))?;
     let s = set.call1((list,))?;
     let so = sorted.call1((s,))?;
@@ -328,8 +327,7 @@ fn rrule_new(
     let freq_i: i64 = freq.extract()?;
     let freq_u = freq_i as u8;
     // dtstart normalization.
-    let dt_mod = py.import("datetime")?;
-    let dt_cls = dt_mod.getattr("datetime")?;
+    let dt_cls = datetime_cls(py)?;
     let dtstart_o: Bound<'_, PyAny> = match dtstart {
         None => {
             // `datetime.now(tz)` when until is aware, else `datetime.now()`.
@@ -412,13 +410,11 @@ fn rrule_new(
     // wkst resolution.
     let wkst_i: i64 = match wkst {
         None => {
-            let cal = py.import("calendar")?;
-            cal.call_method0("firstweekday")?.extract()?
+            calendar_mod(py)?.call_method0("firstweekday")?.extract()?
         }
         Some(w) => {
             if w.is_none() {
-                let cal = py.import("calendar")?;
-                cal.call_method0("firstweekday")?.extract()?
+                calendar_mod(py)?.call_method0("firstweekday")?.extract()?
             } else if let Ok(i) = w.extract::<i64>() {
                 i
             } else {
@@ -530,8 +526,7 @@ fn rrule_new(
         Some(v) if v.is_none() => None,
         Some(v) => {
             let items = single_or_seq(py, &v)?;
-            let builtins = py.import("builtins")?;
-            let sorted = builtins.getattr("sorted")?;
+            let sorted = sorted_fn(py)?;
             let list = PyList::new(py, items.iter().map(|o| o.bind(py)))?;
             let so = sorted.call1((list,))?;
             let objs: Vec<PyObject> = so.iter()?.map(|o| o.map(|b| b.unbind())).collect::<PyResult<_>>()?;
@@ -545,8 +540,7 @@ fn rrule_new(
         Some(v) if v.is_none() => (Vec::new(), Vec::new()),
         Some(v) => {
             let items = single_or_seq(py, &v)?;
-            let builtins = py.import("builtins")?;
-            let set = builtins.getattr("set")?;
+            let set = set_fn(py)?;
             let list = PyList::new(py, items.iter().map(|o| o.bind(py)))?;
             let uniq = set.call1((list,))?;
             let mut pos: Vec<PyObject> = Vec::new();
@@ -612,8 +606,7 @@ fn rrule_new(
                 let plain_tup = sorted_tuple(py, plain)?;
                 let mut plain_v: Vec<PyObject> = plain_tup.try_iter()?.map(|o| o.map(|b| b.unbind())).collect::<PyResult<_>>()?;
                 // nth pairs sorted as tuples through Python.
-                let builtins = py.import("builtins")?;
-                let sorted = builtins.getattr("sorted")?;
+                let sorted = sorted_fn(py)?;
                 let nth_list = PyList::new(py, nth.iter().map(|(a, b)| {
                     let t = PyTuple::new(py, [a.bind(py), b.bind(py)]).unwrap();
                     t.into_any()
@@ -636,8 +629,7 @@ fn rrule_new(
                 };
                 // Reconstruct original weekday objects via the shim class.
                 if !byweekday_defaulted {
-                    let shim = py.import("dateutil.rrule")?;
-                    let wd_cls = shim.getattr("weekday")?;
+                    let wd_cls = weekday_cls(py)?;
                     let mut orig_wdays: Vec<PyObject> = Vec::new();
                     if let Some(p) = &plain_opt {
                         for x in p {
@@ -664,8 +656,7 @@ fn rrule_new(
     let bysecond_v: Option<Vec<PyObject>> = process_time_part(py, bysecond, freq_u, core::SECONDLY, dt_s, interval_i, &mut original.bysecond)?;
     // timeset for freq < HOURLY.
     let timeset: Option<Vec<(u8, u8, u8)>> = if freq_u < core::HOURLY {
-        let dt_mod = py.import("datetime")?;
-        let time_cls = dt_mod.getattr("time")?;
+        let time_t = time_cls(py)?;
         let mut times: Vec<PyObject> = Vec::new();
         for h in byhour_v.as_ref().unwrap() {
             for m in byminute_v.as_ref().unwrap() {
@@ -674,7 +665,7 @@ fn rrule_new(
                     if let Some(tz) = &dtstart_tz {
                         kw.set_item("tzinfo", tz)?;
                     }
-                    let t = time_cls.call((h.bind(py), m.bind(py), s.bind(py)), Some(&kw))?;
+                    let t = time_t.call((h.bind(py), m.bind(py), s.bind(py)), Some(&kw))?;
                     times.push(t.unbind());
             }
          }
@@ -761,10 +752,8 @@ fn construct_byset_py(
     interval: i64,
     base: i64,
 ) -> PyResult<Vec<PyObject>> {
-    let math = py.import("math")?;
-    let gcd = math.getattr("gcd")?;
-    let builtins = py.import("builtins")?;
-    let divmod = builtins.getattr("divmod")?;
+    let gcd = gcd_fn(py)?;
+    let divmod = divmod_fn(py)?;
     let mut cset: Vec<PyObject> = Vec::new();
     for num in items {
         let g: i64 = gcd.call1((interval, base))?.extract()?;
@@ -844,7 +833,7 @@ fn construct_byset_py(
         Some(v) => v.is_truthy()?,
     };
     let lock = if cache_on {
-        let thread = py.import("_thread")?;
+        let thread = thread_mod(py)?;
         Some(thread.call_method0("allocate_lock")?.unbind())
     } else {
         None
@@ -1113,8 +1102,7 @@ fn fresh_set_merge(py: Python<'_>, lists: &mut RrulesetLists) -> PyResult<MergeS
     // `self._rdate.sort()` / `self._exdate.sort()` mutate in place.
     py_sort(py, &mut lists.rdates)?;
     py_sort(py, &mut lists.exdates)?;
-    let builtins = py.import("builtins")?;
-    let iter_fn = builtins.getattr("iter")?;
+    let iter_fn = iter_fn(py)?;
     let mut inclusive = Vec::new();
     let rdate_list = PyList::new(py, lists.rdates.iter().map(|o| o.bind(py)))?;
     inclusive.push(Src::prime(py, rdate_list.as_any())?);
@@ -1480,8 +1468,7 @@ fn q_getitem(py: Python<'_>, owner: Owner, item: Bound<'_, PyAny>) -> PyResult<P
                 return Ok(list.as_any().get_item(item)?.unbind());
             }
             // `itertools.islice` with the original's defaults.
-            let itertools = py.import("itertools")?;
-            let islice = itertools.getattr("islice")?;
+            let islice = islice_fn(py)?;
             let pull = QueryPull::for_owner(py, &owner)?;
             let it = Py::new(py, RuleIter { pull })?.into_any();
             let seq = islice.call1((
@@ -1732,8 +1719,7 @@ impl Rrule {
         }
         if data.params.wkst != 0 {
             // `repr(weekday(self._wkst))[0:2]` via the shim class.
-            let shim = py.import("dateutil.rrule")?;
-            let wd_cls = shim.getattr("weekday")?;
+            let wd_cls = weekday_cls(py)?;
             let w = wd_cls.call1((data.params.wkst as i64,))?;
             let r: String = w.repr()?.extract()?;
             let short: String = r.chars().take(2).collect();
@@ -1860,8 +1846,7 @@ impl Rrule {
                 kw.set_item(k, v)?;
             }
         }
-        let shim = py.import("dateutil.rrule")?;
-        let cls = shim.getattr("rrule")?;
+        let cls = rrule_cls(py)?;
         Ok(cls.call((), Some(&kw))?.unbind())
     }
 }
@@ -1980,8 +1965,7 @@ fn parse_rfc(py: Python<'_>, s: &Bound<'_, PyAny>, opts: &RrOptions) -> PyResult
 /// `parser.parse(value, ignoretz=..., tzinfos=...)` through the kept
 /// Python parser module.
 fn parser_parse(py: Python<'_>, value: &str, opts: &RrOptions) -> PyResult<PyObject> {
-    let parser = py.import("dateutil.parser")?;
-    let parse = parser.getattr("parse")?;
+    let parse = parser_parse_fn(py)?;
     let kw = PyDict::new(py);
     kw.set_item("ignoretz", opt_clone(py, &opts.ignoretz))?;
     kw.set_item("tzinfos", opt_clone(py, &opts.tzinfos))?;
@@ -2006,7 +1990,7 @@ fn parse_date_value(
                 None => continue,
             };
             let tzlookup: Bound<'_, PyAny> = match &opts.tzids {
-                None => py.import("dateutil.tz")?.getattr("gettz")?,
+                None => gettz_fn(py)?.to_owned(),
                 Some(t) => {
                     let tb = t.bind(py);
                     if tb.is_callable() {
@@ -2057,7 +2041,7 @@ fn parse_date_value(
 /// Shared `Rruleset` construction (also used by `rrulestr`).
 fn rruleset_new_inner(py: Python<'_>, cache_on: bool) -> PyResult<Rruleset> {
     let lock = if cache_on {
-        let thread = py.import("_thread")?;
+        let thread = thread_mod(py)?;
         Some(thread.call_method0("allocate_lock")?.unbind())
     } else {
         None
@@ -2158,8 +2142,7 @@ fn handle_param(
     value: &str,
     opts: &RrOptions,
 ) -> PyResult<()> {
-    let builtins = py.import("builtins")?;
-    let int_fn = builtins.getattr("int")?;
+    let int_fn = int_fn(py)?;
     match name {
         "INTERVAL" | "COUNT" => {
             rrkwargs.set_item(name.to_lowercase(), int_fn.call1((value,))?)?;
@@ -2222,8 +2205,7 @@ fn handle_param(
             Ok(())
         }
         "BYWEEKDAY" | "BYDAY" => {
-            let shim = py.import("dateutil.rrule")?;
-            let wd_cls = shim.getattr("weekday")?;
+            let wd_cls = weekday_cls(py)?;
             let wmap = |w: &str| -> PyResult<i64> {
                 match w {
                     "MO" => Ok(0),

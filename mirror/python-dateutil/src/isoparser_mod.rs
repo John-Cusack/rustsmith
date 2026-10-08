@@ -71,10 +71,8 @@ fn ascii_bytes(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
 fn tz_object(py: Python<'_>, tz: IsoTz) -> PyResult<PyObject> {
     match tz {
         IsoTz::None => Ok(py.None()),
-        IsoTz::Utc => Ok(py.import("dateutil.tz")?.getattr("UTC")?.unbind()),
-        IsoTz::Offset(secs) => Ok(py
-            .import("dateutil.tz")?
-            .getattr("tzoffset")?
+        IsoTz::Utc => Ok(crate::util::utc_obj(py)?.clone().unbind()),
+        IsoTz::Offset(secs) => Ok(crate::util::tzoffset_cls(py)?
             .call1((py.None(), secs))?
             .unbind()),
     }
@@ -103,7 +101,7 @@ impl Isoparser {
                 }
                 if !o.is_instance_of::<pyo3::types::PyString>() {
                     // Mirrors `ord(sep)` raising `TypeError` for non-str.
-                    py.import("builtins")?.getattr("ord")?.call1((o.clone(),))?;
+                    crate::util::ord_fn(py)?.call1((o.clone(),))?;
                     return crate::util::value_error(
                         "Separator must be a single, non-numeric ASCII character".to_string(),
                     );
@@ -135,7 +133,7 @@ impl Isoparser {
     fn isoparse(&self, py: Python<'_>, dt_str: Bound<'_, PyAny>) -> PyResult<PyObject> {
         let b = ascii_bytes(py, &dt_str)?;
         let r = parse_dt(&b, self.sep).map_err(|e| iso_err(py, e))?;
-        let dt = py.import("datetime")?.getattr("datetime")?;
+        let dt = crate::util::datetime_cls(py)?;
         let tz = tz_object(py, r.tz)?;
         let kw = PyDict::new(py);
         kw.set_item("tzinfo", tz)?;
@@ -154,13 +152,8 @@ impl Isoparser {
             )?
             .unbind();
         if r.midnight24 {
-            let one = py
-                .import("datetime")?
-                .getattr("timedelta")?
-                .call1((1,))?;
-            obj = py
-                .import("operator")?
-                .getattr("add")?
+            let one = crate::util::timedelta_cls(py)?.call1((1,))?;
+            obj = crate::util::operator_add_fn(py)?
                 .call1((obj.bind(py), one))?
                 .unbind();
         }
@@ -190,9 +183,7 @@ impl Isoparser {
         // `parse_isotime` folds 24:00 to midnight (unlike `isoparse`,
         // which rolls to the next day).
         let h = if t.h == 24 { 0 } else { t.h };
-        Ok(py
-            .import("datetime")?
-            .getattr("time")?
+        Ok(crate::util::time_cls(py)?
             .call1((
                 h as i64,
                 t.mi as i64,
