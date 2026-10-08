@@ -2725,6 +2725,326 @@
         "line": "    assert _render({A}) == {V0}\n    assert _render({B}) == {V1}\n    assert _render({A} + {B}) == {V2}\n"
       },
       "candidate_pool": []
+    },
+    "python-multipart": {
+      "differential": {
+        "script": "import sys;body=bytes.fromhex(sys.argv[1]);qs=bytes.fromhex(sys.argv[2]);ct=sys.argv[3];from python_multipart.multipart import MultipartParser,QuerystringParser,parse_options_header;ev=[];mp=MultipartParser(b'BOUND',callbacks={'on_part_begin':lambda:ev.append('pb'),'on_part_data':lambda d,s,e:ev.append(('pd',bytes(d[s:e]))),'on_part_end':lambda:ev.append('pe'),'on_header_field':lambda d,s,e:ev.append(('hf',bytes(d[s:e]))),'on_header_value':lambda d,s,e:ev.append(('hv',bytes(d[s:e]))),'on_header_end':lambda:ev.append('he'),'on_headers_finished':lambda:ev.append('hf2'),'on_end':lambda:ev.append('end')});mp.write(body);qe=[];qp=QuerystringParser(callbacks={'on_field_start':lambda:qe.append('fs'),'on_field_name':lambda d,s,e:qe.append(('fn',bytes(d[s:e]))),'on_field_data':lambda d,s,e:qe.append(('fd',bytes(d[s:e]))),'on_field_end':lambda:qe.append('fe'),'on_end':lambda:qe.append('end')});qp.write(qs);qp.finalize();ctype,opts=parse_options_header(ct);print(repr((ev,qe,(ctype,sorted(opts.items())))))",
+        "argvs": [
+          [
+            "2d2d424f554e440d0a436f6e74656e742d446973706f736974696f6e3a20666f726d2d646174613b206e616d653d2261220d0a0d0a310d0a2d2d424f554e440d0a436f6e74656e742d446973706f736974696f6e3a20666f726d2d646174613b206e616d653d2262220d0a0d0a32320d0a2d2d424f554e442d2d0d0a",
+            "613d3126623d32",
+            "multipart/form-data; boundary=BOUND"
+          ],
+          [
+            "2d2d424f554e440d0a436f6e74656e742d446973706f736974696f6e3a20666f726d2d646174613b206e616d653d2266223b2066696c656e616d653d22782e62696e220d0a436f6e74656e742d547970653a206170706c69636174696f6e2f6f637465742d73747265616d0d0a0d0a00010262696e617279ff0d0a2d2d424f554e442d2d0d0a",
+            "783d26793d7a7a7a26666c6167",
+            "form-data; name=\"f\"; filename=\"x.bin\""
+          ],
+          [
+            "2d2d424f554e440d0a436f6e74656e742d446973706f736974696f6e3a20666f726d2d646174613b206e616d653d2265220d0a0d0a0d0a2d2d424f554e442d2d0d0a6570696c6f6775652d6279746573",
+            "",
+            "text/plain"
+          ]
+        ]
+      },
+      "heldout_descriptors": {
+        "distribution": "multipart bodies (single/multi part, empty part, file upload, leading CRLF, epilogue, base64 CTE, header limit breaches) written whole, 1..64B-chunked, and split at boundary offsets; querystrings (strict/non-strict, valueless, duplicate separators, truncation, mid-stream state); options-header table (case, quoting, RFC5987 skips, IE6/UNC filenames, escapes, latin-1/bytes inputs)",
+        "adversarial_shapes": [
+          "1-byte chunked writes (per-byte lookbehind paths)",
+          "splits inside boundary delimiters",
+          "header count/size breaches with exact offsets",
+          "strict querystring without equals"
+        ],
+        "coverage_complement": [
+          "fuzz-corpus byte mutations",
+          "octet-stream parser paths",
+          "File disk-spool paths"
+        ],
+        "heldout_sizes": [
+          "3 static files",
+          "9 generated pins"
+        ],
+        "visible_sizes": [
+          "162 oracle tests"
+        ],
+        "identity_sensitive_repeats": []
+      },
+      "heldout_suites": [
+        {
+          "name": "test_heldout_multipart.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): multipart parser parity.\n\nCovers exact single-write event streams, chunking-invariant outcomes,\nsplit boundaries, preamble/epilogue, header limits with offsets,\nCTE decoders, and FormParser file routing.\n\"\"\"\n\nimport pytest\n\nfrom python_multipart.exceptions import FormParserError, MultipartParseError\nfrom python_multipart.multipart import (\n    END,\n    FormParser,\n    MultipartParser,\n    MultipartState,\n)\n\nBOUNDARY = b\"BOUND\"\n\nSIMPLE = (\n    b\"--BOUND\\r\\n\"\n    b'Content-Disposition: form-data; name=\"a\"\\r\\n'\n    b\"\\r\\n\"\n    b\"1\\r\\n\"\n    b\"--BOUND\\r\\n\"\n    b'Content-Disposition: form-data; name=\"b\"\\r\\n'\n    b\"\\r\\n\"\n    b\"22\\r\\n\"\n    b\"--BOUND--\\r\\n\"\n)\n\nWANT_SINGLE = [\n    (\"pb\",),\n    (\"hb\",),\n    (\"hf\", b\"Content-Disposition\"),\n    (\"hv\", b'form-data; name=\"a\"'),\n    (\"he\",),\n    (\"hf2\",),\n    (\"pd\", b\"1\"),\n    (\"pe\",),\n    (\"pb\",),\n    (\"hb\",),\n    (\"hf\", b\"Content-Disposition\"),\n    (\"hv\", b'form-data; name=\"b\"'),\n    (\"he\",),\n    (\"hf2\",),\n    (\"pd\", b\"22\"),\n    (\"pe\",),\n    (\"end\",),\n]\n\n\ndef collect():\n    events = []\n\n    def on_data(kind):\n        def cb(data, start, end):\n            events.append((kind, bytes(data[start:end])))\n\n        return cb\n\n    def on_event(kind):\n        def cb():\n            events.append((kind,))\n\n        return cb\n\n    parser = MultipartParser(\n        BOUNDARY,\n        callbacks={\n            \"on_part_begin\": on_event(\"pb\"),\n            \"on_part_data\": on_data(\"pd\"),\n            \"on_part_end\": on_event(\"pe\"),\n            \"on_header_begin\": on_event(\"hb\"),\n            \"on_header_field\": on_data(\"hf\"),\n            \"on_header_value\": on_data(\"hv\"),\n            \"on_header_end\": on_event(\"he\"),\n            \"on_headers_finished\": on_event(\"hf2\"),\n            \"on_end\": on_event(\"end\"),\n        },\n    )\n    return parser, events\n\n\ndef part_data_parts(events):\n    parts, cur = [], []\n    for e in events:\n        if e[0] == \"pd\":\n            cur.append(e[1])\n        elif e[0] == \"pe\":\n            parts.append(b\"\".join(cur))\n            cur = []\n    return parts\ndef test_single_write_event_stream():\n    parser, events = collect()\n    assert parser.write(SIMPLE) == len(SIMPLE)\n    assert events == WANT_SINGLE\n    assert parser.state is MultipartState.END is END\n\n\n@pytest.mark.parametrize(\"size\", [1, 2, 3, 5, 7, 13, 64])\ndef test_chunked_outcome_matches(size):\n    parser, events = collect()\n    for i in range(0, len(SIMPLE), size):\n        parser.write(SIMPLE[i : i + size])\n    assert part_data_parts(events) == [b\"1\", b\"22\"]\n    assert b\"\".join(e[1] for e in events if len(e) == 2 and e[0] == \"hv\") == (\n        b'form-data; name=\"a\"' b'form-data; name=\"b\"'\n    )\n    assert events[-1] == (\"end\",)\n    assert parser.state is MultipartState.END\n\n\n@pytest.mark.parametrize(\"split\", [10, 11, 12, 13, 14, 15, 20, 21, 22, 30, 45])\ndef test_split_at_every_boundary_offset(split):\n    parser, events = collect()\n    parser.write(SIMPLE[:split])\n    parser.write(SIMPLE[split:])\n    assert part_data_parts(events) == [b\"1\", b\"22\"]\n    assert events[-1] == (\"end\",)\n    assert parser.state is MultipartState.END\n\n\ndef test_leading_crlf_and_epilogue_discarded():\n    parser, events = collect()\n    parser.write(b\"\\r\\n--BOUND\")\n    parser.write(b'\\r\\nContent-Disposition: form-data; name=\"a\"\\r\\n\\r\\nZ\\r\\n--BOUND--\\r\\nepilogue')\n    assert part_data_parts(events) == [b\"Z\"]\n    assert events[-1] == (\"end\",)\n\n\ndef test_empty_part_data():\n    parser, events = collect()\n    parser.write(b\"--BOUND\\r\\nContent-Disposition: form-data; name=\\\"e\\\"\\r\\n\\r\\n\\r\\n--BOUND--\\r\\n\")\n    assert events[-1] == (\"end\",)\n    assert parser.state is MultipartState.END\n\n\ndef test_header_count_limit_offset():\n    parser, _ = collect()\n    parser.max_header_count = 2\n    with pytest.raises(MultipartParseError) as exc:\n        parser.write(b\"--BOUND\\r\\nA: 1\\r\\nB: 2\\r\\nC: 3\\r\\n\\r\\nx\\r\\n--BOUND--\\r\\n\")\n    assert exc.value.offset == 21\n\n\ndef test_header_size_limit_offset():\n    parser, _ = collect()\n    parser.max_header_size = 10\n    with pytest.raises(MultipartParseError) as exc:\n        parser.write(b\"--BOUND\\r\\nLong-Header-Name: v\\r\\n\\r\\nx\\r\\n--BOUND--\\r\\n\")\n    assert exc.value.offset == 9\n\n\ndef test_bad_boundary_reports_offset():\n    parser, _ = collect()\n    with pytest.raises(MultipartParseError) as exc:\n        parser.write(b\"--BOUNDX\\r\\n\\r\\n\")\n    assert exc.value.offset == 7\n    assert \"Did not find CR at end of boundary (7)\" in str(exc.value)\n\n\ndef test_form_parser_file_and_field_routing():\n    fields = []\n    files = []\n    ended = []\n    body = (\n        b\"--BOUND\\r\\n\"\n        b'Content-Disposition: form-data; name=\"f1\"\\r\\n'\n        b\"\\r\\n\"\n        b\"hello\\r\\n\"\n        b\"--BOUND\\r\\n\"\n        b'Content-Disposition: form-data; name=\"up\"; filename=\"a.txt\"\\r\\n'\n        b\"Content-Type: text/plain\\r\\n\"\n        b\"\\r\\n\"\n        b\"PAYLOAD\\r\\n\"\n        b\"--BOUND--\\r\\n\"\n    )\n    form = FormParser(\n        \"multipart/form-data\",\n        on_field=fields.append,\n        on_file=files.append,\n        on_end=lambda: ended.append(True),\n        boundary=b\"BOUND\",\n    )\n    assert form.write(body) == len(body)\n    form.finalize()\n    assert [f.value for f in fields] == [b\"hello\"]\n    assert len(files) == 1\n    assert files[0].file_name == b\"a.txt\"\n    files[0].file_object.seek(0)\n    assert files[0].file_object.read() == b\"PAYLOAD\"\n    assert ended == [True]\n\n\ndef test_form_parser_base64_file():\n    import base64\n\n    raw = b\"\\x00\\x01\\x02binary\\xff\" * 10\n    files = []\n    body = (\n        b\"--BOUND\\r\\n\"\n        b'Content-Disposition: form-data; name=\"up\"; filename=\"a.bin\"\\r\\n'\n        b\"Content-Transfer-Encoding: base64\\r\\n\"\n        b\"\\r\\n\" + base64.b64encode(raw) + b\"\\r\\n--BOUND--\\r\\n\"\n    )\n    form = FormParser(\n        \"multipart/form-data\", on_field=lambda f: None, on_file=files.append, boundary=b\"BOUND\"\n    )\n    form.write(body)\n    form.finalize()\n    files[0].file_object.seek(0)\n    assert files[0].file_object.read() == raw\n\n\ndef test_form_parser_missing_field_name():\n    fields = []\n    form = FormParser(\n        \"multipart/form-data\", on_field=fields.append, on_file=lambda f: None, boundary=b\"BOUND\"\n    )\n    with pytest.raises(FormParserError):\n        form.write(b\"--BOUND\\r\\nContent-Disposition: form-data\\r\\n\\r\\nx\\r\\n--BOUND--\\r\\n\")\n\n\ndef test_empty_write_is_noop():\n    parser, events = collect()\n    assert parser.write(b\"\") == 0\n    assert events == []\n    assert parser.state is MultipartState.START\n\n\ndef test_max_size_truncates():\n    parser, _ = collect()\n    parser2 = MultipartParser(BOUNDARY, callbacks=parser.callbacks, max_size=10)\n    assert parser2.write(SIMPLE) == 10\n    assert parser2._current_size == 10\n"
+        },
+        {
+          "name": "test_heldout_querystring.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): querystring parser parity.\"\"\"\n\nimport pytest\n\nfrom python_multipart.exceptions import QuerystringParseError\nfrom python_multipart.multipart import FIELD_DATA, QuerystringParser, QuerystringState\n\n\ndef collect(**kwargs):\n    events = []\n\n    def on_data(kind):\n        def cb(data, start, end):\n            events.append((kind, bytes(data[start:end])))\n\n        return cb\n\n    def on_event(kind):\n        def cb():\n            events.append((kind,))\n\n        return cb\n\n    parser = QuerystringParser(\n        callbacks={\n            \"on_field_start\": on_event(\"fs\"),\n            \"on_field_name\": on_data(\"fn\"),\n            \"on_field_data\": on_data(\"fd\"),\n            \"on_field_end\": on_event(\"fe\"),\n            \"on_end\": on_event(\"end\"),\n        },\n        **kwargs,\n    )\n    return parser, events\n\n\ndef test_basic_fields_with_finalize():\n    parser, events = collect()\n    assert parser.write(b\"a=1&b=22\") == 8\n    parser.finalize()\n    assert events == [\n        (\"fs\",),\n        (\"fn\", b\"a\"),\n        (\"fd\", b\"1\"),\n        (\"fe\",),\n        (\"fs\",),\n        (\"fn\", b\"b\"),\n        (\"fd\", b\"22\"),\n        (\"fe\",),\n        (\"end\",),\n    ]\n\n\ndef test_state_mid_stream():\n    parser, _ = collect()\n    parser.write(b\"a=1&b=2\")\n    assert parser.state is QuerystringState.FIELD_DATA is FIELD_DATA\n\n\ndef test_name_split_across_writes():\n    parser, events = collect()\n    parser.write(b\"na\")\n    parser.write(b\"me=va\")\n    parser.write(b\"l&x=1\")\n    parser.finalize()\n    names = [e[1] for e in events if len(e) == 2 and e[0] == \"fn\"]\n    datas = [e[1] for e in events if len(e) == 2 and e[0] == \"fd\"]\n    assert b\"\".join(names) == b\"namex\"\n    assert b\"\".join(datas) == b\"val1\"\n\n\ndef test_valueless_field_non_strict():\n    parser, events = collect()\n    parser.write(b\"flag&b=\")\n    parser.finalize()\n    assert (\"fn\", b\"flag\") in events\n    assert (\"fn\", b\"b\") in events\n    assert (\"fe\",) in events\n\n\ndef test_duplicate_separator_non_strict():\n    parser, events = collect()\n    assert parser.write(b\"a=1&&b=2\") == 8\n    parser.finalize()\n    assert events.count((\"fe\",)) == 2\n\n\ndef test_duplicate_separator_strict():\n    parser, _ = collect(strict_parsing=True)\n    with pytest.raises(QuerystringParseError) as exc:\n        parser.write(b\"a=1&&b=2\")\n    assert exc.value.offset == 4\n    assert \"Skipping duplicate ampersand at 4\" in str(exc.value)\n\n\ndef test_missing_equals_strict():\n    parser, _ = collect(strict_parsing=True)\n    with pytest.raises(QuerystringParseError) as exc:\n        parser.write(b\"a&b=1\")\n    assert exc.value.offset == 0\n\n\ndef test_max_size_truncates_and_accounts():\n    parser, events = collect(max_size=3)\n    assert parser.write(b\"0123456789\") == 3\n    assert parser._current_size == 3\n    assert events == [(\"fs\",), (\"fn\", b\"012\")]\n\n\ndef test_strict_flag_is_live():\n    parser, events = collect()\n    parser.strict_parsing = True\n    with pytest.raises(QuerystringParseError):\n        parser.write(b\"a&b=1\")\n\n\ndef test_empty_write_and_finalize_end():\n    parser, events = collect()\n    assert parser.write(b\"\") == 0\n    parser.finalize()\n    assert events == [(\"end\",)]\n\n\ndef test_trailing_separator():\n    parser, events = collect()\n    parser.write(b\"a=1&\")\n    parser.finalize()\n    assert events == [(\"fs\",), (\"fn\", b\"a\"), (\"fd\", b\"1\"), (\"fe\",), (\"end\",)]\n"
+        },
+        {
+          "name": "test_heldout_headers.py",
+          "content": "\"\"\"Held-out STATIC (control plane, host-only): options-header parsing.\"\"\"\n\nimport pytest\n\nfrom python_multipart.multipart import _parseparam, parse_options_header\n\n\ndef test_none_and_empty():\n    assert parse_options_header(None) == (b\"\", {})\n    assert parse_options_header(b\"\") == (b\"\", {})\n    assert parse_options_header(\"\") == (b\"\", {})\n\n\ndef test_bare_type_lowered_and_stripped():\n    assert parse_options_header(\"  TEXT/PLAIN  \") == (b\"text/plain\", {})\n\n\ndef test_ctype_case_preserved_with_options():\n    assert parse_options_header(\"Text/HTML; Charset=UTF-8\") == (\n        b\"Text/HTML\",\n        {b\"charset\": b\"UTF-8\"},\n    )\n\n\ndef test_quoted_semicolon_in_value():\n    assert parse_options_header('form-data; name=\"a;b\"; filename=\"x\"') == (\n        b\"form-data\",\n        {b\"name\": b\"a;b\", b\"filename\": b\"x\"},\n    )\n\n\ndef test_extended_param_skipped():\n    assert parse_options_header(\"attachment; filename*=UTF-8''a.txt\") == (b\"attachment\", {})\n    assert parse_options_header('attachment; filename=\"b.txt\"; x*0=\"y\"') == (\n        b\"attachment\",\n        {b\"filename\": b\"b.txt\"},\n    )\n\n\ndef test_ie6_drive_path_stripped():\n    assert parse_options_header('form-data; name=\"f\"; filename=\"C:\\\\docs\\\\x.txt\"') == (\n        b\"form-data\",\n        {b\"name\": b\"f\", b\"filename\": b\"x.txt\"},\n    )\n\n\ndef test_unc_path_stripped():\n    assert parse_options_header('form-data; name=\"f\"; filename=\"\\\\\\\\\\\\\\\\srv\\\\\\\\x.txt\"') == (\n        b\"form-data\",\n        {b\"name\": b\"f\", b\"filename\": b\"x.txt\"},\n    )\n\n\ndef test_escaped_quote_and_backslash():\n    assert parse_options_header('form-data; name=\"a\\\\\"b\"; filename=\"c\\\\\\\\d\"') == (\n        b\"form-data\",\n        {b\"name\": b'a\"b', b\"filename\": b\"c\\\\d\"},\n    )\n\n\ndef test_bytes_input_latin1():\n    assert parse_options_header(b\"text/plain; charset=latin-1\") == (\n        b\"text/plain\",\n        {b\"charset\": b\"latin-1\"},\n    )\n\n\ndef test_non_latin1_raises_encode_error():\n    with pytest.raises(UnicodeEncodeError):\n        parse_options_header('text/plain; x=\"\\u20ac\"')\n\n\ndef test_boundary_param():\n    assert parse_options_header(\"multipart/form-data; boundary=BOUND\") == (\n        b\"multipart/form-data\",\n        {b\"boundary\": b\"BOUND\"},\n    )\n\n\ndef test_bare_flag_param():\n    assert parse_options_header(\"form-data; foo\") == (b\"form-data\", {b\"foo\": b\"\"})\n\n\ndef test_key_case_folded():\n    assert parse_options_header(\"form-data; NAME=x\") == (b\"form-data\", {b\"name\": b\"x\"})\n\n\ndef test_parseparam_splits_quoted_semicolons():\n    assert _parseparam('a; b=\"c;d\"; e=f') == [\"a\", 'b=\"c;d\"', \"e=f\"]\n"
+        }
+      ],
+      "hotspot_descriptors": [
+        "empty:b''",
+        "qs-8B:a=1&b=22",
+        "qs-4K:repeated-pairs",
+        "mp-124B:two-fields",
+        "mp-4K:file-part",
+        "mp-64K:32-parts"
+      ],
+      "porting_rules": [
+        {
+          "title": "bytes in, slices out",
+          "original": "Original (Python): callbacks receive `(data: bytes, start: int, end: int)`; interested bytes are `data[start:end]`, never a copy",
+          "rust": "Rust: `internal_write(&mut self, data: &[u8], ...)`; emit `(start, end)` index pairs, never sub-slices; the binding copies once per event into fresh `bytes`",
+          "example": "Example: `on_part_data(data, 0, end_i)` becomes `cb.emit_data(name, 0, end_i)` with the binding doing `PyBytes::new(py, &data[s..e])`"
+        },
+        {
+          "title": "start==end skip lives in callback",
+          "original": "Original: `BaseParser.callback` returns early when `start == end`; zero-length spans never reach user code",
+          "rust": "Rust: emit all spans unconditionally; the Python `callback()` dispatch (kept verbatim) applies the skip",
+          "example": "Example: core calls `parser.callback('part_data', b, 5, 5)` and Python drops it"
+        },
+        {
+          "title": "commit on clean completion only",
+          "original": "Original: `state/index/flags/marks/header counts` are written back only at the end of `_internal_write`; any exception leaves pre-chunk values",
+          "rust": "Rust: parse into locals, commit to `self` only on `Ok`; `Err` (parse error or callback failure) leaves the core untouched",
+          "example": "Example: `let (ns, ni, nf) = scan(...)?; self.state = ns; ...` at the end"
+        },
+        {
+          "title": "entry flags for lookbehind",
+          "original": "Original: `data_callback` reads `self.flags` (entry value), not the loop-local `flags`, for the lookbehind branch",
+          "rust": "Rust: capture `entry_flags` before the loop; the emit path matches on it",
+          "example": "Example: `let entry_flags = self.flags;` then `if entry_flags & FLAG_PART_BOUNDARY != 0`"
+        },
+        {
+          "title": "marks are negative lookbehind",
+          "original": "Original: `self.marks[name]` goes negative (`end_i - length`) on remaining data; the next chunk emits `boundary[0..-mark]` first",
+          "rust": "Rust: `marks: [Option<i64>; 3]` (header_field, header_value, part_data); negative means lookbehind length",
+          "example": "Example: `mark = (end_i as i64) - (length as i64)` when `remaining`"
+        },
+        {
+          "title": "state enums keep identity",
+          "original": "Original: `QuerystringState`/`MultipartState` are `@global_enum IntEnum`s; tests assert `parser.state is MultipartState.END is END`",
+          "rust": "Rust: core stores `u8`; the binding getter returns `MultipartState(int)` (enum call returns the member singleton)",
+          "example": "Example: `#[getter] fn state(&self, py: Python) -> PyResult<Py<PyAny>> { state_cls.call1((self.state,)) }`"
+        },
+        {
+          "title": "state/index/flags settable",
+          "original": "Original: `state`, `strict_parsing`, `max_header_count`, `max_header_size` are plain settable attributes read live during writes",
+          "rust": "Rust: `state` has a getter+setter (`i64` via `extract`); config (`strict_parsing`, limits) is passed per call from live Python attributes",
+          "example": "Example: `core.write(data, len, strict, max_hc, max_hs, parser, logger)`"
+        },
+        {
+          "title": "offsets are per-chunk",
+          "original": "Original: `MultipartParseError`/`QuerystringParseError` carry `offset` = index into the CURRENT input chunk, not the stream",
+          "rust": "Rust: `ParseError { message: String, offset: usize }`; the binding raises `MultipartParseError(msg, offset=i)` via the Python exception class",
+          "example": "Example: `return Err(Error::Multipart { msg: format!(...), offset: i })`"
+        },
+        {
+          "title": "boundary shape and cap",
+          "original": "Original: `self.boundary = b'\\r\\n--' + boundary` (`str` input latin-1 encoded); longer than 256 raises `FormParserError`",
+          "rust": "Rust: core takes the framed boundary as `Vec<u8>`; length validation stays in Python `__init__` verbatim",
+          "example": "Example: Python builds `framed`, passes `&framed` to `_MultipartCore(framed, ...)` once"
+        },
+        {
+          "title": "token table RFC7230",
+          "original": "Original: header field bytes must all be in `TOKEN_CHARS` (`A-Za-z0-9!#$%&'*+-.^_`|~`); first offender raises with its chunk offset",
+          "rust": "Rust: `const TOKEN: [bool; 256]` table; scan the field span, raise on the first `false` byte",
+          "example": "Example: `if !TOKEN[b as usize] { return Err(... offset: i + k) }`"
+        },
+        {
+          "title": "header size accounting",
+          "original": "Original: `advance_header_size(n)` accumulates and raises `Maximum header size exceeded` with the CURRENT `i` when over",
+          "rust": "Rust: `cur_size += n; if cur_size > max { Err(offset: i) }`; spaces skipped in HEADER_VALUE_START count 1 each",
+          "example": "Example: header spans use `find(b':')`/`find(b'\\r')` then charge `end - i (+1)` before validating"
+        },
+        {
+          "title": "CRLF strictness and messages",
+          "original": "Original: exact messages `Did not find CR at end of boundary (%d)`, `Did not find LF at end of boundary (%d)`, `Did not find LF character at end of header (found %r)`, `Did not find LF at end of headers (found %r)`, `Did not find - at end of boundary (%d)`, `Expected boundary character %r, got %r at index %d`, `Found invalid character %r in header at %d`, `Found 0-length header at %d`, `Reached an unknown state %d at %d`, each with `offset=i`",
+          "rust": "Rust: replicate every message byte-for-byte (`%r` of an int is the int; `%r` of a byte is e.g. `45`)",
+          "example": "Example: `format!(\"Expected boundary character {:?}, got {:?} at index {}\", want, got, idx)` — verify `%r` shape in tests"
+        },
+        {
+          "title": "START preamble rule",
+          "original": "Original: only leading CR/LF is skipped (fast-forward to the next `-`); any other byte must start the boundary or raises",
+          "rust": "Rust: same two arms; `find(b'-')` over the whole chunk (unbounded, like `data.find(b'-', i)`), `-1` consumes the chunk",
+          "example": "Example: `match memchr(b'-', &data[i..]) { None => { i = length; break } ... }`"
+        },
+        {
+          "title": "START_BOUNDARY fast path",
+          "original": "Original: `if index == 0 and data.startswith(boundary[2:], i, length)` consumes the whole boundary at once",
+          "rust": "Rust: `if index == 0 && data[i..len].starts_with(&boundary[2..])` then `i += boundary.len() - 2`",
+          "example": "Example: guard the slice end with `min(i + need, length)` exactly like `startswith(x, i, length)`"
+        },
+        {
+          "title": "PART_DATA find fast path",
+          "original": "Original: `index == 0` tries `data.find(boundary, i, length)`; else `rfind(boundary[:1], max(i, length - blen + 1), length)` + `boundary.startswith(data[k:length])` for partial tails",
+          "rust": "Rust: `memchr`-free `find` over slices; `rfind` bounded below by `max(i, len - blen + 1)`; partial sets `index = length - k`, `i = length`",
+          "example": "Example: helper `find_slice(hay, needle, start, end) -> Option<usize>` with end-exclusive semantics"
+        },
+        {
+          "title": "boundary resync (index 0 + prev)",
+          "original": "Original: `if index == 0 and prev_index > 0: i -= 1` re-examines the current byte as a potential boundary start",
+          "rust": "Rust: same rewind after the flag arms; `prev_index` is the loop-top snapshot of `index`",
+          "example": "Example: `let prev = index; ... if index == 0 && prev > 0 { i = i.saturating_sub(1) }` (i is usize; i==0 impossible here)"
+        },
+        {
+          "title": "emission order on boundary hit",
+          "original": "Original: `data_callback('part_data', i - index)` BEFORE `part_end`/`part_begin` (or `end`); lookbehind emits boundary-slice then data-slice",
+          "rust": "Rust: emit in the same order through one `emit(name, buf, s, e)` funnel; lookbehind builds the `boundary\\r\\n` / `boundary--\\r\\n` owned prefix",
+          "example": "Example: `emit(PART_DATA, boundary, 0, lb)` then `emit(PART_DATA, data, 0, end_i)`"
+        },
+        {
+          "title": "end-of-chunk flush",
+          "original": "Original: after the loop, `data_callback('header_field', length, True)`, `('header_value', length, True)`, `('part_data', length - index, True)` with `remaining=True` re-marking `end_i - length`",
+          "rust": "Rust: same three flushes; `remaining` sets the mark instead of deleting it",
+          "example": "Example: `flush(Name::PartData, length - index, true)` after the byte loop"
+        },
+        {
+          "title": "END discards epilogue",
+          "original": "Original: state END sets `i = length; break` — epilogue bytes are silently discarded (RFC 2046 5.1.1)",
+          "rust": "Rust: same consume-and-break",
+          "example": "Example: `State::End => { i = length; break; }`"
+        },
+        {
+          "title": "END_BOUNDARY empty message",
+          "original": "Original: `--` right after the first boundary goes to END_BOUNDARY; a second `-` fires `on_end` and END, anything else raises",
+          "rust": "Rust: same arm with `offset=i`",
+          "example": "Example: `b\"--B--\"` parses to just `('end',)`"
+        },
+        {
+          "title": "querystring find-based spans",
+          "original": "Original: FIELD_NAME uses `find(b'&')` + bounded `find(b'=')`; FIELD_DATA uses `find(b'&')`; `i` jumps then `+= 1`",
+          "rust": "Rust: same jumps (`i = eq; state = Data` with the shared `i += 1` at loop bottom)",
+          "example": "Example: `i -= 1` before field-start reprocessing (`on_field_start(); i -= 1; state = Name`)"
+        },
+        {
+          "title": "querystring strict rules",
+          "original": "Original: strict raises `Skipping duplicate ampersand at %d` (offset=i) and `... Did not find one in the chunk that starts at %d` (offset=i); non-strict emits valueless names with NO data callback",
+          "rust": "Rust: `strict: bool` per-call param; same two messages and same no-data-callback shape",
+          "example": "Example: non-strict `b'flag'` yields `start, name, end` only"
+        },
+        {
+          "title": "options header quirks",
+          "original": "Original: ctype keeps case when options exist (only the no-`;` path lower+strips); keys lowered; `*` params skipped; quotes unescaped (`\\\\` then `\\\"`); IE6 drive/UNC filename strip; falsy input returns `(b'', {})`",
+          "rust": "Rust: operate on latin-1 bytes; `parse_options_header` returns `(Vec<u8>, Vec<(Vec<u8>, Vec<u8>)>)`; the binding builds `(bytes, dict)`",
+          "example": "Example: `'Text/HTML; Charset=UTF-8'` -> `(b'Text/HTML', {b'charset': b'UTF-8'})`"
+        },
+        {
+          "title": "latin-1 encode errors",
+          "original": "Original: non-latin-1 `str` raises `UnicodeEncodeError('latin-1', piece, start, end, 'ordinal not in range(256)')` from the failing piece encode (key/val/ctype order)",
+          "rust": "Rust: validate each piece to latin-1 in the same order; the binding raises via `UnicodeEncodeError(...)` constructed on the Python side",
+          "example": "Example: `'text/plain; x=\\\"\\u20ac\\\"'` raises with position 0 (the unquoted value)"
+        },
+        {
+          "title": "bytes input decodes latin-1",
+          "original": "Original: `bytes` input is decoded latin-1 (infallible); non-str non-bytes fails `assert isinstance(value, str)`",
+          "rust": "Rust: binding accepts `bytes` (decode latin-1) or `str`; anything else raises `AssertionError('Value should be a string by now')`",
+          "example": "Example: `parse_options_header(123)` raises AssertionError"
+        },
+        {
+          "title": "callbacks resolved live per write",
+          "original": "Original: `_internal_write` reads `self.callbacks.get(...)` fresh each call; `set_callback(name, None)` removes; missing callbacks are noop",
+          "rust": "Rust: the core never caches callables; dispatch goes through `parser.callback(name, ...)` so live-dict semantics (including direct `parser.callbacks[...] = f` mutation) hold",
+          "example": "Example: `parser.callbacks['on_end'] = f` between two writes takes effect on the next write"
+        },
+        {
+          "title": "callback exceptions abort the chunk",
+          "original": "Original: a raising callback propagates out of `write`; `self._current_size += l` runs with `l = 0` (finally) and core state stays pre-chunk",
+          "rust": "Rust: callback failure returns `Err(Callback)` immediately with no commit; the binding propagates the Python error unchanged",
+          "example": "Example: `on_part_data` raising on chunk 2 leaves `state/index/marks` as after chunk 1"
+        },
+        {
+          "title": "write() stays Python",
+          "original": "Original: `write` does max_size truncation (with the `Current size ... truncating` warning), calls `_internal_write`, and accounts `self._current_size += l` in a `finally`",
+          "rust": "Rust: none — `write` is kept verbatim in the Python shim; only `_internal_write` delegates to the core",
+          "example": "Example: `OctetStreamParser`, `Field`, `File`, `FormParser`, decoders, and exceptions stay verbatim Python (I/O-bound or glue, no byte loop)"
+        },
+        {
+          "title": "logger warnings preserved",
+          "original": "Original: boundary/header errors log `logger.warning(msg)` before raising; truncation logs in `write`",
+          "rust": "Rust: the core emits `Warn(String)` events in order; the binding calls `logger.warning(msg)` synchronously during processing",
+          "example": "Example: `Did not find CR at end of boundary (7)` is both logged and raised"
+        },
+        {
+          "title": "finalize shapes",
+          "original": "Original: `QuerystringParser.finalize` emits `on_field_end` (when mid-field) then `on_end`; `MultipartParser.finalize` is a verified noop; `OctetStreamParser.finalize` emits `on_end`",
+          "rust": "Rust: none — `finalize` stays verbatim Python on top of the `state` property",
+          "example": "Example: `write(b'a=1')` then `finalize()` yields `field_end, end`"
+        },
+        {
+          "title": "shared default callbacks dict",
+          "original": "Original: `callbacks={}` default is ONE shared dict object assigned to every default-constructed parser",
+          "rust": "Rust: none — constructor signatures stay in Python, so the shared-default hazard is preserved bit-for-bit",
+          "example": "Example: `MultipartParser.__init__(self, boundary, callbacks={}, ...)` verbatim in the shim"
+        }
+      ],
+      "workload_contract": {
+        "primary": "wall_time_p50",
+        "secondary": "throughput",
+        "distribution": "multipart/form-data parse via MultipartParser (4KB 4-part, 64KB 32-part bodies whole plus 7B-chunked writes) and querystring parse via QuerystringParser (8B, 4KB repeated pairs); share API-shaped (multipart whole 60%, multipart chunked 20%, querystring 20%)",
+        "out_of_scope": "inputs >1MB; File disk-spool paths (syscall-I/O); octet-stream parser (no byte loop); benchmark harness file itself",
+        "budgets": "RSS ceiling: +5% vs original; binary: n/a (Python); compile: n/a; contract budgets enforced in Stage 2 no_regression"
+      },
+      "workload_probe": {
+        "script": "import sys;nparts,psize=[int(x) for x in sys.argv[1].split(chr(58))];from python_multipart.multipart import MultipartParser;CR=chr(13).encode();LF=chr(10).encode();out=[CR+LF];hd=lambda i:b'--BOUND'+CR+LF+b'Content-Disposition: form-data; name=f'+str(i).encode()+CR+LF+CR+LF;[out.append(hd(i)+bytes(((i*31+j)%251+1) for j in range(psize))+CR+LF) for i in range(nparts)];out.append(b'--BOUND--'+CR+LF);body=b''.join(out);n=[0];mp=MultipartParser(b'BOUND',callbacks={'on_part_data':lambda d,s,e:n.__setitem__(0,n[0]+(e-s))});mp.write(body);print(n[0])",
+        "argvs": [
+          "2:64",
+          "4:1024",
+          "32:2048"
+        ]
+      },
+      "workloads": {
+        "visible": [
+          {
+            "name": "vis-mp-4K",
+            "setup": "from python_multipart.multipart import MultipartParser\nCR=chr(13).encode()\nLF=chr(10).encode()\ndef build(n,s):\n    out=[CR+LF]\n    for i in range(n):\n        out.append(b'--BOUND'+CR+LF+b'Content-Disposition: form-data; name=f'+str(i).encode()+CR+LF+CR+LF+bytes(((i*31+j)%251+1) for j in range(s))+CR+LF)\n    out.append(b'--BOUND--'+CR+LF)\n    return b''.join(out)\ndata=build(4,1024)\n",
+            "stmt": "MultipartParser(b'BOUND').write(data)",
+            "iters": 20
+          },
+          {
+            "name": "vis-qs-4K",
+            "setup": "from python_multipart.multipart import QuerystringParser\ndata = (b'a=1&' * 1024)\n",
+            "stmt": "QuerystringParser().write(data)",
+            "iters": 20
+          }
+        ],
+        "heldout": [
+          {
+            "name": "held-mp-64K",
+            "setup": "from python_multipart.multipart import MultipartParser\nCR=chr(13).encode()\nLF=chr(10).encode()\ndef build(n,s):\n    out=[CR+LF]\n    for i in range(n):\n        out.append(b'--BOUND'+CR+LF+b'Content-Disposition: form-data; name=f'+str(i).encode()+CR+LF+CR+LF+bytes(((i*31+j)%251+1) for j in range(s))+CR+LF)\n    out.append(b'--BOUND--'+CR+LF)\n    return b''.join(out)\ndata=build(32,2048)\n",
+            "stmt": "MultipartParser(b'BOUND').write(data)",
+            "iters": 5
+          },
+          {
+            "name": "held-mp-chunked",
+            "setup": "from python_multipart.multipart import MultipartParser\ndata = bytes.fromhex('2d2d424f554e440d0a436f6e74656e742d446973706f736974696f6e3a20666f726d2d646174613b206e616d653d2261220d0a0d0a310d0a2d2d424f554e440d0a436f6e74656e742d446973706f736974696f6e3a20666f726d2d646174613b206e616d653d2262220d0a0d0a32320d0a2d2d424f554e442d2d0d0a')\n",
+            "stmt": "p=MultipartParser(b'BOUND')\nfor i in range(0,len(data),7):\n    p.write(data[i:i+7])",
+            "iters": 50
+          }
+        ],
+        "tiny": {
+          "name": "tiny",
+          "setup": "from python_multipart.multipart import MultipartParser\ndata = b''",
+          "stmt": "MultipartParser(b'BOUND').write(data)",
+          "iters": 100
+        }
+      },
+      "heldout_gen": {
+        "kind": "bytes_json3",
+        "probe": "import json,sys\nfrom python_multipart.multipart import QuerystringParser\nout=[]\nfor h in sys.argv[1:]:\n    data=bytes.fromhex(h);fields=[];box=[None]\n    def on_fs():\n        box[0]=[[],[]]\n    def on_fn(d,s,e):\n        box[0][0].append(d[s:e].decode('latin-1'))\n    def on_fd(d,s,e):\n        box[0][1].append(d[s:e].decode('latin-1'))\n    def on_fe():\n        n,d=box[0];fields.append([''.join(n),''.join(d) if d else None])\n    qp=QuerystringParser(callbacks={'on_field_start':on_fs,'on_field_name':on_fn,'on_field_data':on_fd,'on_field_end':on_fe})\n    qp.write(data);qp.finalize()\n    out.append([len(fields),[f[0] for f in fields],[f[1] for f in fields]])\nprint(json.dumps(out,allow_nan=False))\n",
+        "header": "\"\"\"Held-out GENERATED (control plane, seeded from frozen manifest, host-only).\"\"\"\nfrom python_multipart.multipart import QuerystringParser\n\n\ndef _qs(data):\n    fields = []\n    box = [None]\n\n    def on_fs():\n        box[0] = [[], []]\n\n    def on_fn(d, s, e):\n        box[0][0].append(d[s:e].decode(\"latin-1\"))\n\n    def on_fd(d, s, e):\n        box[0][1].append(d[s:e].decode(\"latin-1\"))\n\n    def on_fe():\n        n, d = box[0]\n        fields.append((\"\".join(n), \"\".join(d) if d else None))\n\n    qp = QuerystringParser(\n        callbacks={\n            \"on_field_start\": on_fs,\n            \"on_field_name\": on_fn,\n            \"on_field_data\": on_fd,\n            \"on_field_end\": on_fe,\n        }\n    )\n    qp.write(data)\n    qp.finalize()\n    return [len(fields), [f[0] for f in fields], [f[1] for f in fields]]\n\n\ndef test_generated_pins():\n",
+        "line": "    assert _qs({LIT}) == [{V0}, {V1}, {V2}]\n",
+        "avoid_hex": [
+          "",
+          "613d3126623d3232",
+          "613d3126623d32",
+          "783d26793d7a7a7a26666c6167",
+          "666c616726623d",
+          "48656c6c6f20576f726c6421"
+        ]
+      },
+      "candidate_pool": []
     }
   }
 }

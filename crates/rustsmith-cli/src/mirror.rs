@@ -1263,18 +1263,20 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // Reviewers see the real staged merge diff (worker branch + module
         // deletion + build edits), never a placeholder: a worker branch can
         // be empty when a sibling already materialized shared template
-        // files, but the merge itself always carries the deletion.
+        // files. Src-layout merges still carry the module deletion; flat
+        // layouts with no deletes stage an empty diff, which `merge_unit`
+        // reports as a pass-through noop (ADR-022) instead of reviewing.
         let providers = default_providers();
         let (r1, r2) = assign_reviewers(None, &providers)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
         let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
-        merge_unit(&a.fork, wt.as_str(), id, &deletes, |diff| {
+        let merged = merge_unit(&a.fork, wt.as_str(), id, &deletes, |diff| {
             record_review(store, run_id, id, diff, r1, r2)
         })?;
         let sha = git(&a.fork, &["rev-parse", "HEAD"])?;
         store.set_unit_commit(id, &sha).map_err(|e| e.to_string())?;
         store.set_unit_status(id, "passed").map_err(|e| e.to_string())?;
-        ev(store, run_id, "merge", serde_json::json!({"unit": id, "sha": sha}));
+        ev(store, run_id, "merge", serde_json::json!({"unit": id, "sha": sha, "noop": !merged}));
         let _ = sandbox.drop_worktree(&a.fork, wt.as_std_path());
     }
     // The shared pristine stage served every differential above; remove it
@@ -1681,7 +1683,7 @@ fn merge_unit(
     unit_id: &str,
     deletes: &[String],
     review: impl FnOnce(&[u8]) -> Result<(), String>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     // Merge worker branch with --no-commit, delete the mirrored
     // original-language modules (template manifest), drop the deleted
     // sources from CMake target lists (each owning target gains the shared
@@ -1690,6 +1692,8 @@ fn merge_unit(
     // buildable and drift surfaces now.
     // Branch names are sanitized (UnitIds contain `:`/`/`, illegal in git
     // refs); this matches the `alloc_worktree` name in `run_mirror`.
+    // Returns `true` when a reviewed commit landed, `false` for a noop
+    // merge (see below).
     let wt_branch = format!("unit/{}", crate::units::unit_fs_name(unit_id));
     git(fork, &["merge", "--no-commit", "--no-ff", &wt_branch])?;
     for t in deletes {
@@ -1741,6 +1745,18 @@ fn merge_unit(
         }
     }
     git(fork, &["add", "-A"])?;
+    // Whole-tree templates materialize identical files for every unit, so
+    // after the first merge later units can stage an empty diff (flat
+    // layouts have no `src/` tree for `deletes` to carry the merge, unlike
+    // src-layout ports). Grading already passed in the worktree and every
+    // byte present entered through a reviewed merge, so there is nothing
+    // to review and no commit to make (ADR-022). Abort any merge state and
+    // report a noop; the caller records the pass without a new commit.
+    let staged_probe = git(fork, &["diff", "--cached", "HEAD"])?;
+    if staged_probe.trim().is_empty() {
+        let _ = git(fork, &["merge", "--abort"]);
+        return Ok(false);
+    }
     // Diff-only review of exactly what would land; a rejected (or empty)
     // review aborts the merge, so nothing unreviewed reaches the fork.
     let staged = git(fork, &["diff", "--cached", "HEAD"])?;
@@ -1749,7 +1765,7 @@ fn merge_unit(
         return Err(e);
     }
     git(fork, &["commit", "-qm", &format!("merge {unit_id} + delete mirrored module")])?;
-    Ok(())
+    Ok(true)
 }
 fn rate_of(gr: &rustsmith_core::GradedResult) -> f64 {
     gr.pass_rate()

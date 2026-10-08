@@ -136,11 +136,25 @@ fn render_bytes3(header: &str, line: &str, datas_hex: &[String], vals: &[[u64; 3
 
 /// JSON value as a Python literal (`None`/`True`/`False`, never `null`).
 /// JSON string quoting is valid Python; numbers transfer verbatim.
+/// Containers recurse so nested `null`/`true`/`false` convert too (a
+/// generated pin whose values are lists, e.g. querystring field tables,
+/// otherwise renders a `NameError`-raising `null`).
 fn json_to_py(v: &serde_json::Value) -> String {
     match v {
         serde_json::Value::Null => "None".to_string(),
         serde_json::Value::Bool(true) => "True".to_string(),
         serde_json::Value::Bool(false) => "False".to_string(),
+        serde_json::Value::Array(items) => {
+            let inner: Vec<String> = items.iter().map(json_to_py).collect();
+            format!("[{}]", inner.join(", "))
+        }
+        serde_json::Value::Object(map) => {
+            let inner: Vec<String> = map
+                .iter()
+                .map(|(k, val)| format!("{}: {}", json_to_py(&serde_json::Value::String(k.clone())), json_to_py(val)))
+                .collect();
+            format!("{{{}}}", inner.join(", "))
+        }
         other => other.to_string(),
     }
 }
@@ -406,5 +420,14 @@ mod tests {
         assert_eq!(json_to_py(&serde_json::json!(false)), "False");
         assert_eq!(json_to_py(&serde_json::json!("utf_8")), "\"utf_8\"");
         assert_eq!(json_to_py(&serde_json::json!(0.5)), "0.5");
+        // Nested null/bool inside containers (generated field tables).
+        assert_eq!(
+            json_to_py(&serde_json::json!([1, ["a", null], true])),
+            "[1, [\"a\", None], True]"
+        );
+        assert_eq!(
+            json_to_py(&serde_json::json!({"k": [null, false]})),
+            "{\"k\": [None, False]}"
+        );
     }
 }

@@ -724,6 +724,10 @@ pub const UNCLAIMED_HALT_THRESHOLD: f64 = 0.2;
 const NON_SOURCE_EXTS: &[&str] = &[
     "md", "markdown", "rst", "txt", "toml", "cfg", "ini", "json", "yaml", "yml", "lock", "typed",
     "pyc", "pyo", "log",
+    // Raw HTTP message fixtures consumed by parser test suites at runtime
+    // (e.g. python-multipart's tests/test_data/http/*.http); data, never
+    // compiled source (ADR-021).
+    "http",
     // CMake configure files are build config, never units (Track I: keeps the
     // extension census viable on CMake trees; no Python fixture has `.cmake`).
     "cmake",
