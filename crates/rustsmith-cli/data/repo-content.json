@@ -2078,6 +2078,21 @@
             "program": "matc/src/matc",
             "args": [],
             "stdin": "1+2\nexit\n"
+          },
+          {
+            "program": "matc/src/matc",
+            "args": [],
+            "stdin": "x=1:10\nx\nexit\n"
+          },
+          {
+            "program": "matc/src/matc",
+            "args": [],
+            "stdin": "a=ones(2,2)\nd=det(a)\nd\nexit\n"
+          },
+          {
+            "program": "matc/src/matc",
+            "args": [],
+            "stdin": "m=[1,2;3,4]\nprint(m)\nexit\n"
           }
         ]
       }
@@ -2109,6 +2124,43 @@
           "example": "Example: the huti_scgsolv and huti_dcgsolv pair in huti_cg.F90 becomes a single generic cg_solv<T> instantiated for f32 and f64."
         }
       ]
+    },
+    "Elmer": {
+      "porting_rules": [
+        {
+          "title": "setjmp/longjmp error unwinding becomes Result returns",
+          "original": "Original (C): error.c raises evaluation failures with longjmp(*jmpbuf, 2) after mem_free_all, unwinding across evaluator frames",
+          "rust": "Rust: fallible evaluator functions return Result<T, MatcError>; the top-level loop renders Err as the MATC ERROR: line, never unwinding",
+          "example": "Example: divide-by-zero path calling error() becomes return Err(MatcError::DivByZero), printed as MATC ERROR: Division by zero."
+        },
+        {
+          "title": "file-static interpreter globals become an explicit context struct",
+          "original": "Original (C): interpreter state lives in file-static globals (files.c fil_fps[MAXFILES], eval.c defind, c3d.c c3d_clevels)",
+          "rust": "Rust: all interpreter state moves into pub struct MatcCtx threaded as &mut through every evaluator entry point",
+          "example": "Example: fil_fps[i] in files.c becomes ctx.files[i] with bounds checked against MAXFILES."
+        },
+        {
+          "title": "mtc_domath string-in/string-out embedding boundary stays C-ABI",
+          "original": "Original (C): ElmerSolver embeds the evaluator through char *mtc_domath(char *) plus mtc_init(stdin, stdout, stderr)",
+          "rust": "Rust: the boundary stays pub extern \"C\" with CString in and out; only the internals are ported, never the signature",
+          "example": "Example: mtc_domath(\"1+2\") returning \"         3\" becomes a CString-in/CString-out extern \"C\" fn with identical bytes."
+        },
+        {
+          "title": "stdin-line REPL protocol is the differential surface, not argv",
+          "original": "Original (C): main.c ignores argv and runs a fgets REPL where only the exit and quit lines terminate with status 0",
+          "rust": "Rust: any port keeps the byte-identical line protocol so piped stdin scripts compare equal across trees",
+          "example": "Example: stdin 1+2 then exit prints \"         3\" on both sides; bare argv runs never terminate."
+        }
+      ],
+      "differential": {
+        "probes": [
+          {
+            "program": "matc/src/matc",
+            "args": [],
+            "stdin": "1+2\nexit\n"
+          }
+        ]
+      }
     },
     "packaging": {
       "differential": {
