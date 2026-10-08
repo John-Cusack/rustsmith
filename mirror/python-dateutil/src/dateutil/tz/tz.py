@@ -22,9 +22,7 @@ import bisect
 import weakref
 from collections import OrderedDict
 
-import six
-from six import string_types
-from six.moves import _thread
+import _thread
 from contextlib import nullcontext as _nullcontext
 from dateutil._dateutil import (
     _ttinfo,
@@ -253,7 +251,7 @@ class tzical(object):
     """
     def __init__(self, fileobj):
 
-        if isinstance(fileobj, string_types):
+        if isinstance(fileobj, str):
             self._s = fileobj
             # ical should be encoded in UTF-8 with CRLF
             fileobj = open(fileobj, 'r')
@@ -589,7 +587,7 @@ def __get_gettz():
                 except TypeError as e:
                     if isinstance(name, bytes):
                         new_msg = "gettz argument should be str, not bytes"
-                        six.raise_from(TypeError(new_msg), e)
+                        raise TypeError(new_msg) from e
                     else:
                         raise
                 if os.path.isabs(name):

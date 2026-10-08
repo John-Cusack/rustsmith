@@ -4,7 +4,7 @@ version = "2.9.0"
 edition = "2021"
 description = "Pure-Rust dateutil engine (rrule/relativedelta/tz/parser/isoparser) with Python bindings (rustsmith Stage-1 mirror of dateutil/dateutil)"
 license = "Apache-2.0"
-repository = "https://github.com/John-Cusack/python-dateutil-rust"
+repository = "https://github.com/John-Cusack/dateutil-rust"
 homepage = "https://github.com/dateutil/dateutil"
 
 [lib]

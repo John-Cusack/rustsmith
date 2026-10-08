@@ -15,6 +15,7 @@
     ["src/tz_mod.rs", "src/tz_mod.rs"],
     ["src/parser_mod.rs", "src/parser_mod.rs"],
     ["src/isoparser_mod.rs", "src/isoparser_mod.rs"],
+    ["dateutil/__init__.py", "dateutil/__init__.py"],
     ["src/dateutil/relativedelta.py", "src/dateutil/relativedelta.py"],
     ["src/dateutil/rrule.py", "src/dateutil/rrule.py"],
     ["src/dateutil/tz/tz.py", "src/dateutil/tz/tz.py"],
