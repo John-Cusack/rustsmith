@@ -1266,7 +1266,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // files. Src-layout merges still carry the module deletion; flat
         // layouts with no deletes stage an empty diff, which `merge_unit`
         // reports as a pass-through noop (ADR-022) instead of reviewing.
-        let providers = default_providers();
+        let providers = rustsmith_council::configured_providers();
         let (r1, r2) = assign_reviewers(None, &providers)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
         let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
@@ -1771,8 +1771,9 @@ fn rate_of(gr: &rustsmith_core::GradedResult) -> f64 {
     gr.pass_rate()
 }
 
+#[cfg(test)]
 fn default_providers() -> HashMap<Seat, String> {
-    // Matches config/default.toml (swappable; never hardcoded elsewhere).
+    // Test-only distinct-provider map mirroring config/default.toml.
     HashMap::from([
         (Seat::Architect, "provider-a".into()),
         (Seat::Verifier, "provider-b".into()),
@@ -1946,6 +1947,20 @@ mod tests {
             (Seat::Scope, "only".into()),
         ]);
         let err = assign_reviewers(None, &p).unwrap_err();
+        assert!(err.contains("distinct providers"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn reviewers_refuse_when_implementer_holds_sole_distinct_provider() {
+        // Fail-closed: excluding the implementer must not fall back to a
+        // same-provider pair (here only the implementer spans providers).
+        let p: HashMap<Seat, String> = HashMap::from([
+            (Seat::Architect, "same".into()),
+            (Seat::Verifier, "sole-distinct".into()),
+            (Seat::Performance, "same".into()),
+            (Seat::Scope, "same".into()),
+        ]);
+        let err = assign_reviewers(Some(Seat::Verifier), &p).unwrap_err();
         assert!(err.contains("distinct providers"), "unexpected: {err}");
     }
 

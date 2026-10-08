@@ -213,6 +213,17 @@ pub fn model_for_seat(seat: Seat) -> String {
 pub fn provider_for_seat(seat: Seat) -> String {
     seat_field(seat, "provider")
 }
+/// Seat->provider map from the configured `[models]` table (same file and
+/// override mechanism as [`model_for_seat`]). Reviewer seating takes this
+/// map so live runs review on the configured providers, never placeholders.
+pub fn configured_providers() -> HashMap<Seat, String> {
+    HashMap::from([
+        (Seat::Architect, provider_for_seat(Seat::Architect)),
+        (Seat::Verifier, provider_for_seat(Seat::Verifier)),
+        (Seat::Performance, provider_for_seat(Seat::Performance)),
+        (Seat::Scope, provider_for_seat(Seat::Scope)),
+    ])
+}
 /// Extract `field = "..."` from the seat's `[models]` entry
 /// (`seat = { provider = "...", model = "..." }`). Lines outside `[models]`
 /// are also scanned (legacy flat shape) so older configs keep resolving.
@@ -549,6 +560,29 @@ mod tests {
         assert_eq!(p, "provider-a");
         assert_eq!(mp, "provider-b");
         assert_ne!(p, mp, "review seats must surface distinct providers");
+    }
+
+    #[test]
+    fn configured_providers_come_from_config_table() {
+        // Reviewer seating must read the configured `[models]` providers,
+        // never placeholders: distinct here, so seating the pair works.
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("models.toml");
+        std::fs::write(
+            &cfg,
+            "[models]\narchitect = { provider = \"pa\", model = \"ma\" }\nverifier = { provider = \"pb\", model = \"mv\" }\nperformance = { provider = \"pc\", model = \"mp\" }\nscope = { provider = \"pd\", model = \"ms\" }\n",
+        )
+        .unwrap();
+        let prev = std::env::var("RUSTSMITH_MODELS_CONFIG").ok();
+        std::env::set_var("RUSTSMITH_MODELS_CONFIG", &cfg);
+        let got = configured_providers();
+        match prev {
+            Some(v) => std::env::set_var("RUSTSMITH_MODELS_CONFIG", v),
+            None => std::env::remove_var("RUSTSMITH_MODELS_CONFIG"),
+        }
+        assert_eq!(got[&Seat::Verifier], "pb");
+        assert_eq!(got[&Seat::Performance], "pc");
+        assert_ne!(got[&Seat::Verifier], got[&Seat::Performance]);
     }
 
     #[test]
