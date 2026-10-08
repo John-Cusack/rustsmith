@@ -15,4 +15,5 @@ the extension (`_parser_py.py` alongside is the verbatim upstream module
 kept for the `_tzparser` lineage). Custom `parserinfo` subclasses and
 `tzinfos` callables stay dynamic via the `Info`-trait/Python-callback seam
 documented in `src/parser_mod.rs`. Two-track bench corpora + harness live
-in `bench_parser/` (manifest hashes frozen before measurement).
+in `bench_parser/` (manifest hashes frozen before measurement; workload
+contract and repro command in `bench_parser/WORKLOAD.md`).

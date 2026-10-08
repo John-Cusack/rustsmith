@@ -1,0 +1,20 @@
+# Tier C edge corpus (bench-only, outside the parity contracts).
+# Every line MUST parse under fuzzy=True; strict may raise (the fallback
+# row covers that). Tokenizer-hostile one-liners: dot-runs, stray digits,
+# lone zones/meridiems, long junk-word runs (45-lower/parse chain).
+Thu Sep 25 10:36:28 ...... 2003
+Sep.20.2009
+word word word Sep 20 2009 word word word word word word
+13:44 AM
+5.6h
+January 1, 2047 8:21:00AM ... trailing dots ...
+Mon......15......Jan......2024......10:30:00
+on 04/04/2024 deadline met ok
+blah blah blah Sep.20.2009 blah blah blah word word word extra junk tail here now
+Jan....................................2024
+2024-01-15T10:30:00.123456+00:00 (with comment)
+alpha beta gamma delta epsilon zeta March 5, 2023 14:22:11 eta theta iota kappa
+Meeting scheduled for Friday December 1 2023 at noon sharp ok
+the deadline is 04/04/2024, please submit now
+Born on 29 February 2000 in Springfield hospital ward
+junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword junkword Sep 20 2009 tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword tailword
