@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Lexer (`_timelex`): char classes, stateful tokenizer, split helpers.
+//! Lexer (`_timelex`): byte-table classes, single-pass tokenizer, split helpers.
+//!
+//! The lexer walks the original buffer exactly once as bytes. ASCII bytes
+//! classify through a `[u8; 256]` table (no data-dependent branches beyond
+//! the table lookup); bytes `>= 0x80` fall back to `char` decode + the
+//! `is_word`/`is_num`/`is_space` classes. Tokens borrow the input
+//! ([`Token::Borrowed`]) except for two rare normalizations the original
+//! performs eagerly: `","` -> `"."` folding (`"12,5"` -> `"12.5"`) and
+//! `\x00` filtering (`"a\x00b"` -> `"ab"`), which materialize one `String`.
+//! The caller keeps the single owned `String` alive: no `Vec<char>` copy
+//! (4x expansion) and no per-token `String` growth on the hot path.
 
+use std::borrow::Cow;
 use std::collections::VecDeque;
 
 /// `str.isalpha` equivalent: ASCII-exact; non-ASCII best-effort
@@ -43,184 +54,539 @@ enum LexState {
     NumDot,
 }
 
-/// Stateful lexer over one input string (mirrors `_timelex`).
-pub struct Timelex {
-    input: Vec<char>,
+// Byte classes for the ASCII fast loop: word chars, digit chars and
+// whitespace classify through this table; `.` / `,` / NUL / other bytes are
+// handled explicitly per state, and bytes `>= 0x80` fall back to `char`
+// decode + the `is_word` / `is_num` / `is_space` classes.
+const C_OTHER: u8 = 0;
+const C_WORD: u8 = 1;
+const C_NUM: u8 = 2;
+const C_SPACE: u8 = 3;
+
+const CLASS: [u8; 256] = build_class();
+
+const fn build_class() -> [u8; 256] {
+    let mut t = [C_OTHER; 256];
+    let mut b = 0u32;
+    while b < 256 {
+        // Matches `is_space` on ASCII exactly: `is_ascii_whitespace`
+        // (`0x09..=0x0D`, `0x20`) plus `\x1c..=\x1f`.
+        let v = if (b >= 65 && b <= 90) || (b >= 97 && b <= 122) {
+            C_WORD
+        } else if b >= 48 && b <= 57 {
+            C_NUM
+        } else if b == 32 || (b >= 9 && b <= 13) || (b >= 28 && b <= 31) {
+            C_SPACE
+        } else {
+            C_OTHER
+        };
+        t[b as usize] = v;
+        b += 1;
+    }
+    t
+}
+
+/// A lexer token: a borrow of the input buffer, except for two rare
+/// normalizations the original performs eagerly (`","` -> `"."` folding and
+/// `\x00` filtering), which materialize one `String`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Token<'a> {
+    text: Cow<'a, str>,
+    nchars: u32,
+    ascii: bool,
+}
+
+impl<'a> Token<'a> {
+    /// Counters are filled by the lexer during its single pass; this
+    /// constructor (cold paths only) recounts from the slice.
+    pub fn from_slice(s: &'a str) -> Self {
+        let (nchars, ascii) = count_span(s.as_bytes());
+        Token {
+            text: Cow::Borrowed(s),
+            nchars,
+            ascii,
+        }
+    }
+
+    fn borrowed(text: &'a str, nchars: u32, ascii: bool) -> Self {
+        Token {
+            text: Cow::Borrowed(text),
+            nchars,
+            ascii,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+
+    /// `chars().count()` without recounting: the lexer counted every char it
+    /// collected, so token length checks are O(1).
+    pub fn nchars(&self) -> usize {
+        self.nchars as usize
+    }
+
+    /// True iff the token text is ASCII (then byte offsets are char offsets).
+    pub fn is_ascii(&self) -> bool {
+        self.ascii
+    }
+
+    pub fn into_owned(self) -> String {
+        self.text.into_owned()
+    }
+}
+
+impl<'a> Default for Token<'a> {
+    fn default() -> Self {
+        Token {
+            text: Cow::Borrowed(""),
+            nchars: 0,
+            ascii: true,
+        }
+    }
+}
+
+impl<'a> std::ops::Deref for Token<'a> {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
+impl<'a> AsRef<str> for Token<'a> {
+    fn as_ref(&self) -> &str {
+        &self.text
+    }
+}
+
+impl<'a, 'b> PartialEq<&'b str> for Token<'a> {
+    fn eq(&self, other: &&'b str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl<'a> PartialEq<String> for Token<'a> {
+    fn eq(&self, other: &String) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+/// Char count + ASCII flag over raw bytes (UTF-8 lead-byte count; exact for
+/// `&str` slices, no `char` decode).
+fn count_span(bytes: &[u8]) -> (u32, bool) {
+    let mut n = 0u32;
+    let mut ascii = true;
+    for &byte in bytes {
+        if byte < 0x80 {
+            n += 1;
+        } else {
+            ascii = false;
+            if byte >= 0xC0 {
+                n += 1;
+            }
+        }
+    }
+    (n, ascii)
+}
+
+/// Byte span of one token inside the input (`dots` counts `.` chars, which
+/// the split-overflow check needs).
+#[derive(Clone, Copy)]
+struct RawSpan {
+    start: u32,
+    end: u32,
+    nchars: u32,
+    dots: u32,
+    ascii: bool,
+}
+
+/// Owned lexer cursor: byte offset + pending single-char pushback (as byte
+/// length) + queued token spans + EOF. Lifetime-free, so the borrowed
+/// [`Timelex`] and the owning binding object share one machine.
+#[derive(Default)]
+pub struct LexCursor {
     pos: usize,
-    charstack: VecDeque<char>,
-    tokenstack: VecDeque<String>,
+    rewind: u8,
+    spans: VecDeque<RawSpan>,
     eof: bool,
 }
 
-impl Timelex {
-    pub fn new(s: &str) -> Self {
-        Timelex {
-            input: s.chars().collect(),
-            pos: 0,
-            charstack: VecDeque::new(),
-            tokenstack: VecDeque::new(),
-            eof: false,
-        }
-    }
-
-    fn fetch(&mut self) -> Option<char> {
-        if let Some(c) = self.charstack.pop_front() {
-            return Some(c);
-        }
-        while self.pos < self.input.len() {
-            let c = self.input[self.pos];
-            self.pos += 1;
-            if c != '\x00' {
-                return Some(c);
-            }
-        }
-        None
-    }
-
-    /// Next token, or `None` at end of input (mirrors `get_token`).
-    pub fn get_token(&mut self) -> Option<String> {
-        if let Some(t) = self.tokenstack.pop_front() {
-            return Some(t);
-        }
-        let mut token = String::new();
-        let mut seenletters = false;
-        let mut state = LexState::Start;
-        loop {
-            if self.eof {
-                break;
-            }
-            let nextchar = match self.fetch() {
-                Some(c) => c,
-                None => {
-                    self.eof = true;
-                    break;
-                }
-            };
-            match state {
-                LexState::Start => {
-                    token.push(nextchar);
-                    if is_word(nextchar) {
-                        state = LexState::Word;
-                    } else if is_num(nextchar) {
-                        state = LexState::Num;
-                    } else if is_space(nextchar) {
-                        token.clear();
-                        token.push(' ');
-                        break;
-                    } else {
-                        break;
-                    }
-                }
-                LexState::Word => {
-                    seenletters = true;
-                    if is_word(nextchar) {
-                        token.push(nextchar);
-                    } else if nextchar == '.' {
-                        token.push(nextchar);
-                        state = LexState::WordDot;
-                    } else {
-                        self.charstack.push_back(nextchar);
-                        break;
-                    }
-                }
-                LexState::Num => {
-                    if is_num(nextchar) {
-                        token.push(nextchar);
-                    } else if nextchar == '.'
-                        || (nextchar == ',' && token.chars().count() >= 2)
-                    {
-                        token.push(nextchar);
-                        state = LexState::NumDot;
-                    } else {
-                        self.charstack.push_back(nextchar);
-                        break;
-                    }
-                }
-                LexState::WordDot => {
-                    seenletters = true;
-                    if nextchar == '.' || is_word(nextchar) {
-                        token.push(nextchar);
-                    } else if is_num(nextchar) && token.ends_with('.') {
-                        token.push(nextchar);
-                        state = LexState::NumDot;
-                    } else {
-                        self.charstack.push_back(nextchar);
-                        break;
-                    }
-                }
-                LexState::NumDot => {
-                    if nextchar == '.' || is_num(nextchar) {
-                        token.push(nextchar);
-                    } else if is_word(nextchar) && token.ends_with('.') {
-                        token.push(nextchar);
-                        state = LexState::WordDot;
-                    } else {
-                        self.charstack.push_back(nextchar);
-                        break;
-                    }
-                }
-            }
-        }
-        if token.is_empty() {
-            return None;
-        }
-        if matches!(state, LexState::WordDot | LexState::NumDot)
-            && (seenletters
-                || token.chars().filter(|&c| c == '.').count() > 1
-                || matches!(token.chars().last(), Some('.') | Some(',')))
-        {
-            let parts = split_decimal(&token);
-            token = parts[0].clone();
-            for tok in parts.into_iter().skip(1) {
-                if !tok.is_empty() {
-                    self.tokenstack.push_back(tok);
-                }
-            }
-        }
-        if state == LexState::NumDot && !token.contains('.') {
-            token = token.replace(',', ".");
-        }
-        if token.is_empty() {
-            return None;
-        }
-        Some(token)
-    }
-
-    /// Whole-input token list (mirrors `_timelex.split`).
-    pub fn split(s: &str) -> Vec<String> {
-        let mut lx = Timelex::new(s);
-        let mut out = Vec::new();
-        while let Some(t) = lx.get_token() {
-            out.push(t);
-        }
-        out
+impl LexCursor {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn is_eof(&self) -> bool {
         self.eof
     }
 
-    pub fn charstack(&self) -> Vec<String> {
-        self.charstack.iter().map(|c| c.to_string()).collect()
+    /// Pending pushback char (mirrors the `charstack` introspection).
+    pub fn charstack(&self, s: &str) -> Vec<String> {
+        if self.rewind == 0 {
+            return Vec::new();
+        }
+        vec![s[self.pos..self.pos + self.rewind as usize].to_string()]
     }
 
-    pub fn tokenstack(&self) -> Vec<String> {
-        self.tokenstack.iter().cloned().collect()
+    pub fn tokenstack(&self, s: &str) -> Vec<String> {
+        self.spans
+            .iter()
+            .map(|sp| materialize(s, *sp, false).into_owned())
+            .collect()
     }
 }
 
-/// `re.split("([.,])", token)` semantics: split, keeping separators.
-fn split_decimal(token: &str) -> Vec<String> {
-    let mut parts = vec![String::new()];
-    for c in token.chars() {
-        if c == '.' || c == ',' {
-            parts.push(c.to_string());
-            parts.push(String::new());
+/// Next char + byte length, skipping `\x00` exactly like the
+/// `StringIO.read(1)` loop. `pos` always rests on a char boundary.
+fn fetch(s: &str, b: &[u8], pos: &mut usize) -> Option<(char, u8)> {
+    loop {
+        if *pos >= b.len() {
+            return None;
+        }
+        let byte = b[*pos];
+        if byte == 0 {
+            *pos += 1;
+            continue;
+        }
+        if byte < 0x80 {
+            *pos += 1;
+            return Some((byte as char, 1));
+        }
+        let c = s[*pos..].chars().next().unwrap();
+        let len = c.len_utf8() as u8;
+        *pos += len as usize;
+        return Some((c, len));
+    }
+}
+
+/// Resolve a span to its token text: borrow, unless the span needs the
+/// original's eager normalizations (`","` -> `"."` when `fold`, NUL
+/// filtering), which materialize one `String`.
+fn materialize(s: &str, sp: RawSpan, fold: bool) -> Token<'_> {
+    let raw = &s[sp.start as usize..sp.end as usize];
+    let do_fold = fold && sp.dots == 0;
+    if !raw.as_bytes().contains(&0) {
+        if !do_fold {
+            return Token::borrowed(raw, sp.nchars, sp.ascii);
+        }
+        let mut out = String::with_capacity(raw.len());
+        for c in raw.chars() {
+            out.push(if c == ',' { '.' } else { c });
+        }
+        return Token {
+            text: Cow::Owned(out),
+            nchars: sp.nchars,
+            ascii: sp.ascii,
+        };
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut nchars = 0u32;
+    let mut ascii = true;
+    for c in raw.chars() {
+        if c == '\x00' {
+            continue;
+        }
+        nchars += 1;
+        if !c.is_ascii() {
+            ascii = false;
+        }
+        if do_fold && c == ',' {
+            out.push('.');
         } else {
-            parts.last_mut().unwrap().push(c);
+            out.push(c);
         }
     }
-    parts
+    Token {
+        text: Cow::Owned(out),
+        nchars,
+        ascii,
+    }
+}
+
+/// Split a dotted token at `.` / `,` keeping separators (mirrors
+/// `re.split("([.,])", token)`); the head is returned, the overflow queued.
+/// Every part is boundary-aligned (separators are single ASCII bytes).
+fn split_token<'a>(
+    s: &'a str,
+    b: &[u8],
+    cur: &mut LexCursor,
+    sp: RawSpan,
+    fold: bool,
+) -> Option<Token<'a>> {
+    let start = sp.start as usize;
+    let end = sp.end as usize;
+    let mut parts: Vec<(usize, usize)> = Vec::new();
+    let mut pstart = start;
+    for (i, &byte) in b[start..end].iter().enumerate() {
+        if byte == b'.' || byte == b',' {
+            parts.push((pstart, start + i));
+            parts.push((start + i, start + i + 1));
+            pstart = start + i + 1;
+        }
+    }
+    parts.push((pstart, end));
+    let mut it = parts.into_iter();
+    // The head is never empty (no token starts with a separator), but match
+    // the original's empty-head behavior instead of panicking.
+    let (hs, he) = it.next().unwrap();
+    for (ps, pe) in it {
+        // Skips raw empties like the original; all-NUL parts materialize to
+        // `""` and are skipped the same way.
+        if b[ps..pe].iter().all(|&x| x == 0) {
+            continue;
+        }
+        let (n, a) = if sp.ascii {
+            ((pe - ps) as u32, true)
+        } else {
+            count_span(&b[ps..pe])
+        };
+        cur.spans.push_back(RawSpan {
+            start: ps as u32,
+            end: pe as u32,
+            nchars: n,
+            dots: 0,
+            ascii: a,
+        });
+    }
+    if hs == he {
+        return None;
+    }
+    let (n, a) = if sp.ascii {
+        ((he - hs) as u32, true)
+    } else {
+        count_span(&b[hs..he])
+    };
+    Some(materialize(
+        s,
+        RawSpan {
+            start: hs as u32,
+            end: he as u32,
+            nchars: n,
+            dots: 0,
+            ascii: a,
+        },
+        fold,
+    ))
+}
+
+/// One token from `s` at `cur` (mirrors `get_token`, including the
+/// decimal-split overflow queue).
+pub fn next_token<'a>(s: &'a str, cur: &mut LexCursor) -> Option<Token<'a>> {
+    if let Some(sp) = cur.spans.pop_front() {
+        return Some(materialize(s, sp, false));
+    }
+    let b = s.as_bytes();
+    // `nchars` / `dots` / `ascii` / `last_byte` are the consumed state the
+    // old `token.chars().count()` / `ends_with` calls re-derived per step;
+    // each arm below extends them inline (a closure would borrow-conflict
+    // with the counter reads in the `Num` / `WordDot` / `NumDot` arms).
+    let mut state = LexState::Start;
+    let mut seenletters = false;
+    let mut started = false;
+    let mut start = 0usize;
+    let mut nchars = 0u32;
+    let mut dots = 0u32;
+    let mut ascii = true;
+    let mut last_byte = 0u8;
+    loop {
+        if cur.eof {
+            break;
+        }
+        let (c, clen) = match fetch(s, b, &mut cur.pos) {
+            Some(v) => v,
+            None => {
+                cur.eof = true;
+                break;
+            }
+        };
+        if !started {
+            started = true;
+            start = cur.pos - clen as usize;
+        }
+        // ASCII fast loop through the class table; non-ASCII decodes through
+        // the char classes in the original's check order.
+        let cls = if clen == 1 {
+            CLASS[c as usize]
+        } else if is_word(c) {
+            C_WORD
+        } else if is_num(c) {
+            C_NUM
+        } else if is_space(c) {
+            C_SPACE
+        } else {
+            C_OTHER
+        };
+        match state {
+            LexState::Start => {
+                if cls == C_WORD {
+                    state = LexState::Word;
+                    nchars += 1;
+                    ascii &= clen == 1;
+                    last_byte = if clen == 1 { c as u8 } else { 0 };
+                } else if cls == C_NUM {
+                    state = LexState::Num;
+                    nchars += 1;
+                    ascii &= clen == 1;
+                    last_byte = if clen == 1 { c as u8 } else { 0 };
+                } else if cls == C_SPACE {
+                    // Whitespace canonicalizes to one `" "` per char.
+                    return Some(Token::borrowed(" ", 1, true));
+                } else {
+                    // Single punctuation token (never NUL: fetch skips it).
+                    return Some(materialize(
+                        s,
+                        RawSpan {
+                            start: start as u32,
+                            end: cur.pos as u32,
+                            nchars: 1,
+                            dots: 0,
+                            ascii: clen == 1,
+                        },
+                        false,
+                    ));
+                }
+            }
+            LexState::Word => {
+                seenletters = true;
+                if cls == C_WORD {
+                    nchars += 1;
+                    ascii &= clen == 1;
+                    last_byte = if clen == 1 { c as u8 } else { 0 };
+                } else if c == '.' {
+                    nchars += 1;
+                    dots += 1;
+                    last_byte = b'.';
+                    state = LexState::WordDot;
+                } else {
+                    cur.pos -= clen as usize;
+                    cur.rewind = clen;
+                    break;
+                }
+            }
+            LexState::Num => {
+                if cls == C_NUM {
+                    nchars += 1;
+                    ascii &= clen == 1;
+                    last_byte = if clen == 1 { c as u8 } else { 0 };
+                } else if c == '.' || (c == ',' && nchars >= 2) {
+                    nchars += 1;
+                    if c == '.' {
+                        dots += 1;
+                    }
+                    last_byte = c as u8;
+                    state = LexState::NumDot;
+                } else {
+                    cur.pos -= clen as usize;
+                    cur.rewind = clen;
+                    break;
+                }
+            }
+            LexState::WordDot => {
+                seenletters = true;
+                if c == '.' || cls == C_WORD {
+                    nchars += 1;
+                    ascii &= clen == 1;
+                    if c == '.' {
+                        dots += 1;
+                    }
+                    last_byte = if clen == 1 { c as u8 } else { 0 };
+                } else if cls == C_NUM && last_byte == b'.' {
+                    nchars += 1;
+                    ascii &= clen == 1;
+                    last_byte = if clen == 1 { c as u8 } else { 0 };
+                    state = LexState::NumDot;
+                } else {
+                    cur.pos -= clen as usize;
+                    cur.rewind = clen;
+                    break;
+                }
+            }
+            LexState::NumDot => {
+                if c == '.' || cls == C_NUM {
+                    nchars += 1;
+                    ascii &= clen == 1;
+                    if c == '.' {
+                        dots += 1;
+                    }
+                    last_byte = if clen == 1 { c as u8 } else { 0 };
+                } else if cls == C_WORD && last_byte == b'.' {
+                    nchars += 1;
+                    ascii &= clen == 1;
+                    last_byte = if clen == 1 { c as u8 } else { 0 };
+                    state = LexState::WordDot;
+                } else {
+                    cur.pos -= clen as usize;
+                    cur.rewind = clen;
+                    break;
+                }
+            }
+        }
+    }
+    if !started {
+        return None;
+    }
+    let sp = RawSpan {
+        start: start as u32,
+        end: cur.pos as u32,
+        nchars,
+        dots,
+        ascii,
+    };
+    // `last_byte` is the last collected char (NULs are never collected), so
+    // these match `token.chars().filter(== '.').count() > 1` and
+    // `token.chars().last()` on the original token exactly.
+    if matches!(state, LexState::WordDot | LexState::NumDot)
+        && (seenletters || dots > 1 || last_byte == b'.' || last_byte == b',')
+    {
+        return split_token(s, b, cur, sp, state == LexState::NumDot);
+    }
+    Some(materialize(s, sp, state == LexState::NumDot))
+}
+
+/// Stateful lexer over one input string (mirrors `_timelex`).
+///
+/// The input is borrowed: the machine walks `&[u8]` once and hands out
+/// `&str` slices of the original buffer (kept alive by the caller — the
+/// binding holds the single owned `String`).
+pub struct Timelex<'a> {
+    s: &'a str,
+    cursor: LexCursor,
+}
+
+impl<'a> Timelex<'a> {
+    pub fn new(s: &'a str) -> Self {
+        Timelex {
+            s,
+            cursor: LexCursor::new(),
+        }
+    }
+
+    /// Next token, or `None` at end of input (mirrors `get_token`).
+    pub fn get_token(&mut self) -> Option<Token<'a>> {
+        next_token(self.s, &mut self.cursor)
+    }
+
+    /// Whole-input token list (mirrors `_timelex.split`).
+    pub fn split(s: &'a str) -> Vec<Token<'a>> {
+        let mut cur = LexCursor::new();
+        let mut out = Vec::new();
+        while let Some(t) = next_token(s, &mut cur) {
+            out.push(t);
+        }
+        out
+    }
+
+    pub fn is_eof(&self) -> bool {
+        self.cursor.is_eof()
+    }
+
+    pub fn charstack(&self) -> Vec<String> {
+        self.cursor.charstack(self.s)
+    }
+
+    pub fn tokenstack(&self) -> Vec<String> {
+        self.cursor.tokenstack(self.s)
+    }
 }
 
 /// Lowercase a token the way the `parserinfo` probes do (`name.lower()`).
@@ -238,8 +604,12 @@ pub fn lower_token(tok: &str) -> String {
 /// Fold Unicode decimal (`Nd`) digits to ASCII; `None` if any char is not
 /// foldable (mirrors what `float()`/`int()`/`Decimal()` accept, which is
 /// exactly the `Nd` general category — `char::to_digit` is ASCII-only, so
-/// the table below stands in).
-pub fn fold_digits(s: &str) -> Option<String> {
+/// the table below stands in). Borrows ASCII input (folding is the identity
+/// there); only non-ASCII digits materialize a `String`.
+pub fn fold_digits(s: &str) -> Option<Cow<'_, str>> {
+    if s.is_ascii() {
+        return Some(Cow::Borrowed(s));
+    }
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         if c.is_ascii() {
@@ -250,13 +620,34 @@ pub fn fold_digits(s: &str) -> Option<String> {
             return None;
         }
     }
-    Some(out)
+    Some(Cow::Owned(out))
 }
 
 /// `float(value_repr)` probe: true iff Python would parse it (digit runs
 /// with an optional dot, plus `inf`/`infinity`/`nan` in any case).
-/// The value itself is discarded; `_to_decimal` re-parses.
+/// The value itself is discarded; `_to_decimal` re-parses. The ASCII fast
+/// path scans bytes with no allocation; non-ASCII falls back to folding.
 pub fn probe_float(tok: &str) -> bool {
+    if tok.is_ascii() {
+        if tok.eq_ignore_ascii_case("inf")
+            || tok.eq_ignore_ascii_case("infinity")
+            || tok.eq_ignore_ascii_case("nan")
+        {
+            return true;
+        }
+        let mut seen_dot = false;
+        let mut seen_digit = false;
+        for &b in tok.as_bytes() {
+            if b.is_ascii_digit() {
+                seen_digit = true;
+            } else if b == b'.' && !seen_dot {
+                seen_dot = true;
+            } else {
+                return false;
+            }
+        }
+        return seen_digit;
+    }
     let folded = match fold_digits(tok) {
         Some(f) => f,
         None => return false,

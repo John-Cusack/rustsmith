@@ -25,8 +25,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple, PyType};
 
 use dateutil_core::parser::{
-    parse::parse_tokens, validate_default, DefaultInfo, Fail, Info, ParseOk, ParseOptions,
-    Timelex, TzOff,
+    parse::parse_tokens, validate_default, next_token, DefaultInfo, Fail, Info, LexCursor,
+    ParseOk, ParseOptions, Timelex, TzOff,
 };
 
 /// Pristine-table check: the fast path requires the exact `parserinfo`
@@ -1271,9 +1271,14 @@ impl Parser {
 /// Stateful lexer object (mirrors `_timelex`; the hot path uses
 /// [`Timelex`] directly, this preserves the deprecated private interface
 /// including `instream`/`charstack`/`tokenstack`/`eof` attributes).
+///
+/// Owns the single input `String` plus a lifetime-free [`LexCursor`]; tokens
+/// borrow `text` and are materialized to `String` only at this compat
+/// boundary.
 #[pyclass(name = "_timelex", subclass, dict, weakref, module = "dateutil._dateutil")]
 pub struct TimelexObj {
-    lx: Timelex,
+    text: String,
+    cursor: LexCursor,
     instream: PyObject,
 }
 
@@ -1287,7 +1292,8 @@ impl TimelexObj {
             let text: String = instream.extract()?;
             let sio = crate::util::stringio_cls(py)?.call1((text.clone(),))?;
             return Ok(TimelexObj {
-                lx: Timelex::new(&text),
+                text,
+                cursor: LexCursor::new(),
                 instream: sio.unbind(),
             });
         }
@@ -1295,14 +1301,16 @@ impl TimelexObj {
             let text: String = instream.call_method0("decode")?.extract()?;
             let sio = crate::util::stringio_cls(py)?.call1((text.clone(),))?;
             return Ok(TimelexObj {
-                lx: Timelex::new(&text),
+                text,
+                cursor: LexCursor::new(),
                 instream: sio.unbind(),
             });
         }
         if instream.hasattr("read")? {
             let text = normalize_input(py, &instream)?;
             return Ok(TimelexObj {
-                lx: Timelex::new(&text),
+                text,
+                cursor: LexCursor::new(),
                 instream: instream.unbind(),
             });
         }
@@ -1322,11 +1330,11 @@ impl TimelexObj {
     }
 
     fn get_token(&mut self) -> Option<String> {
-        self.lx.get_token()
+        next_token(&self.text, &mut self.cursor).map(|t| t.into_owned())
     }
 
     fn __next__(&mut self) -> Option<String> {
-        self.lx.get_token()
+        next_token(&self.text, &mut self.cursor).map(|t| t.into_owned())
     }
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -1334,12 +1342,16 @@ impl TimelexObj {
     }
 
     fn next(&mut self) -> Option<String> {
-        self.lx.get_token()
+        next_token(&self.text, &mut self.cursor).map(|t| t.into_owned())
     }
 
     #[classmethod]
     fn split(_cls: &Bound<'_, PyType>, py: Python<'_>, s: Bound<'_, PyAny>) -> PyResult<Vec<String>> {
-        Ok(Timelex::split(&normalize_input(py, &s)?))
+        let owned = normalize_input(py, &s)?;
+        Ok(Timelex::split(&owned)
+            .into_iter()
+            .map(|t| t.into_owned())
+            .collect())
     }
 
     #[classmethod]
@@ -1367,17 +1379,17 @@ impl TimelexObj {
 
     #[getter]
     fn charstack(&self) -> Vec<String> {
-        self.lx.charstack()
+        self.cursor.charstack(&self.text)
     }
 
     #[getter]
     fn tokenstack(&self) -> Vec<String> {
-        self.lx.tokenstack()
+        self.cursor.tokenstack(&self.text)
     }
 
     #[getter]
     fn eof(&self) -> bool {
-        self.lx.is_eof()
+        self.cursor.is_eof()
     }
 }
 
