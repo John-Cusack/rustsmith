@@ -46,6 +46,22 @@ fn lexer_dot_and_comma_runs() {
 }
 
 #[test]
+fn lexer_tokens_borrow_and_count() {
+    // Hot path borrows the input buffer; only the `,` fold materializes.
+    // `nchars` / `is_ascii` are the consumed counters `parse` relies on
+    // instead of `chars().count()`.
+    let toks = Timelex::split("On 2024 12,5 caf\u{e9}");
+    let strs: Vec<&str> = toks.iter().map(|t| t.as_str()).collect();
+    assert_eq!(strs, vec!["On", " ", "2024", " ", "12.5", " ", "caf\u{e9}"]);
+    assert_eq!(toks[2].nchars(), 4);
+    assert!(toks[2].is_ascii());
+    assert_eq!(toks[4].nchars(), 4);
+    assert!(toks[4].is_ascii());
+    assert_eq!(toks[6].nchars(), 4);
+    assert!(!toks[6].is_ascii());
+}
+
+#[test]
 fn lexer_skips_nuls_and_keeps_spaces() {
     assert_eq!(Timelex::split("a\x00b"), vec!["ab"]);
     assert_eq!(
@@ -286,11 +302,14 @@ fn resolve_month_name_forms() {
 #[test]
 fn fold_unicode_digits() {
     // `int()`/`float()` accept exactly `Nd`; `to_digit` is ASCII-only.
-    assert_eq!(fold_digits("2024"), Some("2024".to_string()));
-    assert_eq!(fold_digits("٢٣"), Some("23".to_string()));
-    assert_eq!(fold_digits("２０２４"), Some("2024".to_string()));
+    // ASCII borrows (folding is the identity); non-ASCII digits allocate.
+    let ascii = fold_digits("2024");
+    assert!(matches!(ascii, Some(std::borrow::Cow::Borrowed("2024"))));
+    assert_eq!(fold_digits("2024").as_deref(), Some("2024"));
+    assert_eq!(fold_digits("٢٣").as_deref(), Some("23"));
+    assert_eq!(fold_digits("２０２４").as_deref(), Some("2024"));
     assert_eq!(fold_digits("²"), None);
     assert_eq!(fold_digits("Ⅻ"), None);
     // ASCII passes through untouched (callers validate shape).
-    assert_eq!(fold_digits("12a"), Some("12a".to_string()));
+    assert_eq!(fold_digits("12a").as_deref(), Some("12a"));
 }

@@ -5,38 +5,74 @@
 use std::cmp::Ordering;
 
 use super::dec::Dec;
-use super::lex::{fold_digits, is_num, probe_float};
+use super::lex::{fold_digits, is_num, probe_float, Token};
 use super::ymd::{cmp_norm, Ymd};
 use super::{Fail, Info, ParseOk, ParseOptions, TzOff};
 
 fn token_is_digit(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(is_num)
+    // Byte scan on the ASCII fast path (`is_num` is `is_ascii_digit` there);
+    // non-ASCII keeps the exact `char` classes.
+    if s.is_ascii() {
+        !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+    } else {
+        !s.is_empty() && s.chars().all(is_num)
+    }
 }
 
-fn chars_of(s: &str) -> Vec<char> {
-    s.chars().collect()
-}
-
-fn slice_chars(s: &[char], from: usize, to: Option<usize>) -> String {
+/// Char-index slice of a folded digit string. The fold output is ASCII by
+/// construction (`Dec::parse` rejects anything else before any caller
+/// slices), so byte offsets are char offsets; the `debug_assert` pins that
+/// contract outside release builds.
+fn slice_folded(s: &str, from: usize, to: Option<usize>) -> &str {
+    debug_assert!(s.is_ascii());
     let end = to.unwrap_or(s.len());
-    s[from.min(s.len())..end.min(s.len())].iter().collect()
+    &s[from.min(s.len())..end.min(s.len())]
+}
+
+/// Char-index slice of a lexer token: byte offsets on the ASCII fast path
+/// (flagged by the lexer during its single pass), char walk otherwise.
+fn token_slice<'a>(tok: &'a Token<'_>, from: usize, to: Option<usize>) -> &'a str {
+    let s = tok.as_str();
+    if tok.is_ascii() {
+        let end = to.unwrap_or(s.len());
+        return &s[from.min(s.len())..end.min(s.len())];
+    }
+    let end = to.unwrap_or(usize::MAX);
+    let mut a = s.len();
+    let mut b = s.len();
+    for (i, (bi, _)) in s.char_indices().enumerate() {
+        if i == from {
+            a = bi;
+        }
+        if i == end {
+            b = bi;
+            break;
+        }
+    }
+    // Same clamping as the old `slice_chars`, including its out-of-range
+    // behavior on over-long indices.
+    let a = a.min(s.len());
+    let b = b.min(s.len());
+    &s[a..b]
 }
 
 fn all_upper(token: &str) -> bool {
-    !token.is_empty() && token.chars().all(|c| c.is_ascii_uppercase())
+    // Exact for all inputs: non-ASCII bytes are never ASCII-uppercase, so
+    // the byte scan agrees with the `char` scan on every string.
+    !token.is_empty() && token.bytes().all(|b| b.is_ascii_uppercase())
 }
 
 fn could_be_tzname(
     hour: &Option<String>,
     tzname: &Option<String>,
     tzoffset: &Option<TzOff>,
-    token: &str,
+    token: &Token<'_>,
     info: &dyn Info,
 ) -> bool {
     hour.is_some()
         && tzname.is_none()
         && tzoffset.is_none()
-        && token.chars().count() <= 5
+        && token.nchars() <= 5
         && (all_upper(token) || info.is_utc_abbr(token))
 }
 
@@ -110,7 +146,12 @@ fn parsems(value: &str) -> Result<(String, u32), Fail> {
     if !folded.bytes().all(|b| b.is_ascii_digit()) {
         return Err(Fail::NoResult);
     }
-    let mut digs = folded;
+    // Zero-pad/truncate to 6 digits; the exact-length case parses the borrow.
+    if folded.len() == 6 {
+        let micro: u32 = folded.parse().map_err(|_| Fail::NoResult)?;
+        return Ok((si, micro));
+    }
+    let mut digs = folded.into_owned();
     while digs.len() < 6 {
         digs.push('0');
     }
@@ -122,7 +163,7 @@ fn parsems(value: &str) -> Result<(String, u32), Fail> {
 /// `_find_hms_idx` + `_parse_hms` fused: label position and value, with a
 /// single `hms()` probe per candidate (the original probes twice; the
 /// tables are pure so this is unobservable).
-fn find_hms(idx: usize, tokens: &[String], info: &dyn Info) -> Option<(usize, i64)> {
+fn find_hms(idx: usize, tokens: &[Token<'_>], info: &dyn Info) -> Option<(usize, i64)> {
     let len_l = tokens.len();
     if idx + 1 < len_l {
         if let Some(h) = info.hms(&tokens[idx + 1]) {
@@ -168,7 +209,7 @@ fn assign_hms(res: &mut ParseOk, value_repr: &str, hms: i64) -> Result<(), Fail>
 
 #[allow(clippy::too_many_arguments)]
 fn parse_numeric_token(
-    tokens: &[String],
+    tokens: &[Token<'_>],
     idx: usize,
     info: &dyn Info,
     ymd: &mut Ymd,
@@ -178,9 +219,9 @@ fn parse_numeric_token(
     let value_repr = tokens[idx].clone();
     let folded = fold_digits(&value_repr).ok_or(Fail::NoResult)?;
     let value = Dec::parse(&folded).ok_or(Fail::NoResult)?;
-    let len_li = value_repr.chars().count();
+    // Consumed counter from the lexer: no `chars().count()` recount.
+    let len_li = tokens[idx].nchars();
     let len_l = tokens.len();
-    let fc: Vec<char> = folded.chars().collect();
 
     if ymd.len() == 3
         && (len_li == 2 || len_li == 4)
@@ -188,36 +229,36 @@ fn parse_numeric_token(
         && (idx + 1 >= len_l
             || (tokens[idx + 1] != ":" && info.hms(&tokens[idx + 1]).is_none()))
     {
-        res.hour = Some(slice_chars(&fc, 0, Some(2)));
+        res.hour = Some(slice_folded(&folded, 0, Some(2)).to_string());
         if len_li == 4 {
-            res.minute = Some(slice_chars(&fc, 2, None));
+            res.minute = Some(slice_folded(&folded, 2, None).to_string());
         }
         return Ok(idx);
     }
-    if len_li == 6 || (len_li > 6 && fc.iter().position(|&c| c == '.') == Some(6)) {
+    if len_li == 6 || (len_li > 6 && folded.bytes().position(|b| b == b'.') == Some(6)) {
         if ymd.is_empty() && !value_repr.contains('.') {
-            ymd.append_str(&slice_chars(&fc, 0, Some(2)), None)?;
-            ymd.append_str(&slice_chars(&fc, 2, Some(4)), None)?;
-            ymd.append_str(&slice_chars(&fc, 4, None), None)?;
+            ymd.append_str(slice_folded(&folded, 0, Some(2)), None)?;
+            ymd.append_str(slice_folded(&folded, 2, Some(4)), None)?;
+            ymd.append_str(slice_folded(&folded, 4, None), None)?;
         } else {
-            res.hour = Some(slice_chars(&fc, 0, Some(2)));
-            res.minute = Some(slice_chars(&fc, 2, Some(4)));
-            let (sec, micro) = parsems(&slice_chars(&fc, 4, None))?;
+            res.hour = Some(slice_folded(&folded, 0, Some(2)).to_string());
+            res.minute = Some(slice_folded(&folded, 2, Some(4)).to_string());
+            let (sec, micro) = parsems(slice_folded(&folded, 4, None))?;
             res.second = Some(sec);
             res.micro = Some(micro);
         }
         return Ok(idx);
     }
     if len_li == 8 || len_li == 12 || len_li == 14 {
-        ymd.append_str(&slice_chars(&fc, 0, Some(4)), Some('Y'))?;
-        ymd.append_str(&slice_chars(&fc, 4, Some(6)), None)?;
-        ymd.append_str(&slice_chars(&fc, 6, Some(8)), None)?;
+        ymd.append_str(slice_folded(&folded, 0, Some(4)), Some('Y'))?;
+        ymd.append_str(slice_folded(&folded, 4, Some(6)), None)?;
+        ymd.append_str(slice_folded(&folded, 6, Some(8)), None)?;
         if len_li > 8 {
-            res.hour = Some(slice_chars(&fc, 8, Some(10)));
-            res.minute = Some(slice_chars(&fc, 10, Some(12)));
+            res.hour = Some(slice_folded(&folded, 8, Some(10)).to_string());
+            res.minute = Some(slice_folded(&folded, 10, Some(12)).to_string());
             if len_li > 12 {
                 let s =
-                    super::dec::norm_int_str(&slice_chars(&fc, 12, None)).ok_or(Fail::NoResult)?;
+                    super::dec::norm_int_str(slice_folded(&folded, 12, None)).ok_or(Fail::NoResult)?;
                 res.second = Some(s);
             }
         }
@@ -318,7 +359,7 @@ fn tzoff_secs(signal: i64, h: i128, m: i128) -> Result<TzOff, Fail> {
 /// Mirrors `parser._parse` (unvalidated; the binding validates, so custom
 /// `parserinfo.validate` overrides can replace the default).
 pub fn parse_tokens(
-    tokens: &mut [String],
+    tokens: &mut [Token<'_>],
     info: &dyn Info,
     opt: &ParseOptions,
 ) -> Result<ParseOk, Fail> {
@@ -374,13 +415,13 @@ pub fn parse_tokens(
                 skipped_idxs.push(i);
             }
         } else if could_be_tzname(&res.hour, &res.tzname, &res.tzoffset, &tokens[i], info) {
-            res.tzname = Some(tokens[i].clone());
+            res.tzname = Some(tokens[i].as_str().to_owned());
             res.tzoffset = info.tzoffset(&tokens[i]);
             if i + 1 < len_l && (tokens[i + 1] == "+" || tokens[i + 1] == "-") {
                 tokens[i + 1] = if tokens[i + 1] == "+" {
-                    "-".to_string()
+                    Token::from_slice("-")
                 } else {
-                    "+".to_string()
+                    Token::from_slice("+")
                 };
                 res.tzoffset = None;
                 if info.utczone(res.tzname.as_deref().unwrap_or("")) {
@@ -390,11 +431,10 @@ pub fn parse_tokens(
         } else if res.hour.is_some() && (tokens[i] == "+" || tokens[i] == "-") {
             let signal = if tokens[i] == "+" { 1 } else { -1 };
             let nxt = tokens.get(i + 1).ok_or(Fail::NoResult)?.clone();
-            let len_li = nxt.chars().count();
+            let len_li = nxt.nchars();
             if len_li == 4 {
-                let nc = chars_of(&nxt);
-                let h = pint(&slice_chars(&nc, 0, Some(2)))?;
-                let m = pint(&slice_chars(&nc, 2, None))?;
+                let h = pint(token_slice(&nxt, 0, Some(2)))?;
+                let m = pint(token_slice(&nxt, 2, None))?;
                 res.tzoffset = Some(tzoff_secs(signal, h, m)?);
             } else if i + 2 < len_l && tokens[i + 2] == ":" {
                 let h = pint(&nxt)?;
@@ -402,8 +442,7 @@ pub fn parse_tokens(
                 res.tzoffset = Some(tzoff_secs(signal, h, m)?);
                 i += 2;
             } else if len_li <= 2 {
-                let nc = chars_of(&nxt);
-                let h = pint(&slice_chars(&nc, 0, Some(2)))?;
+                let h = pint(token_slice(&nxt, 0, Some(2)))?;
                 res.tzoffset = Some(tzoff_secs(signal, h, 0)?);
             } else {
                 return Err(Fail::NoResult);
@@ -413,10 +452,10 @@ pub fn parse_tokens(
                 && info.jump(tokens.get(i + 2).map(|s| s.as_str()).unwrap_or(""))
                 && tokens.get(i + 3).map(|s| s.as_str()).unwrap_or("") == "("
                 && tokens.get(i + 5).map(|s| s.as_str()).unwrap_or("") == ")"
-                && tz4.chars().count() >= 3
+                && tz4.nchars() >= 3
                 && could_be_tzname(&res.hour, &res.tzname, &None, &tz4, info)
             {
-                res.tzname = Some(tz4);
+                res.tzname = Some(tz4.into_owned());
                 i += 4;
             }
             i += 1;

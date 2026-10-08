@@ -38,7 +38,10 @@ pub mod ymd;
 pub mod isoparser;
 
 pub use dec::{norm_int_str, Dec};
-pub use lex::{fold_digits, is_num, is_space, is_word, lower_token, probe_float, Timelex};
+pub use lex::{
+    fold_digits, is_num, is_space, is_word, lower_token, next_token, probe_float, LexCursor,
+    Timelex, Token,
+};
 pub use tables::DefaultInfo;
 pub use ymd::{cmp_norm, Ymd, YmdTriple};
 
@@ -228,17 +231,18 @@ fn last_n_mod(s: &str, n: usize, m: u32) -> u32 {
     t.parse::<u32>().unwrap_or(1) % m
 }
 
-/// Mirrors `_recombine_skipped`.
-pub fn recombine_skipped(tokens: &[String], skipped_idxs: &[usize]) -> Vec<String> {
+/// Mirrors `_recombine_skipped`. Generic over `AsRef<str>` so both owned
+/// token vectors and borrowed lexer [`Token`] slices feed it.
+pub fn recombine_skipped(tokens: &[impl AsRef<str>], skipped_idxs: &[usize]) -> Vec<String> {
     let mut idxs = skipped_idxs.to_vec();
     idxs.sort_unstable();
     let mut out: Vec<String> = Vec::new();
     for (n, idx) in idxs.iter().enumerate() {
         if n > 0 && *idx == idxs[n - 1] + 1 {
             let last = out.len() - 1;
-            out[last].push_str(&tokens[*idx]);
+            out[last].push_str(tokens[*idx].as_ref());
         } else {
-            out.push(tokens[*idx].clone());
+            out.push(tokens[*idx].as_ref().to_string());
         }
     }
     out
