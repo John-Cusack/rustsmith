@@ -383,6 +383,111 @@ pub(crate) fn run_ctest_oracle(
     runner.grade(&runs).map_err(|e| e.to_string())
 }
 
+/// Scoped per-unit oracle (S6): run only the tests affected by `unit_rel`
+/// instead of the whole suite. Selection comes from
+/// `rustsmith_adapters::{ctest_enumerate, ctest_test_texts,
+/// affected_ctest_tests}` (subsystem/stem/`$` references over the worktree's
+/// own test files, enumerated from its just-configured build dir). The scoped
+/// command clones the frozen base (same program/flags/label/timeout/collect,
+/// plus `-R`) so `CtestRunner::grade` parses unchanged.
+///
+/// Startup-smoke gate (`matc` subsystem only): every solver run evaluates a
+/// MATC prelude at startup, so a fault that breaks definition-parsing fails
+/// the whole suite regardless of references. A failing smoke falls back to
+/// the full oracle (the whole suite IS the affected set then).
+///
+/// Returns the graded result, the affected names, and whether the run was
+/// actually scoped. An empty affected set, a missing/unrunnable smoke
+/// binary, or a failing smoke all fall back to the full oracle (never a
+/// vacuous pass, never a scoped grade on a broken startup path); the caller
+/// records which path graded.
+pub(crate) fn run_ctest_oracle_scoped(
+    tree: &Path,
+    build_dir: &Path,
+    manifest: &rustsmith_core::Manifest,
+    unit_rel: &str,
+) -> Result<(rustsmith_core::GradedResult, Vec<String>, bool), String> {
+    let cases = rustsmith_adapters::ctest_enumerate(build_dir, tree);
+    let texts = rustsmith_adapters::ctest_test_texts(tree, &cases);
+    let affected = rustsmith_adapters::affected_ctest_tests(&cases, &texts, unit_rel);
+    if affected.is_empty() {
+        let got = run_ctest_oracle(tree, build_dir, manifest)?;
+        return Ok((got, Vec::new(), false));
+    }
+    let subsystem = unit_rel.replace('\\', "/").split('/').next().unwrap_or("").to_string();
+    if subsystem == "matc" {
+        // Missing binary: the tree did not build; grade full honestly rather
+        // than scoping on an unbuilt startup path.
+        if !build_dir.join("matc/src/matc").is_file() {
+            let got = run_ctest_oracle(tree, build_dir, manifest)?;
+            return Ok((got, Vec::new(), false));
+        }
+        let smoke = rustsmith_adapters::matc_smoke_command(build_dir);
+        let runs =
+            execute_all(tree, build_dir, &[smoke]).map_err(|e| e.to_string())?;
+        if runs.len() != 1 || !rustsmith_adapters::matc_smoke_ok(&runs[0]) {
+            let got = run_ctest_oracle(tree, build_dir, manifest)?;
+            return Ok((got, Vec::new(), false));
+        }
+    }
+    let cx = BuildCtx { tree, build_dir, release: false };
+    let runner = CtestRunner;
+    let base: Vec<TestCommand> = if manifest.version == 2 && !manifest.invocation.is_empty() {
+        manifest.invocation.clone()
+    } else {
+        runner.invocation(&cx)
+    };
+    if base.len() != 1 {
+        // Unexpected shape (the ctest spine owns exactly one command): grade
+        // the full oracle rather than a wrongly-scoped subset.
+        let got = run_ctest_oracle(tree, build_dir, manifest)?;
+        return Ok((got, Vec::new(), false));
+    }
+    let scoped = rustsmith_adapters::scoped_ctest_command(&base[0], &affected);
+    let runs = execute_all(tree, build_dir, &[scoped]).map_err(|e| e.to_string())?;
+    let got = runner.grade(&runs).map_err(|e| e.to_string())?;
+    Ok((got, affected, true))
+}
+
+/// Hash-only integrity for scoped per-unit grades: the manifest file-hash and
+/// missing-file checks from `gates::oracle_integrity`, without the
+/// full-count comparison (a subset never totals the frozen baseline by
+/// construction, so the count check would fail every scoped grade). Count
+/// honesty is unchanged: the full `oracle_integrity` still runs at
+/// whole-repo grade, and any scoped parity failure confirms against the full
+/// suite before failing the unit (see the grade arm below).
+pub(crate) fn scoped_integrity(
+    manifest: &rustsmith_core::Manifest,
+    tree_hashes: &[rustsmith_core::FileHash],
+) -> rustsmith_gates::GateVerdict {
+    let mut want: HashMap<&str, &str> = HashMap::new();
+    for f in &manifest.files {
+        want.insert(f.path.as_str(), f.sha256.as_str());
+    }
+    for h in tree_hashes {
+        if let Some(expected) = want.get(h.path.as_str()) {
+            if *expected != h.sha256.as_str() {
+                return rustsmith_gates::GateVerdict {
+                    passed: false,
+                    detail: serde_json::json!({"reason":"hash_mismatch","path":h.path.as_str(),"expected":expected,"got":h.sha256,"scoped":true}),
+                };
+            }
+        }
+    }
+    for f in &manifest.files {
+        if !tree_hashes.iter().any(|h| h.path == f.path) {
+            return rustsmith_gates::GateVerdict {
+                passed: false,
+                detail: serde_json::json!({"reason":"missing_file","path":f.path.as_str(),"scoped":true}),
+            };
+        }
+    }
+    rustsmith_gates::GateVerdict {
+        passed: true,
+        detail: serde_json::json!({"reason":"ok","scoped":true,"test_count":null}),
+    }
+}
+
 /// Held-out rate through `ctest -R`: the runner's held-out shape run in the
 /// build dir, parsed by the runner grade. An empty held-out set matches no
 /// tests and fails honestly here (never a silent pass).
@@ -1227,11 +1332,66 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
             if runs.iter().any(|r| r.exit_code != 0) {
                 return Err(format!("substitute failed for unit {id}:\n{log}"));
             }
-            let got = run_ctest_oracle(wt_path, &build_dir, &manifest)?;
-            let runner = CtestRunner;
-            let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
-            let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
-            let parity = gates::oracle_parity(&got);
+            // Scoped per-unit oracle (S6): grade only the affected tests.
+            // Fail-safe direction: a scoped pass carries the unit, but a
+            // scoped failure confirms against the FULL suite before failing
+            // it (scoped can only fast-pass, never fast-fail). The full
+            // `oracle_integrity` still runs at whole-repo grade.
+            let (got, integrity, parity, scoped_meta) = {
+                let (scoped_got, affected, was_scoped) =
+                    run_ctest_oracle_scoped(wt_path, &build_dir, &manifest, &orig_rel)?;
+                let runner = CtestRunner;
+                let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
+                let scoped_parity = gates::oracle_parity(&scoped_got);
+                if was_scoped && !scoped_parity.passed {
+                    // Confirm: full suite decides (record both verdicts).
+                    let full_got = run_ctest_oracle(wt_path, &build_dir, &manifest)?;
+                    let full_hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
+                    let full_integrity = gates::oracle_integrity(
+                        &manifest,
+                        &full_hashes,
+                        &manifest.baseline,
+                        &full_got,
+                    );
+                    let full_parity = gates::oracle_parity(&full_got);
+                    let meta = serde_json::json!({
+                        "scoped": true,
+                        "affected": affected.len(),
+                        "scoped_passed": false,
+                        "confirmed_full": true,
+                        "full_passed": full_parity.passed,
+                    });
+                    (full_got, full_integrity, full_parity, meta)
+                } else {
+                    let meta = serde_json::json!({
+                        "scoped": was_scoped,
+                        "affected": affected.len(),
+                        "confirmed_full": false,
+                    });
+                    if was_scoped {
+                        let scoped_integrity_v = scoped_integrity(&manifest, &hashes);
+                        (scoped_got, scoped_integrity_v, scoped_parity, meta)
+                    } else {
+                        // Empty affected set: graded the full oracle above.
+                        let full_integrity = gates::oracle_integrity(
+                            &manifest,
+                            &hashes,
+                            &manifest.baseline,
+                            &scoped_got,
+                        );
+                        (scoped_got, full_integrity, scoped_parity, meta)
+                    }
+                }
+            };
+            // Scoped evidence rides on the recorded gate detail (same gates,
+            // subset evidence); the whole-repo grade records unscoped verdicts.
+            let mut integrity = integrity;
+            let mut parity = parity;
+            for v in [&mut integrity, &mut parity] {
+                for (k, val) in scoped_meta.as_object().cloned().unwrap_or_default() {
+                    v.detail[k] = val;
+                }
+            }
             let rate = rate_of(&got);
             // Divergence alone never carries the unit: the gate check below
             // conjoins parity (zero visible failures, exit 0).
@@ -2171,6 +2331,44 @@ mod tests {
         assert!(parse_heldout_rate("0 passed, 0 failed\n").is_err());
         assert_eq!(parse_heldout_rate("3 passed in 0.1s\n").unwrap(), 1.0);
         assert_eq!(parse_heldout_rate("2 passed, 1 failed in 0.1s\n").unwrap(), 2.0 / 3.0);
+    }
+
+    #[test]
+    fn scoped_integrity_checks_hashes_without_full_count() {
+        // Scoped grades never total the frozen baseline by construction, so
+        // the scoped integrity is hash-only: matching hashes pass (no count
+        // comparison), a tampered file fails, a missing file fails.
+        use rustsmith_core::{Baseline, FileHash, Manifest};
+        let manifest = Manifest {
+            version: 2,
+            runner: "ctest".to_string(),
+            languages: vec!["c".to_string()],
+            prepare: vec![],
+            invocation: vec![],
+            config_hash: "cfg".to_string(),
+            observables: vec![],
+            files: vec![FileHash {
+                path: "fem/tests/X/case.sif".into(),
+                sha256: "abc".to_string(),
+            }],
+            baseline: Baseline {
+                test_count: 482,
+                skipped: vec![],
+                xfailed: vec![],
+                deselected: vec![],
+            },
+        };
+        let good = vec![FileHash { path: "fem/tests/X/case.sif".into(), sha256: "abc".to_string() }];
+        let v = scoped_integrity(&manifest, &good);
+        assert!(v.passed, "matching hashes pass scoped integrity: {}", v.detail);
+        assert_eq!(v.detail["scoped"], serde_json::json!(true));
+        let bad = vec![FileHash { path: "fem/tests/X/case.sif".into(), sha256: "tampered".to_string() }];
+        let v = scoped_integrity(&manifest, &bad);
+        assert!(!v.passed);
+        assert_eq!(v.detail["reason"], serde_json::json!("hash_mismatch"));
+        let v = scoped_integrity(&manifest, &[]);
+        assert!(!v.passed);
+        assert_eq!(v.detail["reason"], serde_json::json!("missing_file"));
     }
 
     #[test]
