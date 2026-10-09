@@ -81,8 +81,29 @@ pub(crate) fn in_scope(rel: &str, prefixes: Option<&[String]>) -> bool {
     }
 }
 
-/// Skip reason for `id`, if any. `out_of_scope` (frozen vendored/coverage
-/// marks) wins over `outside_scope` (prefix filter) when both apply.
+/// T001 vendored link targets (Elmer campaign FR-001): bundled third-party
+/// numerics the frozen recon does NOT mark `out_of_scope` (recon's vendored
+/// segments are `contrib/` et al.; see `unit_vendored`), so the scheduler
+/// skips them here without touching the recon frozen shape. Frozen inventory
+/// counts (IMPLEMENTATION_ELMER.md §1): `mathlibs/` 1587 + `umfpack/` 193.
+/// These units link; they are never ported.
+pub(crate) const VENDORED_LINK_PREFIXES: &[&str] = &["mathlibs", "umfpack"];
+
+/// True when `id` lives under a vendored link-target prefix (repo-rel
+/// directory-prefix match, same boundary rule as [`in_scope`]).
+pub(crate) fn is_vendored_link_target(id: &str) -> bool {
+    let rel = crate::units::unit_rel(id);
+    VENDORED_LINK_PREFIXES
+        .iter()
+        .any(|p| rel == *p || rel.starts_with(&format!("{p}/")))
+}
+
+/// Skip reason for `id`, if any. Precedence: frozen `out_of_scope`
+/// (vendored/coverage marks) wins over the `outside_scope` prefix filter,
+/// which wins over the `link_target` vendored exclusion — so a scoped slice
+/// (e.g. `RUSTSMITH_SCOPE=matc`) still reports link-target units under its
+/// prefix as `outside_scope`, while whole-tree runs skip them as
+/// `link_target` (link, don't port).
 fn skip_reason(
     id: &str,
     out_of_scope: &HashSet<String>,
@@ -93,6 +114,9 @@ fn skip_reason(
     }
     if !in_scope(crate::units::unit_rel(id), prefixes) {
         return Some("outside_scope");
+    }
+    if is_vendored_link_target(id) {
+        return Some("link_target");
     }
     None
 }
@@ -1036,9 +1060,11 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         }
     }
     // S1 scope-skip: frozen `out_of_scope` (vendored/coverage marks) plus the
-    // `RUSTSMITH_SCOPE` prefix allowlist (empty/unset = whole tree). Headers
-    // and helpers skip standalone here (link, don't port); header-follower
-    // attachment is a later track (see IMPLEMENTATION_ELMER.md S1).
+    // `RUSTSMITH_SCOPE` prefix allowlist (empty/unset = whole tree), plus the
+    // T001 vendored link-target exclusion (`mathlibs/`, `umfpack/`; recon
+    // frozen shape untouched). Headers and helpers skip standalone here
+    // (link, don't port); header-follower attachment is a later track
+    // (see IMPLEMENTATION_ELMER.md S1).
     let oos = out_of_scope_set(&dag_json);
     let scope = scope_prefixes();
     // Scheduler works over this DAG: leaf-first order, ready = deps passed.
@@ -1152,8 +1178,9 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     let _ = MAX_PARALLEL;
     for u in &unit_dag.units {
         let id = &u.id;
-        // S1 scope-skip: out_of_scope / outside_scope units record `skipped`
-        // with a reason event and never grade or merge.
+        // S1 scope-skip (+ T001 link targets): out_of_scope / outside_scope /
+        // link_target units record `skipped` with a reason event and never
+        // grade or merge.
         if let Some(reason) = skip_reason(id, &oos, scope.as_deref()) {
             store.set_unit_status(id, "skipped").map_err(|e| e.to_string())?;
             ev(store, run_id, "unit_skip", serde_json::json!({"unit": id, "reason": reason}));
@@ -2223,6 +2250,103 @@ mod tests {
         assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), s), None);
         // Whole tree, not frozen -> scheduled.
         assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), None), None);
+    }
+
+    #[test]
+    fn t001_vendored_link_targets_skip_whole_tree() {
+        // 2-unit fixture proof: one `mathlibs/` + one `umfpack/` unit, no
+        // scope filter, nothing frozen — both skip as link targets while a
+        // neighbouring `fem/` unit still schedules.
+        let empty = HashSet::new();
+        assert!(is_vendored_link_target("fortran:mathlibs/src/dlapack.F90"));
+        assert!(is_vendored_link_target("c:umfpack/src/umf_lu.c"));
+        assert!(!is_vendored_link_target("fortran:fem/src/x.F90"));
+        assert!(!is_vendored_link_target("c:matc/src/main.c"));
+        // Directory boundary: `mathlibs_extra/` is not vendored.
+        assert!(!is_vendored_link_target("c:mathlibs_extra/src/a.c"));
+        assert_eq!(
+            skip_reason("fortran:mathlibs/src/dlapack.F90", &empty, None),
+            Some("link_target")
+        );
+        assert_eq!(
+            skip_reason("c:umfpack/src/umf_lu.c", &empty, None),
+            Some("link_target")
+        );
+        assert_eq!(skip_reason("fortran:fem/src/x.F90", &empty, None), None);
+    }
+
+    #[test]
+    fn t001_vendored_precedence_frozen_then_prefix() {
+        // Frozen `out_of_scope` wins over the vendored exclusion; the prefix
+        // filter (`outside_scope`) wins over it in turn, so scoped slices
+        // keep reporting link-target units as `outside_scope`.
+        let frozen: HashSet<String> =
+            ["fortran:mathlibs/src/dlapack.F90".to_string()].into_iter().collect();
+        assert_eq!(
+            skip_reason("fortran:mathlibs/src/dlapack.F90", &frozen, None),
+            Some("out_of_scope")
+        );
+        let matc = scope_prefixes_from("matc");
+        assert_eq!(
+            skip_reason("fortran:mathlibs/src/dlapack.F90", &HashSet::new(), matc.as_deref()),
+            Some("outside_scope")
+        );
+        assert_eq!(
+            skip_reason("c:umfpack/src/umf_lu.c", &HashSet::new(), matc.as_deref()),
+            Some("outside_scope")
+        );
+    }
+
+    #[test]
+    fn t001_matc_static_partition_expectation() {
+        // Static acceptance on a synthetic 3025-unit Elmer inventory with the
+        // frozen counts (matc 26, frozen `out_of_scope` 61, `mathlibs/` 1587,
+        // `umfpack/` 193, other 1158): `RUSTSMITH_SCOPE=matc` partitions as
+        // 26 scheduled / 61 `out_of_scope` / 2938 `outside_scope`, and the
+        // whole tree as 1184 scheduled / 61 `out_of_scope` / 1780
+        // `link_target` (port scope ≈1184).
+        let mut ids: Vec<String> = Vec::with_capacity(3025);
+        for i in 0..26 {
+            ids.push(format!("c:matc/src/m{i}.c"));
+        }
+        let mut frozen: HashSet<String> = HashSet::new();
+        for i in 0..61 {
+            let id = format!("fortran:contrib/v{i}.F90");
+            frozen.insert(id.clone());
+            ids.push(id);
+        }
+        for i in 0..1587 {
+            ids.push(format!("fortran:mathlibs/src/l{i}.F90"));
+        }
+        for i in 0..193 {
+            ids.push(format!("c:umfpack/src/u{i}.c"));
+        }
+        for i in 0..1158 {
+            ids.push(format!("fortran:fem/src/f{i}.F90"));
+        }
+        assert_eq!(ids.len(), 3025);
+        let matc = scope_prefixes_from("matc");
+        let (mut scheduled, mut oos, mut outside, mut link) = (0, 0, 0, 0);
+        for id in &ids {
+            match skip_reason(id, &frozen, matc.as_deref()) {
+                None => scheduled += 1,
+                Some("out_of_scope") => oos += 1,
+                Some("outside_scope") => outside += 1,
+                Some("link_target") => link += 1,
+                Some(other) => panic!("unexpected skip reason {other} for {id}"),
+            }
+        }
+        assert_eq!((scheduled, oos, outside, link), (26, 61, 2938, 0));
+        let (mut scheduled, mut oos, mut link) = (0, 0, 0);
+        for id in &ids {
+            match skip_reason(id, &frozen, None) {
+                None => scheduled += 1,
+                Some("out_of_scope") => oos += 1,
+                Some("link_target") => link += 1,
+                Some(other) => panic!("unexpected whole-tree reason {other} for {id}"),
+            }
+        }
+        assert_eq!((scheduled, oos, link), (1184, 61, 1780));
     }
 
     #[test]
