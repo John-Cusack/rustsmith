@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/John-Cusack/charset-normalizer-rust"
+Homepage = "https://github.com/John-Cusack/charset_normalizer-rust"
 Upstream = "https://github.com/Ousret/charset_normalizer"
 
 [tool.maturin]

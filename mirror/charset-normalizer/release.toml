@@ -34,7 +34,7 @@ platforms = ["ubuntu-22.04", "macos-14", "windows-2022"]
 # Publishing repository and workflow identity (trusted publishing, no tokens).
 # The repo below is the publishing home for the converted project: create it,
 # push the prepared tree, then register the trusted publishers.
-github_repo = "John-Cusack/charset-normalizer-rust"
+github_repo = "John-Cusack/charset_normalizer-rust"
 release_workflow = ".github/workflows/release.yml"
 pypi_environment = "pypi"
 testpypi_environment = "testpypi"
