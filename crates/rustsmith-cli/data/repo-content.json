@@ -2101,9 +2101,9 @@
       "porting_rules": [
         {
           "title": "non-BIND(C) module procedures port whole-file behind an ABI shim",
-          "original": "Original (Fortran): MODULE procedures such as huti_dcgsolv in huti_cg.F90 carry no BIND(C), so names are gfortran-mangled with underscore suffixes",
+          "original": "Original (Fortran): MODULE procedures such as huti_dcgsolv in huti_cg.F90 carry no BIND(C), so each name is gfortran-mangled to the __<mod>_MOD_<proc> form in all lowercase (a trailing underscore is F77 globals only)",
           "rust": "Rust: port whole files at once and re-export the original linkage names from the shim; per-procedure substitution stays refused",
-          "example": "Example: huti_dcgsolv in huti_cg.F90 becomes a whole-file port exposing #[export_name = \"huti_dcgsolv_\"] with gfortran mangling."
+          "example": "Example: huti_dcgsolv in huti_cg.F90 (MODULE huti_cg) becomes a whole-file port exposing #[export_name = \"__huti_cg_MOD_huti_dcgsolv\"] with gfortran mangling."
         },
         {
           "title": "explicit-shape workspace dummies become sized slices",
