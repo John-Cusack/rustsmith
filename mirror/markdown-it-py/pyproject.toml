@@ -3,7 +3,7 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "markdown-it-rust"
+name = "markdown-it-py-rust"
 version = "4.2.0"
 description = "Markdown parsing, done right! (rustsmith Stage-1 Rust mirror of executablebooks/markdown-it-py)"
 authors = [{ name = "Chris Sewell" }]
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/John-Cusack/markdown-it-rust"
+Homepage = "https://github.com/John-Cusack/markdown_it-rust"
 Upstream = "https://github.com/executablebooks/markdown-it-py"
 
 [project.scripts]

@@ -1,4 +1,4 @@
-# markdown-it-rust (Rust mirror of executablebooks/markdown-it-py)
+# markdown-it-py-rust (Rust mirror of executablebooks/markdown-it-py)
 
 Stage-1 Rust mirror of
 [`executablebooks/markdown-it-py`](https://github.com/executablebooks/markdown-it-py)
@@ -14,10 +14,10 @@ One implementation, two distributions:
 - `markdown-it-core/` — reusable pure-Rust core crate
   `markdown-it-rust-core` (crates.io). No Python dependency: `rlib`,
   `cargo test` clean. Rust consumers depend on this crate directly.
-- `src/` — thin PyO3 binding crate `markdown-it-rust` calling that same
-  core. Ships on PyPI as distribution **`markdown-it-rust`**; the import
+- `src/` — thin PyO3 binding crate `markdown-it-py-rust` calling that same
+  core. Ships on PyPI as distribution **`markdown-it-py-rust`**; the import
   name is unchanged (`import markdown_it`), so users swap the install with
-  zero code changes: `pip install markdown-it-rust` instead of `pip install
+  zero code changes: `pip install markdown-it-py-rust` instead of `pip install
   markdown-it-py`.
 - `markdown_it/` — Python shims (one per original module; `tree.py`,
   `cli/`, `presets/`, and `utils.read_fixture_file` stay verbatim Python).
@@ -42,7 +42,7 @@ the original behavior exactly through the `Host` trait):
 ## Install
 
 ```sh
-pip install markdown-it-rust
+pip install markdown-it-py-rust
 ```
 
 ```python

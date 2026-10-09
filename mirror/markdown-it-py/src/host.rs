@@ -4,7 +4,7 @@
 //! so ruler mutations stay live), the Python-callable registry (rule
 //! functions keyed by registration id, render overrides cached by object
 //! identity), the shared `linkify`/`highlight` cells, the shared `rules`
-//! dict, and the cached `mdurl` module. No back-pointer to `MarkdownIt`:
+//! dict, and the lazily-imported `mdurl` module. No back-pointer to `MarkdownIt`:
 //! no reference cycle.
 //!
 //! `Host` is implemented on `Rc<PyHost>` (a local trait on a composed type
@@ -36,7 +36,7 @@ pub struct PyHost {
     pub(crate) linkify: Rc<RefCell<Option<Py<PyAny>>>>,
     pub(crate) rules_dict: Py<PyDict>,
     pub(crate) highlight: Rc<RefCell<Option<Py<PyAny>>>>,
-    pub(crate) mdurl: Py<PyModule>,
+    pub(crate) mdurl: RefCell<Option<Py<PyModule>>>,
     pub(crate) current_md: RefCell<Option<Py<PyAny>>>,
 }
 
@@ -55,14 +55,17 @@ impl PyHost {
     }
 
     pub fn new(
-        py: Python,
+        _py: Python,
         block: Rc<RefCell<markdown_it_rust_core::rules_block::ParserBlock>>,
         inline: Rc<RefCell<markdown_it_rust_core::rules_inline::ParserInline>>,
         linkify: Rc<RefCell<Option<Py<PyAny>>>>,
         rules_dict: Py<PyDict>,
         highlight: Rc<RefCell<Option<Py<PyAny>>>>,
     ) -> PyResult<Rc<Self>> {
-        let mdurl = py.import("mdurl")?;
+        // `mdurl` is imported on first link-normalize use, not here:
+        // construction must succeed where the declared dependency is not
+        // installed (the release battery installs the wheel `--no-deps`).
+        // Real installs always carry it (pip installs `dependencies`).
         Ok(Rc::new(Self {
             block,
             inline,
@@ -72,9 +75,24 @@ impl PyHost {
             linkify,
             rules_dict,
             highlight,
-            mdurl: mdurl.unbind(),
+            mdurl: RefCell::new(None),
             current_md: RefCell::new(None),
         }))
+    }
+
+    /// `mdurl`, imported on first use and cached. Panics with a clear
+    /// message when the declared dependency is missing (link normalization
+    /// is the only path that reaches here).
+    fn mdurl(&self, py: Python) -> Py<PyModule> {
+        if let Some(m) = self.mdurl.borrow().as_ref() {
+            return m.clone_ref(py);
+        }
+        let m: Py<PyModule> = py
+            .import("mdurl")
+            .expect("markdown-it-py-rust requires the 'mdurl' package (a declared dependency) for link normalization")
+            .unbind();
+        *self.mdurl.borrow_mut() = Some(m.clone_ref(py));
+        m
     }
 
     /// Register a Python callable, returning its core id.
@@ -313,11 +331,17 @@ impl Host for HostHandle {
     }
 
     fn normalize_link(&self, url: &str) -> String {
-        Python::with_gil(|py| normalize_link_py(py, &self.0.mdurl, url, false))
+        Python::with_gil(|py| {
+            let mdurl = self.0.mdurl(py);
+            normalize_link_py(py, &mdurl, url, false)
+        })
     }
 
     fn normalize_link_text(&self, url: &str) -> String {
-        Python::with_gil(|py| normalize_link_py(py, &self.0.mdurl, url, true))
+        Python::with_gil(|py| {
+            let mdurl = self.0.mdurl(py);
+            normalize_link_py(py, &mdurl, url, true)
+        })
     }
 
     fn validate_link(&self, url: &str, validator: Option<u64>) -> bool {

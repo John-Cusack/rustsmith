@@ -162,16 +162,16 @@ fn make_fence_rule(
 /// `normalizeLink` as a module function (mirror of
 /// `markdown_it/common/normalize_url.py`).
 #[pyfunction]
-fn normalizeLink(py: Python, url: &str) -> String {
-    let mdurl = py.import("mdurl").unwrap();
-    crate::host_convert::normalize_link_py(py, &mdurl.unbind(), url, false)
+fn normalizeLink(py: Python, url: &str) -> PyResult<String> {
+    let mdurl = py.import("mdurl")?;
+    Ok(crate::host_convert::normalize_link_py(py, &mdurl.unbind(), url, false))
 }
 
 /// `normalizeLinkText` as a module function.
 #[pyfunction]
-fn normalizeLinkText(py: Python, url: &str) -> String {
-    let mdurl = py.import("mdurl").unwrap();
-    crate::host_convert::normalize_link_py(py, &mdurl.unbind(), url, true)
+fn normalizeLinkText(py: Python, url: &str) -> PyResult<String> {
+    let mdurl = py.import("mdurl")?;
+    Ok(crate::host_convert::normalize_link_py(py, &mdurl.unbind(), url, true))
 }
 
 /// `validateLink` as a module function.

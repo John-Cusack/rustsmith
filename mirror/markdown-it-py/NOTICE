@@ -1,5 +1,5 @@
-markdown-it-rust: Rust mirror of executablebooks/markdown-it-py
-==============================================================
+markdown-it-py-rust: Rust mirror of executablebooks/markdown-it-py
+==================================================================
 
 This directory holds the rustsmith Stage-1 mirror of
 https://github.com/executablebooks/markdown-it-py (Markdown parsing,
@@ -14,7 +14,7 @@ done right! Python port of markdown-it).
   (PSF license).
 * This port: behavior-identical, same public API (`markdown_it` package,
   `markdown_it._markdown_it` extension module plus thin `markdown_it/*.py`
-  shims), published as the `markdown-it-rust` distribution on PyPI (import
+  shims), published as the `markdown-it-py-rust` distribution on PyPI (import
   name unchanged: `import markdown_it`) with reusable core crate
   `markdown-it-rust-core` on crates.io. Snapshot of upstream 4.2.0 at port
   time (crate/dist version 4.2.0).

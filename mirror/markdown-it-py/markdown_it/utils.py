@@ -10,9 +10,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from typing_extensions import NotRequired
+# `typing_extensions` is a declared dependency (installed by pip), but it is
+# only needed for static annotations here (`from __future__ import
+# annotations` keeps them unevaluated), so import it lazily: the release
+# battery installs the wheel `--no-deps` and the package must import bare.
+if TYPE_CHECKING:
+    from typing_extensions import NotRequired
 
 from markdown_it._markdown_it import OptionsDict
 
