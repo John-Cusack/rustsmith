@@ -46,7 +46,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 
 **Purpose**: shim proof before any non-`BIND(C)` relaxation
 
-- [ ] T003 [US4] Build `tests/fixtures/fortran_shim/` proof (orig Fortran + reference outputs, Rust ports): explicit-shape add + assumed-shape sum + F77 assumed-size scale grade to divergence 0; raw-pointer-into-assumed-shape MUST diverge; zeroed-dtype descriptor MUST fail fast; COMMON unit MUST pin the `check_substitutable` refusal message. Acceptance: all four observed on the grade image's gfortran, `gfortran --version` pinned. Non-goal: any gate relaxation.
+- [ ] T003 [US4] [claimed fm/rs-elmer-c3] Build `tests/fixtures/fortran_shim/` proof (orig Fortran + reference outputs, Rust ports): explicit-shape add + assumed-shape sum + F77 assumed-size scale grade to divergence 0; raw-pointer-into-assumed-shape MUST diverge; zeroed-dtype descriptor MUST fail fast; COMMON unit MUST pin the `check_substitutable` refusal message. Acceptance: all four observed on the grade image's gfortran, `gfortran --version` pinned. Non-goal: any gate relaxation.
 - [ ] T004 [P] [US4] Fix the `fhutiter` porting-rule mangling example in `crates/rustsmith-cli/data/repo-content.json` (module procedure → `__mod_MOD_proc` form; trailing underscore is F77 globals only). Acceptance: rule text matches ADR-027 §1 table; no code touched.
 
 **Checkpoint**: shim proven callable; gate still refuses (no relaxation in this phase).
