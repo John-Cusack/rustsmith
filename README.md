@@ -231,7 +231,7 @@ Every merged port below passed its graded run at 100% oracle parity (frozen upst
 | strsimpy | [luozhouyang/python-string-similarity](https://github.com/luozhouyang/python-string-similarity) | oracle 18/18, heldout 16/16 | not benchmarked | [strsimpy-rust (TestPyPI)](https://test.pypi.org/project/strsimpy-rust/0.2.1/) · [mirror](https://github.com/John-Cusack/strsimpy-rust) |
 | markdown-it-py | [executablebooks/markdown-it-py](https://github.com/executablebooks/markdown-it-py) | oracle 1031 passed / 0 failed / 1 env-skip of 1032; heldout 16/18 (2 env-skips) | not benchmarked | — |
 | multipart | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) | oracle 162/162, heldout 55/55 | not benchmarked | — |
-| pyparsing | [pyparsing/pyparsing](https://github.com/pyparsing/pyparsing) | oracle 2104/2104, heldout 41/41 + 9 pins | not benchmarked | — |
+| pyparsing | [pyparsing/pyparsing](https://github.com/pyparsing/pyparsing) | oracle 2104/2104, heldout 41/41 + 9 pins | not benchmarked | [pyparsing-rust (TestPyPI)](https://test.pypi.org/project/pyparsing-rust/3.3.3/) · [mirror](https://github.com/John-Cusack/pyparsing-rust) |
 
 ## Status and docs
 
