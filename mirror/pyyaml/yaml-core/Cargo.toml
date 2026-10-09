@@ -1,0 +1,12 @@
+[package]
+name = "yaml-rust-core"
+version = "6.0.2"
+edition = "2021"
+description = "Pure-Rust YAML 1.1 scan/parse/emit engine (rustsmith Stage-1 mirror of yaml/pyyaml); no Python dependency"
+license = "MIT"
+repository = "https://github.com/John-Cusack/yaml-rust"
+homepage = "https://github.com/yaml/pyyaml"
+
+[lib]
+name = "yaml_rust_core"
+crate-type = ["rlib"]
