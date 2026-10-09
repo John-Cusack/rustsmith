@@ -4,7 +4,7 @@ version = "0.0.32"
 edition = "2021"
 description = "Pure-Rust multipart/querystring parsing core (rustsmith Stage-1 mirror of Kludex/python-multipart); no Python dependency"
 license = "Apache-2.0"
-repository = "https://github.com/John-Cusack/python-multipart-rust"
+repository = "https://github.com/John-Cusack/python_multipart-rust"
 homepage = "https://github.com/Kludex/python-multipart"
 
 [lib]

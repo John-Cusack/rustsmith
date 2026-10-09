@@ -9,9 +9,13 @@
 
 [release]
 schema = 1
-# Original package identity (matches `template.json` `package` and recon facts).
-project = "python-multipart"
-# Rust core crate published to crates.io (`multipart-core/Cargo.toml [package] name`).
+# Original package identity. NOTE: this is `python_multipart`, not
+# `python-multipart`: `validate_names` requires `project` to be a Python
+# module name (no hyphen) and to equal `python_import`, and the core dir
+# derives as `{project}-core` (= `python_multipart-core`, which exists).
+# The lane-canonical repo is therefore `John-Cusack/python_multipart-rust`.
+project = "python_multipart"
+# Rust core crate published to crates.io (`python_multipart-core/Cargo.toml [package] name`).
 rust_crate = "multipart-rust-core"
 # Python distribution published to PyPI (`pyproject.toml [project] name`).
 # MUST differ from `project`: the original name stays with upstream.
@@ -22,7 +26,7 @@ pypi_dist = "python-multipart-rust"
 # ships alongside, as upstream).
 python_import = "python_multipart"
 # Release version. MUST equal `[package] version` in `Cargo.toml`,
-# `multipart-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
+# `python_multipart-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
 # Snapshot of upstream 0.0.32 at port time.
 version = "0.0.32"
 # Supported Python versions (workflow matrix) and the matching floor.
@@ -34,7 +38,7 @@ platforms = ["ubuntu-22.04", "macos-14", "windows-2022"]
 # Publishing repository and workflow identity (trusted publishing, no tokens).
 # The repo below is the publishing home for the converted project: create it,
 # push the prepared tree, then register the trusted publishers.
-github_repo = "John-Cusack/python-multipart-rust"
+github_repo = "John-Cusack/python_multipart-rust"
 release_workflow = ".github/workflows/release.yml"
 pypi_environment = "pypi"
 testpypi_environment = "testpypi"
