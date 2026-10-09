@@ -300,6 +300,45 @@ pub fn unsafe_budget(sites: &[UnsafeSite], budget_pct: f64, total_files: usize) 
     }
     verdict(true, json!({"count":count,"allowed":allowed}))
 }
+/// Sorted names of failed or timed-out tests in a graded result (the
+/// backstop-exactness check consumes this; see `parity_with_known_failures`).
+pub fn failed_names(got: &GradedResult) -> Vec<String> {
+    let mut out: Vec<String> = got
+        .outcomes
+        .iter()
+        .filter(|(_, o)| matches!(o, Outcome::Fail | Outcome::Timeout))
+        .map(|(n, _)| n.clone())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+/// Parity with campaign-known upstream failures tolerated (Elmer decision A,
+/// T002 baseline): passes when every failed (or timed-out) test name is in
+/// `known` — the port introduces zero regressions beyond K. The ctest
+/// nonzero exit that accompanies test failures is waived on the same
+/// condition (the suite ran; its verdict is what matters). An empty run
+/// (no passed/failed counts) never passes, and any failure outside `known`
+/// fails with its names recorded. With empty `known` this is exactly
+/// [`oracle_parity`] (strict). Callers needing the release-backstop rule
+/// (failures EXACTLY K, T002) assert the failed set equals `known`
+/// themselves; subset tolerance is the per-unit rule (scoped affected sets
+/// are subsets by construction).
+pub fn parity_with_known_failures(got: &GradedResult, known: &[&str]) -> GateVerdict {
+    if got.passed + got.failed == 0 {
+        return verdict(false, json!({"reason":"empty_run"}));
+    }
+    let failed = failed_names(got);
+    let extras: Vec<&String> = failed.iter().filter(|n| !known.contains(&n.as_str())).collect();
+    if extras.is_empty() {
+        verdict(true, json!({"passed":got.passed,"tolerated":failed,"known":known}))
+    } else {
+        verdict(
+            false,
+            json!({"reason":"failures_beyond_known","failed":failed,"extras":extras,"known":known,"stdout_tail":tail(&got.stdout)}),
+        )
+    }
+}
 
 pub fn miri(exit_code: i32, stderr: &str) -> GateVerdict {
     if exit_code == 0 {
@@ -781,6 +820,57 @@ mod tests {
         // Strict boundary: sitting exactly on the threshold proves no
         // headroom, so release-eligible paths halt.
         assert!(!heldout_divergence(1.0, 0.95, 0.05).passed);
+    }
+
+    #[test]
+    fn parity_with_known_failures_pins_campaign_rule() {
+        // Elmer K=3 (T002): exactly-known failures pass, anything else
+        // fails, empty runs never pass, empty known-list stays strict.
+        let k = [
+            "ConstantBCTemperature",
+            "ProfileBCTemperature",
+            "ProfileBCTemperatureRobin",
+        ];
+        let base = GradedResult {
+            exit_code: 8,
+            passed: 479,
+            failed: 3,
+            skipped: vec![],
+            xfailed: vec![],
+            deselected: vec![],
+            stdout: String::new(),
+            outcomes: [
+                ("ConstantBCTemperature".to_string(), Outcome::Fail),
+                ("ProfileBCTemperature".to_string(), Outcome::Fail),
+                ("ProfileBCTemperatureRobin".to_string(), Outcome::Fail),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        let v = parity_with_known_failures(&base, &k);
+        assert!(v.passed, "exact K must pass: {}", v.detail);
+        assert_eq!(v.detail["tolerated"].as_array().unwrap().len(), 3);
+        // Scoped subset (only 2 K tests in the affected set) passes too.
+        let mut scoped = base.clone();
+        scoped.passed = 173;
+        scoped.failed = 2;
+        scoped.outcomes.remove("ConstantBCTemperature");
+        let v = parity_with_known_failures(&scoped, &k);
+        assert!(v.passed, "K subset must pass: {}", v.detail);
+        // One extra failure beyond K fails, names recorded.
+        let mut extra = base.clone();
+        extra.failed = 4;
+        extra.outcomes.insert("HeatSolve".to_string(), Outcome::Fail);
+        let v = parity_with_known_failures(&extra, &k);
+        assert!(!v.passed, "extra failure must fail");
+        assert!(v.detail["extras"].as_array().unwrap().iter().any(|e| e == "HeatSolve"));
+        // Empty run never passes, even with generous known-list.
+        let empty = GradedResult { passed: 0, failed: 0, ..base.clone() };
+        assert!(!parity_with_known_failures(&empty, &k).passed);
+        // Empty known-list is the strict gate.
+        assert!(!parity_with_known_failures(&base, &[]).passed);
+        let clean = GradedResult { exit_code: 0, passed: 482, failed: 0, outcomes: Default::default(), ..base };
+        assert!(parity_with_known_failures(&clean, &[]).passed);
     }
 
     #[test]
