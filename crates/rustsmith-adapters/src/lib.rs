@@ -4783,6 +4783,16 @@ impl CmakeBridge {
             ))
         }
     }
+    /// True when unit source `rel` has at least one built object under
+    /// `build_dir`: the scheduler's compilable-claim check. Headers and
+    /// helpers never produce an object, so grading them can only halt at
+    /// the substitute gate; the scheduler skips them instead (recorded,
+    /// never graded, never merged). Same resolution as `substitute` (root
+    /// suffix match plus the `DependInfo.cmake` fallback), read-only.
+    pub fn has_built_object(build_dir: &Path, tree: &Path, rel: &str) -> bool {
+        !Self::find_unit_objects(build_dir, tree, rel).is_empty()
+    }
+
     /// Built objects for unit source `rel`: the root-layout suffix match
     /// plus the `DependInfo.cmake` fallback for subdir targets. Pure
     /// path resolution (no gate logic): every returned path is an existing
@@ -6403,6 +6413,28 @@ mod track_i_tests {
             .unwrap_err();
         assert!(err.to_string().contains("no built object"), "unexpected: {err}");
     }
+    #[test]
+    fn has_built_object_matches_substitute_resolution() {
+        // Scheduler compilable-claim check: a header has no object (skip),
+        // a subdir-target source resolves via DependInfo.cmake (grade).
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let tree = dir.path().join("tree");
+        let obj_rel = "matc/src/CMakeFiles/matc.dir/str.c.o";
+        std::fs::create_dir_all(build.join("CMakeFiles")).unwrap();
+        std::fs::create_dir_all(build.join("matc/src/CMakeFiles/matc.dir")).unwrap();
+        std::fs::create_dir_all(tree.join("matc/src")).unwrap();
+        std::fs::write(build.join(obj_rel), "object").unwrap();
+        let src = tree.join("matc/src/str.c").display().to_string().replace('\\', "/");
+        let depinfo = format!(
+            "set(CMAKE_DEPENDS_DEPENDENCY_FILES\n  \"{src}\" \"{obj_rel}\" \"gcc\" \"{obj_rel}.d\"\n  )"
+        );
+        std::fs::write(build.join("matc/src/CMakeFiles/matc.dir/DependInfo.cmake"), depinfo).unwrap();
+        assert!(CmakeBridge::has_built_object(&build, &tree, "matc/src/str.c"));
+        assert!(!CmakeBridge::has_built_object(&build, &tree, "matc/src/str.h"));
+        assert!(!CmakeBridge::has_built_object(&build, &tree, "other/src/str.c"));
+    }
+
 
     #[test]
     fn fortran_shim_common_refusal_pins_message() {
