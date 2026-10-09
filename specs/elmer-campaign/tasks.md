@@ -36,7 +36,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 **Purpose**: shrink port scope before any port; freeze budget inputs
 
 - [ ] T001 [US1] [claimed fm/rs-elmer-c1] Land vendored exclusion from frozen diagnostics in `crates/rustsmith-cli/src/mirror.rs` (`mathlibs/` 1587 + `umfpack/` 193 as link targets, 61 `out_of_scope` skipped with reasons); acceptance: `RUSTSMITH_SCOPE=matc` static expectation 26 scheduled / 61 `out_of_scope` / 2938 `outside_scope`, 2-unit fixture proof green, suite green. Non-goal: touching recon frozen shape.
-- [ ] T002 [P] [US1] Pin campaign baseline: Elmer @ `9f6af2f85`, `ctest -N` count 482, full execution 479/482 with exactly K=3 (`ConstantBCTemperature`, `ProfileBCTemperature`, `ProfileBCTemperatureRobin` segfaults); record log under `/tmp`, reference from slice PRs. Non-goal: investigating K (decision A, upstream).
+- [ ] T002 [P] [US1] [claimed fm/rs-elmer-c2] Pin campaign baseline: Elmer @ `9f6af2f85`, `ctest -N` count 482, full execution 479/482 with exactly K=3 (`ConstantBCTemperature`, `ProfileBCTemperature`, `ProfileBCTemperatureRobin` segfaults); record log under `/tmp`, reference from slice PRs. Non-goal: investigating K (decision A, upstream).
 
 **Checkpoint**: port scope ≈1184 units; baseline frozen.
 
