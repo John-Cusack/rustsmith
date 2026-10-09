@@ -32,7 +32,7 @@ python3 -m pytest tests/ -q
 
 ## Layout
 
-- `multipart-core/` — reusable Rust core (`multipart-rust-core` on crates.io).
+- `python_multipart-core/` — reusable Rust core (`multipart-rust-core` on crates.io).
 - `src/lib.rs` — PyO3 binding (`python_multipart._python_multipart`).
 - `python_multipart/` — Python package (hot paths delegate to the core).
 - `multipart/` — legacy alias (upstream-verbatim).

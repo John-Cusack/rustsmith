@@ -4,7 +4,7 @@ version = "0.0.32"
 edition = "2021"
 description = "Pure-Rust multipart parsing with Python bindings (rustsmith Stage-1 mirror of Kludex/python-multipart)"
 license = "Apache-2.0"
-repository = "https://github.com/John-Cusack/python-multipart-rust"
+repository = "https://github.com/John-Cusack/python_multipart-rust"
 homepage = "https://github.com/Kludex/python-multipart"
 
 [lib]
@@ -12,8 +12,8 @@ name = "_python_multipart"
 crate-type = ["cdylib"]
 
 [dependencies]
-multipart-rust-core = { path = "multipart-core", version = "0.0.32" }
+multipart-rust-core = { path = "python_multipart-core", version = "0.0.32" }
 pyo3 = { version = "0.23", features = ["macros"] }
 
 [workspace]
-members = ["multipart-core"]
+members = ["python_multipart-core"]
