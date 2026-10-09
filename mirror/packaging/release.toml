@@ -37,19 +37,26 @@ release_workflow = ".github/workflows/release.yml"
 pypi_environment = "pypi"
 testpypi_environment = "testpypi"
 
-# License and upstream attribution.
-license_spdx = "Apache-2.0 OR BSD-2-Clause"
+# License and upstream attribution. Upstream offers Apache-2.0 OR
+# BSD-2-Clause; the port preserves both texts (LICENSE.APACHE +
+# LICENSE.BSD, NOTICE, manifests, file headers). `license_spdx` names the
+# single effective publish license (closed list per docs/RELEASE.md).
+license_spdx = "Apache-2.0"
 upstream = "pypa/packaging"
 upstream_url = "https://github.com/pypa/packaging"
 upstream_license = "Apache-2.0 OR BSD-2-Clause"
 upstream_authors = "Donald Stufft and individual contributors"
 
 # Smoke checks run against the installed wheel (Python expressions; each must
-# evaluate truthy). Kept to stdlib-only, deterministic vectors.
+# evaluate truthy). Kept to stdlib-only, deterministic vectors. Each vector
+# imports its submodule explicitly (`__import__` with a fromlist returns the
+# named submodule): like upstream, bare `import packaging` does not bind
+# submodule attributes, so `packaging.version...` without an import fails
+# against the real upstream too (verified on the system copy).
 smoke_exprs = [
-  "str(packaging.version.parse('1.0a1')) == '1.0a1'",
-  "packaging.version.Version('1.0') > packaging.version.Version('1.0a1')",
-  "packaging.specifiers.SpecifierSet('>=1.0').contains('1.2')",
-  "packaging.requirements.Requirement('requests>=2.0; python_version>=\"3.8\"').name == 'requests'",
-  "packaging.tags.sys_tags() is not None",
+  "str(__import__('packaging.version', fromlist=['x']).parse('1.0a1')) == '1.0a1'",
+  "__import__('packaging.version', fromlist=['x']).Version('1.0') > __import__('packaging.version', fromlist=['x']).Version('1.0a1')",
+  "__import__('packaging.specifiers', fromlist=['x']).SpecifierSet('>=1.0').contains('1.2')",
+  "__import__('packaging.requirements', fromlist=['x']).Requirement('requests>=2.0; python_version>=\"3.8\"').name == 'requests'",
+  "__import__('packaging.tags', fromlist=['x']).sys_tags() is not None",
 ]
