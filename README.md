@@ -218,7 +218,20 @@ Status is one of: `open` | `in progress (<branch>)` | `mirrored (oracle N/N, hel
 | strsimpy (`mirror/strsimpy`) | Python | mirrored (oracle 18/18, heldout 16/16, divergence 0.0000; graded 2026-10-06) | Core+binding split (`strsimpy-rust-core` + `strsimpy-rust`); `release-prep` verified (11/11 checks) |
 | Elmer FEM (`mirror/Elmer`) | C / C++ / Fortran | S1 scope-skip landed, step-4 verified 2026-10-06 (suite 181/0, `m0`–`m9` + `release_acceptance.sh` green, `tests/elmer_mini_proof.sh` 1/1 divergence=0.0000) | Session briefs S1–S5 in `docs/IMPLEMENTATION_ELMER.md`; S2–S5 not started |
 
-Deliberately excluded: certifi, pytz (data-only bundles); iniconfig (trivial, I/O-bound); typing-inspection (thin typing dispatch, nothing to port); jinja2, jsonschema (mature Rust ports already exist: minijinja, the `jsonschema` crate); pandas (hot paths already Cython; polars covers new builds); beautifulsoup4 (scraper/html5ever cover the capability; remainder is API sugar).
+## Ported packages
+
+Every merged port below passed its graded run at 100% oracle parity (frozen upstream suite, test count/skip list identical to baseline) plus a host-only held-out suite no agent ever sees. Speedup cells cite measured workloads only; anything unmeasured reads "not benchmarked" — never a guess. Excluded here: pyyaml (port unfinished) and Elmer (method work, not a package).
+
+| Package | Upstream | Accuracy proof | Measured speedup | Install |
+|---|---|---|---|---|
+| crc | [Nicoretti/crc](https://github.com/Nicoretti/crc) | oracle 80/80, heldout 11/11 | not benchmarked | [crc-rust (PyPI)](https://pypi.org/project/crc-rust/) · [crc-rust-core (crates.io)](https://crates.io/crates/crc-rust-core) · [mirror](https://github.com/John-Cusack/crc-rust) |
+| python-dateutil | [dateutil/dateutil](https://github.com/dateutil/dateutil) | oracle 2032/2032, heldout 41/41 | 5.6x fuzzy-noisy / 3.8x strict-parse / 1.7x iso (§5 bench); 1.6–4.2x rrule queries (ADR-021) | [python-dateutil-rust (PyPI)](https://pypi.org/project/python-dateutil-rust/) · [dateutil-core (crates.io)](https://crates.io/crates/dateutil-core) · [mirror](https://github.com/John-Cusack/dateutil-rust) |
+| packaging | [pypa/packaging](https://github.com/pypa/packaging) | oracle 62483/62483, heldout 13/13 | not benchmarked | — |
+| charset-normalizer | [Ousret/charset_normalizer](https://github.com/Ousret/charset_normalizer) | oracle 297/297, heldout 20/20 | not benchmarked | — |
+| strsimpy | [luozhouyang/python-string-similarity](https://github.com/luozhouyang/python-string-similarity) | oracle 18/18, heldout 16/16 | not benchmarked | — |
+| markdown-it-py | [executablebooks/markdown-it-py](https://github.com/executablebooks/markdown-it-py) | oracle 1031 passed / 0 failed / 1 env-skip of 1032; heldout 16/18 (2 env-skips) | not benchmarked | — |
+| multipart | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) | oracle 162/162, heldout 55/55 | not benchmarked | — |
+| pyparsing | [pyparsing/pyparsing](https://github.com/pyparsing/pyparsing) | oracle 2104/2104, heldout 41/41 + 9 pins | not benchmarked | — |
 
 ## Status and docs
 
