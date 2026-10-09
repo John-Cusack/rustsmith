@@ -6405,6 +6405,36 @@ mod track_i_tests {
     }
 
     #[test]
+    fn fortran_shim_common_refusal_pins_message() {
+        // T003: the COMMON-block fixture (`tests/fixtures/fortran_shim/src/common_state.F`)
+        // must keep `check_substitutable` refusing with the pinned message.
+        // Any gate relaxation is a separate PR; this test fails if the gate moves.
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/fortran_shim/src/common_state.F");
+        let text = std::fs::read_to_string(&fixture).expect("shim COMMON fixture");
+        let dir = tempfile::tempdir().unwrap();
+        let rel = "src/common_state.F";
+        write_file(&dir.path().join(rel), &text);
+        let files = vec![dir.path().join(rel)];
+        let compiler_ids = BTreeMap::new();
+        let cx = FragmentCtx {
+            repo: dir.path(),
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
+        let frag = fortran_fragment(&cx).unwrap();
+        assert_eq!(frag.units.len(), 1, "units: {:?}", frag.units);
+        let unit = &frag.units[0];
+        assert_eq!(unit.id.0, "fortran:src/common_state.F");
+        let err = CmakeBridge::check_substitutable(unit).unwrap_err();
+        assert_eq!(
+            err,
+            "unit 'fortran:src/common_state.F' exports non-BIND(C) Fortran (__cstep_MOD_cstep, cstep): no stable C ABI (__<mod>_MOD_<proc> mangling, array descriptors for assumed-shape dummies); coarsen to file granularity with an ABI shim"
+        );
+    }
+
+    #[test]
     fn cmake_objects_root_layout_by_suffix() {
         let dir = tempfile::tempdir().unwrap();
         let tree = dir.path().join("tree");
