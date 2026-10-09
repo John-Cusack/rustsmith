@@ -882,6 +882,15 @@ pub fn probe(repo: &Path) -> Result<ProbeReport, AdapterError> {
         if NON_SOURCE_EXTS.contains(&ext.to_lowercase().as_str()) {
             continue;
         }
+        // Test/demo-local files no frontend claims are fixtures (runtime test
+        // data, e.g. pyyaml's tests/legacy_tests/data/*.data), not build
+        // units: claimed so the census stays quiet, registering no frontend
+        // (same rule as the fortran/cxx fixture carve-out above, extended to
+        // unknown extensions). A fixture alone still cannot flip the spine.
+        if test_local {
+            claimed += 1;
+            continue;
+        }
         // No frontend claims this source-looking extension: warn, don't drop.
         report.unclaimed.push(rel);
     }
@@ -5908,6 +5917,27 @@ mod track_i_tests {
         write_file(&dir.path().join("pyproject.toml"), "[project]\nname = \"a\"\n");
         write_file(&dir.path().join("examples/demo.py"), "import pkg.a\n");
         write_file(&dir.path().join("examples/snmp_api.h"), "int snmp_get(void);\n");
+        let report = probe(dir.path()).unwrap();
+        assert_eq!(report.frontends, vec!["python"]);
+        assert!(report.unclaimed.is_empty());
+        assert_eq!(report.unclaimed_share, 0.0);
+        assert!(!report.has_ctest);
+        let (composite, _) = select_composite(dir.path()).unwrap();
+        assert_eq!(composite.runner_id(), "pytest");
+    }
+
+    #[test]
+    fn probe_claims_test_local_data_fixtures_for_spine() {
+        // pyyaml shape: hundreds of opaque test-data files under tests/
+        // must not halt the single-Python census, and must not flip the
+        // repo to the CTest spine either.
+        let dir = tempfile::tempdir().unwrap();
+        write_file(&dir.path().join("lib/pkg/__init__.py"), "");
+        write_file(&dir.path().join("lib/pkg/a.py"), "VALUE = 1\n");
+        write_file(&dir.path().join("tests/test_a.py"), "import pkg.a\n");
+        for name in ["case.data", "case.tokens", "case.loader-error", "case.code"] {
+            write_file(&dir.path().join("tests/data").join(name), "fixture\n");
+        }
         let report = probe(dir.path()).unwrap();
         assert_eq!(report.frontends, vec!["python"]);
         assert!(report.unclaimed.is_empty());
