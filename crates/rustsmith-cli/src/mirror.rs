@@ -1954,6 +1954,14 @@ fn merge_unit(
         text.push_str(&format!(
             "target_link_libraries({target} PRIVATE {archive})\n"
         ));
+        // Same-toolchain Rust archives collide on std/alloc
+        // monomorphizations at final link (identical definitions,
+        // dedup-safe; undefined references still fail, so every removed
+        // object global must resolve). Without this the second merged unit
+        // breaks the worktree build (S3 §6 multi-unit splice note).
+        text.push_str(&format!(
+            "target_link_options({target} PRIVATE LINKER:--allow-multiple-definition)\n"
+        ));
         std::fs::write(&list, text).map_err(|e| e.to_string())?;
         // An emptied target is a CMake error (`No SOURCES given`), so every
         // edited list dir gains the shared empty TU (uniform: no emptiness
@@ -2772,6 +2780,54 @@ mod tests {
         let nested =
             std::fs::read_to_string(dir.path().join("worktree-u1/CMakeLists.txt")).unwrap();
         assert!(nested.contains("mini_add"), "nested copy touched: {nested}");
+    }
+
+    #[test]
+    fn merge_unit_links_port_archive_with_multiple_definition_tolerance() {
+        // Second merged unit breaks the worktree build without tolerance:
+        // same-toolchain Rust archives collide on std/alloc
+        // monomorphizations (S3 §6). The merge must carry the linker flag
+        // next to every port-archive link.
+        let dir = tempfile::tempdir().unwrap();
+        let fork = dir.path();
+        git(fork, &["init", "-q", "-b", "main"]).unwrap();
+        git(fork, &["config", "user.email", "t@t"]).unwrap();
+        git(fork, &["config", "user.name", "t"]).unwrap();
+        write_lists(
+            fork,
+            "CMakeLists.txt",
+            "add_library(m STATIC matc/src/a.c)\n",
+        );
+        write_lists(fork, "matc/src/a.c", "int a(void){return 1;}\n");
+        git(fork, &["add", "-A"]).unwrap();
+        git(fork, &["commit", "-qm", "seed"]).unwrap();
+        git(fork, &["checkout", "-qb", "unit/c_matc_src_a.c"]).unwrap();
+        write_lists(fork, "rust/a/src/lib.rs", "// port\n");
+        git(fork, &["add", "-A"]).unwrap();
+        git(fork, &["commit", "-qm", "unit c:matc/src/a.c"]).unwrap();
+        git(fork, &["checkout", "-q", "main"]).unwrap();
+        let mut reviewed = false;
+        let merged = merge_unit(
+            fork,
+            "unit/c_matc_src_a.c",
+            "c:matc/src/a.c",
+            &["matc/src/a.c".to_string()],
+            |diff| {
+                reviewed = true;
+                let s = String::from_utf8_lossy(diff);
+                assert!(s.contains("target_link_libraries(m PRIVATE"), "review saw no archive link: {s}");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(merged, "expected a reviewed merge commit");
+        assert!(reviewed, "review closure never ran");
+        let lists = std::fs::read_to_string(fork.join("CMakeLists.txt")).unwrap();
+        assert!(lists.contains("target_link_libraries(m PRIVATE"), "archive link missing: {lists}");
+        assert!(
+            lists.contains("target_link_options(m PRIVATE LINKER:--allow-multiple-definition)"),
+            "multi-definition tolerance missing: {lists}"
+        );
     }
 
     #[test]
