@@ -1,10 +1,10 @@
 [package]
-name = "markdown-it-rust"
+name = "markdown-it-py-rust"
 version = "4.2.0"
 edition = "2021"
 description = "Pure-Rust markdown-it core with Python bindings (rustsmith Stage-1 mirror of executablebooks/markdown-it-py)"
 license = "MIT"
-repository = "https://github.com/John-Cusack/markdown-it-rust"
+repository = "https://github.com/John-Cusack/markdown_it-rust"
 homepage = "https://github.com/executablebooks/markdown-it-py"
 
 [lib]

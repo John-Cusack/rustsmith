@@ -1,4 +1,4 @@
-# Release configuration for the `markdown-it-py` converted project.
+# Release configuration for the `markdown_it` converted project.
 #
 # This file is the single source of truth for publishing the rustsmith output
 # as a reusable Rust core crate (crates.io) plus a Python package calling that
@@ -8,16 +8,18 @@
 
 [release]
 schema = 1
-# Original package identity (matches `template.json` `package` and recon facts).
-project = "markdown-it-py"
+# Original package identity. NOTE: this is `markdown_it`, not
+# `markdown-it-py`: `validate_names` requires `project` to be a Python
+# module name (no hyphen) and to equal `python_import`. The lane-canonical
+# repo is therefore `John-Cusack/markdown_it-rust`.
+project = "markdown_it"
 # Rust core crate published to crates.io (`markdown-it-core/Cargo.toml [package] name`).
 rust_crate = "markdown-it-rust-core"
 # Python distribution published to PyPI (`pyproject.toml [project] name`).
 # MUST differ from `project`: the original name stays with upstream.
-pypi_dist = "markdown-it-rust"
-# Python import name. MUST equal the upstream import name: users swap the
-# install with zero import changes (`pip install markdown-it-rust` still
-# does `import markdown_it`).
+pypi_dist = "markdown-it-py-rust"
+# Python import name. MUST equal `project`: users swap the install with zero
+# import changes (`pip install markdown-it-py-rust` still does `import markdown_it`).
 python_import = "markdown_it"
 # Release version. MUST equal `[package] version` in `Cargo.toml`,
 # `markdown-it-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
@@ -31,7 +33,7 @@ platforms = ["ubuntu-22.04", "macos-14", "windows-2022"]
 # Publishing repository and workflow identity (trusted publishing, no tokens).
 # The repo below is the publishing home for the converted project: create it,
 # push the prepared tree, then register the trusted publishers.
-github_repo = "John-Cusack/markdown-it-rust"
+github_repo = "John-Cusack/markdown_it-rust"
 release_workflow = ".github/workflows/release.yml"
 pypi_environment = "pypi"
 testpypi_environment = "testpypi"
@@ -44,10 +46,13 @@ upstream_license = "MIT"
 upstream_authors = "Chris Sewell and individual contributors"
 
 # Smoke checks run against the installed wheel (Python expressions; each must
-# evaluate truthy). Kept to stdlib-only, deterministic vectors.
+# evaluate truthy). They also run in the release-prep bare venv (wheel
+# installed `--no-deps`, so `mdurl`/`typing_extensions` are absent): every
+# vector must pass with no third-party dependency installed. Link vectors
+# need `mdurl` and live in the oracle/heldout suites instead.
 smoke_exprs = [
   "markdown_it.MarkdownIt().render('# hi') == '<h1>hi</h1>\\n'",
   "markdown_it.MarkdownIt().render('**a**') == '<p><strong>a</strong></p>\\n'",
-  "markdown_it.MarkdownIt('commonmark').render('[a](/u)') == '<p><a href="/u">a</a></p>\\n'",
+  "markdown_it.MarkdownIt('commonmark').render('# hi') == '<h1>hi</h1>\\n'",
   "markdown_it.MarkdownIt('zero').render('*a*') == '<p>*a*</p>\\n'",
 ]
