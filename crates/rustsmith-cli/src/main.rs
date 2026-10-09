@@ -22,7 +22,7 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 fn usage() -> &'static str {
-    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>]\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>\n       rustsmith release-prep --project <mirror/<pkg>> --fork <dir> [--opt <dir>] --recon-out <dir> --out <dir>\n       rustsmith release-record --state <release-state.json> --registry testpypi|pypi|crates-io --result success|failed [--detail <text>]\n       rustsmith release-status --state <release-state.json>\n       rustsmith create-github-repo --fork <dir> --project <mirror/<pkg>> --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes]"
+    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>] [--build-dir <dir>]\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> --build-dir <dir> --unit <repo-rel-path> (ctest scoped)\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>\n       rustsmith release-prep --project <mirror/<pkg>> --fork <dir> [--opt <dir>] --recon-out <dir> --out <dir>\n       rustsmith release-record --state <release-state.json> --registry testpypi|pypi|crates-io --result success|failed [--detail <text>]\n       rustsmith release-status --state <release-state.json>\n       rustsmith create-github-repo --fork <dir> --project <mirror/<pkg>> --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes]"
 }
 
 fn main() {
@@ -617,17 +617,102 @@ fn cmd_verify(args: &[String]) -> Result<(), String> {
 fn cmd_grade(args: &[String]) -> Result<(), String> {
     let manifest_path = flag(args, "--manifest").ok_or("missing --manifest")?;
     let tree = PathBuf::from(flag(args, "--tree").ok_or("missing --tree")?);
+    // Out-of-source spines (CTest) grade in a separate build dir; default is
+    // the tree (today's behavior, byte-identical for the Python spine).
+    let build_dir = flag(args, "--build-dir").map(PathBuf::from).unwrap_or_else(|| tree.clone());
     let manifest = load_manifest(&manifest_path)?;
+    if let Some(unit_rel) = flag(args, "--unit") {
+        return cmd_grade_scoped(&manifest, &tree, &build_dir, &unit_rel);
+    }
+    // Full (unscoped) grade. The Python spine measures through its runner;
+    // the CTest spine runs the frozen oracle in the build dir. Both print
+    // the same JSON shape (plus an additive `failed_tests` list).
+    if manifest.runner == rustsmith_adapters::CtestRunner::RUNNER_ID {
+        let runner = rustsmith_adapters::CtestRunner;
+        let got = crate::mirror::run_ctest_oracle(&tree, &build_dir, &manifest)?;
+        let hashes = Oracle::current_hashes(&manifest, &tree, &runner);
+        let integrity =
+            rustsmith_gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
+        let parity = rustsmith_gates::oracle_parity(&got);
+        println!("{}", serde_json::json!({
+            "passed": got.passed, "failed": got.failed,
+            "skipped": got.skipped, "xfailed": got.xfailed, "deselected": got.deselected,
+            "failed_tests": failed_names(&got),
+            "scoped": false,
+            "integrity": {"passed": integrity.passed, "detail": integrity.detail},
+            "parity": {"passed": parity.passed, "detail": parity.detail},
+        }));
+        if !integrity.passed || !parity.passed {
+            std::process::exit(2);
+        }
+        return Ok(());
+    }
     // Measure without pre-verification so integrity reports the precise reason
     // (counts-first: skip shows skip_mismatch, pure tamper shows hash_mismatch).
     let runner = runner_for_manifest(&manifest)?;
-    let got = Oracle::measure_tree(&manifest, &tree, &tree, &runner).map_err(|e| e.to_string())?;
+    let got = Oracle::measure_tree(&manifest, &tree, &build_dir, &runner).map_err(|e| e.to_string())?;
     let hashes = Oracle::current_hashes(&manifest, &tree, &runner);
     let integrity = rustsmith_gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
     let parity = rustsmith_gates::oracle_parity(&got);
     println!("{}", serde_json::json!({
         "passed": got.passed, "failed": got.failed,
         "skipped": got.skipped, "xfailed": got.xfailed, "deselected": got.deselected,
+        "failed_tests": failed_names(&got),
+        "integrity": {"passed": integrity.passed, "detail": integrity.detail},
+        "parity": {"passed": parity.passed, "detail": parity.detail},
+    }));
+    if !integrity.passed || !parity.passed {
+        std::process::exit(2);
+    }
+    Ok(())
+}
+
+/// Sorted names of failed/timed-out tests in a graded result (the verdict
+/// comparison surface for scoped-vs-full equivalence).
+fn failed_names(got: &rustsmith_core::GradedResult) -> Vec<String> {
+    let mut out: Vec<String> = got
+        .outcomes
+        .iter()
+        .filter(|(_, o)| **o == rustsmith_core::Outcome::Fail || **o == rustsmith_core::Outcome::Timeout)
+        .map(|(id, _)| id.clone())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Scoped per-unit grade (S6): the affected-tests-only oracle for `unit_rel`
+/// on the CTest spine, through the same `mirror::run_ctest_oracle_scoped`
+/// the per-unit loop grades with. Other runners refuse (never a silently
+/// full or silently empty grade).
+fn cmd_grade_scoped(
+    manifest: &rustsmith_core::Manifest,
+    tree: &std::path::Path,
+    build_dir: &std::path::Path,
+    unit_rel: &str,
+) -> Result<(), String> {
+    if manifest.runner != rustsmith_adapters::CtestRunner::RUNNER_ID {
+        return Err(format!(
+            "scoped --unit grading is ctest-only (manifest runner '{}')",
+            manifest.runner
+        ));
+    }
+    let runner = rustsmith_adapters::CtestRunner;
+    let (got, affected, was_scoped) =
+        crate::mirror::run_ctest_oracle_scoped(tree, build_dir, manifest, unit_rel)?;
+    let hashes = Oracle::current_hashes(manifest, tree, &runner);
+    let integrity = if was_scoped {
+        crate::mirror::scoped_integrity(manifest, &hashes)
+    } else {
+        rustsmith_gates::oracle_integrity(manifest, &hashes, &manifest.baseline, &got)
+    };
+    let parity = rustsmith_gates::oracle_parity(&got);
+    println!("{}", serde_json::json!({
+        "passed": got.passed, "failed": got.failed,
+        "skipped": got.skipped, "xfailed": got.xfailed, "deselected": got.deselected,
+        "failed_tests": failed_names(&got),
+        "scoped": was_scoped,
+        "affected": affected,
         "integrity": {"passed": integrity.passed, "detail": integrity.detail},
         "parity": {"passed": parity.passed, "detail": parity.detail},
     }));

@@ -3736,6 +3736,311 @@ fn ctest_add_tests_in_dir(build_dir: &Path) -> Vec<(String, Option<u16>)> {
     out
 }
 
+/// One enumerated CTest case: registered name plus the test directory on both
+/// trees. `build_rel` comes from the registering file's location (the
+/// out-of-source build mirrors the source layout); `source_rel` re-anchors it
+/// under `repo` and is `None` when the mirror layout does not resolve (the
+/// caller treats unresolvable tests as affected, never as skippable).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CtestCase {
+    pub name: String,
+    pub build_rel: String,
+    pub source_rel: Option<String>,
+}
+
+/// Enumerate every `add_test` in every `CTestTestfile*.cmake` under `build_dir`.
+/// Same file walk (and name sort/dedup) as [`ctest_add_tests_in_dir`]; names
+/// additionally carry their registering directory on both trees.
+pub fn ctest_enumerate(build_dir: &Path, repo: &Path) -> Vec<CtestCase> {
+    let mut out = Vec::new();
+    if !build_dir.is_dir() {
+        return out;
+    }
+    let mut files = Vec::new();
+    for entry in walkdir::WalkDir::new(build_dir).into_iter().filter_entry(|e| {
+        !e.path().components().any(|c| c.as_os_str() == ".git")
+    }) {
+        let Ok(entry) = entry else { continue };
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.starts_with("CTestTestfile") && p.extension().map(|x| x == "cmake").unwrap_or(false)
+        {
+            files.push(p.to_path_buf());
+        }
+    }
+    files.sort();
+    for file in files {
+        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+        let build_rel = file
+            .parent()
+            .and_then(|d| d.strip_prefix(build_dir).ok())
+            .map(|d| d.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        let source_rel = if build_rel.is_empty() {
+            None
+        } else {
+            repo.join(&build_rel).is_dir().then(|| build_rel.clone())
+        };
+        for (name, _) in parse_add_tests(&text) {
+            out.push(CtestCase { name, build_rel: build_rel.clone(), source_rel: source_rel.clone() });
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out.dedup_by(|a, b| a.name == b.name);
+    out
+}
+
+/// Markers selecting tests affected by a change to `unit_rel` (repo-relative
+/// unit path): the owning subsystem (first path component) plus the unit file
+/// stem. Both lowercase; the stem drops its extension (`lists.c` -> `lists`).
+pub fn unit_affected_markers(unit_rel: &str) -> (String, String) {
+    let rel = unit_rel.replace('\\', "/");
+    let subsystem = rel.split('/').next().unwrap_or("").to_ascii_lowercase();
+    let stem = Path::new(rel.rsplit('/').next().unwrap_or(""))
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    (subsystem, stem)
+}
+
+/// Searchable text of one test's source-dir input files, keyed by test name
+/// in [`ctest_test_texts`].
+#[derive(Debug, Clone, Default)]
+pub struct CtestTexts {
+    /// Lowercased concatenation of every bounded input file (drives the
+    /// subsystem/stem markers).
+    pub blob: String,
+    /// True when a `.sif` file in the dir uses a `$`-expression (drives the
+    /// matc dollar marker; `.sif` is the only input language where `$matc`
+    /// evaluates — mesh `.msh` `$Nodes`-style section markers and
+    /// `CMake ${VAR}` refs never count).
+    pub sif_dollar: bool,
+}
+
+/// Per-test search text for `cases` (see [`CtestTexts`]). Bounds: 128 files
+/// per dir, 256 KiB per file (larger files cannot be test inputs referencing
+/// a unit by name). Missing or unreadable dirs are absent from the map: the
+/// selector treats them as affected, never as skippable.
+pub fn ctest_test_texts(repo: &Path, cases: &[CtestCase]) -> HashMap<String, CtestTexts> {
+    const MAX_FILES_PER_DIR: usize = 128;
+    const MAX_FILE_BYTES: u64 = 262_144;
+    let mut out = HashMap::new();
+    let mut seen_dirs: HashSet<String> = HashSet::new();
+    for case in cases {
+        let Some(source_rel) = case.source_rel.as_deref() else { continue };
+        if !seen_dirs.insert(source_rel.to_string()) {
+            continue;
+        }
+        let dir = repo.join(source_rel);
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let mut texts = CtestTexts::default();
+        // Deterministic order so the blob (and any downstream selection) is
+        // stable across runs and filesystems.
+        let mut files: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        files.sort();
+        for path in files.into_iter().take(MAX_FILES_PER_DIR) {
+            if !path.is_file() {
+                continue;
+            }
+            if path.metadata().map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+                continue;
+            }
+            if let Ok(bytes) = std::fs::read(&path) {
+                let lower = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+                if !texts.sif_dollar
+                    && path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.to_ascii_lowercase().ends_with(".sif"))
+                    && dollar_matc_hit(&lower)
+                {
+                    texts.sif_dollar = true;
+                }
+                texts.blob.push_str(&lower);
+                texts.blob.push('\n');
+            }
+        }
+        // One entry per test name (several tests can share a directory).
+        for c in cases.iter().filter(|c| c.source_rel.as_deref() == Some(source_rel)) {
+            out.insert(c.name.clone(), texts.clone());
+        }
+    }
+    out
+}
+
+/// Whole-word hit of `stem` in the lowercased `blob`: boundary on both sides
+/// is anything but ASCII alphanumeric or `_`, so `eval` matches `eval(` but
+/// never `evaluation`, and `lu` never matches `value`.
+fn stem_hit(blob: &str, stem: &str) -> bool {
+
+    if stem.is_empty() {
+        return false;
+    }
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut start = 0;
+    while let Some(pos) = blob[start..].find(stem) {
+        let s = start + pos;
+        let e = s + stem.len();
+        let left_ok = s == 0 || !blob[..s].chars().next_back().is_some_and(is_word);
+        let right_ok = e == blob.len() || !blob[e..].chars().next().is_some_and(is_word);
+        if left_ok && right_ok {
+            return true;
+        }
+        start = e;
+    }
+    false
+}
+
+/// `$`-expression hit in the lowercased .sif `text`: a `$` immediately
+/// followed by an ASCII alphanumeric or `_` (`$rho`), or by blanks then an
+/// ASCII letter or `_` (`$ SoundSpeed` — Elmer allows whitespace after the
+/// `$`; S6 proof escape: Shoebox `$ AirDensity` cases broke under an
+/// `eval.c` fault while containing no `matc` literal). The blanks form
+/// deliberately excludes digits (`US$ 5` is not MATC; a `$ 1.21`-style
+/// numeric expression would be missed — no Elmer test writes that, and a
+/// future escape reopens it). CMake `${VAR}` / `$(...)` forms never hit
+/// (`{`/`(`/`$` are not name characters), and callers restrict this to
+/// `.sif` files (mesh `.msh` `$Nodes` markers are Gmsh, not MATC).
+fn dollar_matc_hit(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'$' {
+            let mut j = i + 1;
+            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                j += 1;
+            }
+            let spaced = j > i + 1;
+            if j < bytes.len() {
+                let n = bytes[j];
+                if n.is_ascii_alphabetic() || n == b'_' || (!spaced && n.is_ascii_digit()) {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Test names affected by a change to `unit_rel`: tests colocated in its
+/// subsystem, tests referencing the subsystem name, tests referencing the
+/// unit file stem (whole word, case-insensitive), or — for the `matc`
+/// subsystem only — tests whose `.sif` files use `$`-expressions (inline
+/// MATC without the subsystem literal; see [`CtestTexts::sif_dollar`]).
+/// Tests with no resolvable source text count as affected (conservative:
+/// never a vacuous pass by miscount). Sorted, deduped. An empty return
+/// means no test references the unit at all: holders must fall back to the
+/// full suite, never grade zero.
+pub fn affected_ctest_tests(
+    cases: &[CtestCase],
+    texts: &HashMap<String, CtestTexts>,
+    unit_rel: &str,
+) -> Vec<String> {
+    let (subsystem, stem) = unit_affected_markers(unit_rel);
+    let dollar_counts = subsystem == "matc";
+    let mut out = Vec::new();
+    for case in cases {
+        let colocated = match case.source_rel.as_deref() {
+            Some(dir) => !subsystem.is_empty() && (dir == subsystem || dir.starts_with(&format!("{subsystem}/"))),
+            None => false,
+        };
+        let Some(texts) = texts.get(&case.name) else {
+            // Unresolvable text: affected (conservative).
+            out.push(case.name.clone());
+            continue;
+        };
+        if colocated
+            || (!subsystem.is_empty() && texts.blob.contains(&subsystem))
+            || stem_hit(&texts.blob, &stem)
+            || (dollar_counts && texts.sif_dollar)
+        {
+            out.push(case.name.clone());
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Solver-startup smoke for `matc`-subsystem units (S6 proof finding): every
+/// `ElmerSolver` run evaluates a MATC prelude
+/// (`function _i2str__(i) { __i2str__ = sprintf("%g",i); }`) at startup, so
+/// a fault that breaks definition-parsing (parser.c proof fault: 479
+/// failures), builtin lookup (matc.c `com_check` proof fault: 479
+/// failures), or shared list chaining (lists.c `addhead` proof fault: 479
+/// failures) fails the whole suite regardless of references. The smoke
+/// mirrors that prelude shape — one definition, two variables sharing one
+/// list (read back: chaining faults surface as undeclared-identifier
+/// errors), one over-minimum-args builtin call (call-phase faults like the
+/// eval.c argcount proof fault keep passing and stay on the scoped path).
+/// Failure means the startup path is broken and the whole suite is
+/// affected: holders must fall back to the full oracle, never grade scoped.
+pub fn matc_smoke_command(build_dir: &Path) -> TestCommand {
+    TestCommand {
+        program: build_dir.join("matc/src/matc").to_string_lossy().into_owned(),
+        args: Vec::new(),
+        cwd: Cwd::BuildDir,
+        env_set: Vec::new(),
+        env_remove: Vec::new(),
+        launcher: None,
+        timeout_secs: Some(30),
+        collect: Vec::new(),
+        stdin: Some(
+            "function _s6s__(i) { __s6s__ = sprintf(\"%g\",i); }\n_s6a__ = 43\n_s6b__ = 44\n_s6a__\n_s6s__(424242)\nexit\n"
+                .to_string(),
+        ),
+    }
+}
+
+/// True when the smoke ran cleanly: exit 0, no `MATC ERROR` on either
+/// stream, and both the read-back value and the call result on stdout.
+/// Exit alone never suffices (the REPL traps errors into `longjmp` and
+/// still exits 0); absence-based error detection (not output equality) so
+/// faults that only alter message text cannot spoof a pass or force a
+/// fallback. Small-int tokens render exactly through both matc printers.
+pub fn matc_smoke_ok(run: &RunOutput) -> bool {
+    run.exit_code == 0
+        && !run.stdout.contains("MATC ERROR")
+        && !run.stderr.contains("MATC ERROR")
+        && run.stdout.contains("43")
+        && run.stdout.contains("424242")
+}
+
+/// Escape `s` for literal use inside a `ctest -R` regex alternation.
+fn regex_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if matches!(c, '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\')
+        {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Scope a frozen ctest command to `test_names`: clones `base` (program, cwd,
+/// env, timeout, collect stays identical so grading parses unchanged) and
+/// appends `-R ^(a|b|...)$` (exact-match alternation, metacharacters
+/// escaped). Empty input is a caller error: grading zero tests is a vacuous
+/// pass, so holders must fall back to the full invocation instead.
+pub fn scoped_ctest_command(base: &TestCommand, test_names: &[String]) -> TestCommand {
+    assert!(!test_names.is_empty(), "scoped grading needs a non-empty affected set");
+    let mut alts: Vec<String> = test_names.iter().map(|n| regex_escape(n)).collect();
+    alts.sort();
+    alts.dedup();
+    let re = format!("^({})$", alts.join("|"));
+    let mut scoped = base.clone();
+    scoped.args.push("-R".to_string());
+    scoped.args.push(re);
+    scoped
+}
+
 fn cmake_cache_features(build_dir: &Path) -> Vec<String> {
     let Ok(text) = std::fs::read_to_string(build_dir.join("CMakeCache.txt")) else {
         return Vec::new();
@@ -5648,6 +5953,206 @@ mod track_i_tests {
         assert_eq!(cmds[0].cwd, Cwd::BuildDir);
         assert!(!cmds[0].collect.is_empty());
     }
+    #[test]
+    fn ctest_scoped_selection_markers_subsystem_and_stem() {
+        // Markers: subsystem (first component) + file stem, lowercased.
+        assert_eq!(
+            unit_affected_markers("matc/src/lists.c"),
+            ("matc".to_string(), "lists".to_string())
+        );
+        assert_eq!(
+            unit_affected_markers("fem/src/HeatSolve.F90"),
+            ("fem".to_string(), "heatsolve".to_string())
+        );
+        assert_eq!(
+            unit_affected_markers("matc\\src\\eval.c"),
+            ("matc".to_string(), "eval".to_string())
+        );
+    }
+
+    #[test]
+    fn ctest_scoped_selection_word_boundaries() {
+        // Fixture build dir: two tests registered in per-dir files, source
+        // tree mirroring the build layout; one test references the subsystem,
+        // one references only the stem, one references neither.
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let repo = dir.path().join("repo");
+        let write_cmake = |rel: &str, tests: &[&str]| {
+            let file = build.join(rel).join("CTestTestfile.cmake");
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            let mut text = String::new();
+            for t in tests {
+                text.push_str(&format!("add_test({t} \"run-{t}\")\n"));
+            }
+            std::fs::write(&file, text).unwrap();
+        };
+        write_cmake("fem/tests/UsesMatc", &["UsesMatc"]);
+        write_cmake("fem/tests/UsesLists", &["UsesLists"]);
+        write_cmake("fem/tests/Unrelated", &["Unrelated"]);
+        let write_src = |rel: &str, body: &str| {
+            let d = repo.join(rel);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("case.sif"), body).unwrap();
+        };
+        write_src("fem/tests/UsesMatc", "Real MATC \"tx(0)\"\n");
+        write_src("fem/tests/UsesLists", "uses lists here\n");
+        write_src("fem/tests/Unrelated", "a list of values, pure numbers\n");
+        let cases = ctest_enumerate(&build, &repo);
+        assert_eq!(cases.len(), 3);
+        let texts = ctest_test_texts(&repo, &cases);
+        assert_eq!(texts.len(), 3);
+        let affected = affected_ctest_tests(&cases, &texts, "matc/src/lists.c");
+        // Subsystem reference (`matc`) + whole-word stem reference (`lists`)
+        // select; the unrelated test is out (`list` singular never matches
+        // stem `lists`, and it names no subsystem).
+        assert_eq!(affected, vec!["UsesLists".to_string(), "UsesMatc".to_string()]);
+    }
+
+    #[test]
+    fn ctest_scoped_selection_never_vacuous_on_unresolvable() {
+        // Tests whose source dir does not resolve count as affected
+        // (conservative), and stem matching is whole-word: `lu` never fires
+        // inside `value`, `eval` never inside `evaluation`.
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let repo = dir.path().join("repo");
+        let file = build.join("fem/tests/Ghost/CTestTestfile.cmake");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "add_test(Ghost \"run\")\n").unwrap();
+        let val = build.join("fem/tests/Value/CTestTestfile.cmake");
+        std::fs::create_dir_all(val.parent().unwrap()).unwrap();
+        std::fs::write(&val, "add_test(Value \"run\")\n").unwrap();
+        std::fs::create_dir_all(repo.join("fem/tests/Value")).unwrap();
+        std::fs::write(
+            repo.join("fem/tests/Value/case.sif"),
+            "evaluation of value fields\n",
+        )
+        .unwrap();
+        let cases = ctest_enumerate(&build, &repo);
+        assert_eq!(cases.len(), 2);
+        let texts = ctest_test_texts(&repo, &cases);
+        // Ghost has no source dir: absent text, conservatively affected.
+        assert!(!texts.contains_key("Ghost"));
+        let affected = affected_ctest_tests(&cases, &texts, "matc/src/lu.c");
+        assert_eq!(affected, vec!["Ghost".to_string()]);
+        let affected_eval = affected_ctest_tests(&cases, &texts, "matc/src/eval.c");
+        assert_eq!(affected_eval, vec!["Ghost".to_string()]);
+    }
+
+    #[test]
+    fn ctest_scoped_selection_dollar_matc_without_subsystem_literal() {
+        // `$var` inline-MATC selects for matc units even with no `matc`
+        // literal anywhere (S6 proof escape: FilmFlow `$h0` cases broke
+        // under an oper.c fault). CMake `${VAR}` / `$(...)` never select,
+        // and non-matc units ignore the dollar form.
+        assert!(dollar_matc_hit("density = $rho\n"));
+        assert!(dollar_matc_hit("$h0 = 1.0\n"));
+        assert!(dollar_matc_hit("gap = $_x1\n"));
+        assert!(dollar_matc_hit("$ AirDensity = 1.21\n"));
+        assert!(dollar_matc_hit("speed = $ SoundSpeed\n"));
+        assert!(!dollar_matc_hit("bin=${ELMERSOLVER_BIN}\n"));
+        assert!(!dollar_matc_hit("run=$(which sh)\n"));
+        assert!(!dollar_matc_hit("price US$ 5\n"));
+        assert!(!dollar_matc_hit("x = $ 5\n"));
+        assert!(!dollar_matc_hit("trailing $\n"));
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let repo = dir.path().join("repo");
+        let file = build.join("fem/tests/Dollar/CTestTestfile.cmake");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "add_test(Dollar \"run\")\n").unwrap();
+        let src = repo.join("fem/tests/Dollar");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("case.sif"), "Density = $rho\n").unwrap();
+        std::fs::write(src.join("runtest.cmake"), "bin=${ELMERSOLVER_BIN}\n").unwrap();
+        let cases = ctest_enumerate(&build, &repo);
+        let texts = ctest_test_texts(&repo, &cases);
+        let affected = affected_ctest_tests(&cases, &texts, "matc/src/oper.c");
+        assert_eq!(affected, vec!["Dollar".to_string()]);
+        // Mesh `$Nodes`-style section markers alone never select (Gmsh, not
+        // MATC): only `.sif` files drive the dollar marker.
+        let mesh_file = build.join("fem/tests/MeshOnly/CTestTestfile.cmake");
+        std::fs::create_dir_all(mesh_file.parent().unwrap()).unwrap();
+        std::fs::write(&mesh_file, "add_test(MeshOnly \"run\")\n").unwrap();
+        let msrc = repo.join("fem/tests/MeshOnly");
+        std::fs::create_dir_all(&msrc).unwrap();
+        std::fs::write(msrc.join("mesh.msh"), "$MeshFormat\n2.2 0 8\n$Nodes\n").unwrap();
+        let cases = ctest_enumerate(&build, &repo);
+        let texts = ctest_test_texts(&repo, &cases);
+        assert!(!texts["MeshOnly"].sif_dollar);
+        let affected = affected_ctest_tests(&cases, &texts, "matc/src/oper.c");
+        assert_eq!(affected, vec!["Dollar".to_string()]);
+        // Same test, non-matc unit from a non-colocated subsystem with an
+        // unmatched stem: out (the dollar form is matc-only).
+        let affected_grid = affected_ctest_tests(&cases, &texts, "elmergrid/src/egmesh.c");
+        assert!(affected_grid.is_empty());
+    }
+
+    #[test]
+    fn ctest_matc_smoke_grades_definition_parse() {
+        // The smoke mirrors the solver-startup prelude (one definition, two
+        // list-sharing variables read back, one over-min-args builtin
+        // call): exit 0 alone never passes (the REPL traps errors and still
+        // exits 0); any MATC ERROR on either stream fails, as does a
+        // missing read-back or call result. Read/call tokens are disjoint.
+        let cmd = matc_smoke_command(Path::new("/b"));
+        assert!(cmd.program.ends_with("matc/src/matc"));
+        assert!(cmd.args.is_empty());
+        assert_eq!(cmd.timeout_secs, Some(30));
+        let stdin = cmd.stdin.clone().unwrap();
+        assert!(stdin.contains("function _s6s__"), "prelude-shaped definition");
+        assert!(stdin.contains("_s6a__ = 43"), "first list-sharing variable");
+        assert!(stdin.contains("_s6b__ = 44"), "second list-sharing variable");
+        assert!(stdin.contains("_s6s__(424242)"), "over-min-args builtin call");
+        assert!(stdin.contains("exit"), "REPL terminates");
+        let ok = |code: i32, out: &str, err: &str| {
+            matc_smoke_ok(&RunOutput {
+                exit_code: code,
+                stdout: out.to_string(),
+                stderr: err.to_string(),
+                artifacts: BTreeMap::new(),
+            })
+        };
+        assert!(ok(0, "\n43\n424242\n", ""));
+        assert!(!ok(0, "\n424242\n", ""));
+        assert!(!ok(0, "\n43\n", ""));
+        assert!(!ok(0, "MATC ERROR: Syntax error.\n", ""));
+        assert!(!ok(0, "", "MATC ERROR: Syntax error.\n"));
+        assert!(!ok(0, "\n43\n424242\n", "MATC ERROR: Syntax error.\n"));
+        assert!(!ok(1, "\n43\n424242\n", ""));
+        assert!(!ok(124, "\n", ""));
+    }
+
+    #[test]
+    fn ctest_scoped_command_appends_anchored_regex() {
+        // The scoped command clones the frozen base (program/cwd/env/timeout/
+        // collect identical, so grading parses unchanged) and appends an
+        // exact-match `-R` alternation with metacharacters escaped.
+        let base = TestCommand {
+            program: "ctest".to_string(),
+            args: vec!["--output-on-failure".to_string(), "-L".to_string(), "quick".to_string()],
+            cwd: Cwd::BuildDir,
+            env_set: vec![("CTEST_OUTPUT_ON_FAILURE".to_string(), "1".to_string())],
+            env_remove: Vec::new(),
+            launcher: None,
+            timeout_secs: Some(1800),
+            collect: vec!["Testing/Temporary/LastTest.log".to_string()],
+            stdin: None,
+        };
+        let scoped = scoped_ctest_command(
+            &base,
+            &["b-test".to_string(), "a+test".to_string(), "b-test".to_string()],
+        );
+        assert_eq!(scoped.program, "ctest");
+        assert_eq!(scoped.cwd, Cwd::BuildDir);
+        assert_eq!(scoped.timeout_secs, Some(1800));
+        assert_eq!(scoped.collect, base.collect);
+        assert_eq!(&scoped.args[..3], &base.args[..]);
+        assert_eq!(scoped.args[3], "-R");
+        assert_eq!(scoped.args[4], "^(a\\+test|b-test)$");
+    }
+
 
     #[test]
     fn ctest_launchers_record_mpi_ranks() {
