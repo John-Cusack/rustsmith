@@ -1897,6 +1897,41 @@ fn remove_token(text: &str, token: &str) -> String {
 }
 
 
+/// `target_link_libraries` keyword style for `target` in this list file:
+/// CMake requires every use on one target to share a signature, so the
+/// merge matches the file's existing convention (Elmer links plain:
+/// `TARGET_LINK_LIBRARIES(Matc_bin matc)`). True = keyword (`PRIVATE`),
+/// false = plain. Case-insensitive command match, exact target token.
+fn link_uses_keyword(text: &str, target: &str) -> bool {
+    // Command name matches case-insensitively; the target token matches
+    // exactly (CMake target names are case-sensitive). to_ascii_lowercase
+    // is length-preserving, so lower-text offsets index the original.
+    let lower = text.to_ascii_lowercase();
+    let mut offset = 0;
+    let mut any_plain = false;
+    while let Some(i) = lower[offset..].find("target_link_libraries") {
+        let base = offset + i;
+        let after_lower = lower[base + "target_link_libraries".len()..].trim_start();
+        let orig_after = text[base + "target_link_libraries".len()..].trim_start();
+        if !after_lower.starts_with('(') {
+            offset = base + 1;
+            continue;
+        }
+        let inner: String = orig_after[1..].chars().take_while(|c| *c != ')').collect();
+        let mut toks = inner.split_whitespace();
+        if toks.next() == Some(target) {
+            match toks.next().map(str::to_ascii_uppercase).as_deref() {
+                Some("PRIVATE") | Some("PUBLIC") | Some("INTERFACE") => {}
+                _ => any_plain = true,
+            }
+        }
+        offset = base + 1;
+    }
+    // Plain wins on conflict: the existing plain use cannot change, and
+    // mixing is a configure error. No prior use defaults to keyword.
+    !any_plain
+}
+
 fn merge_unit(
     fork: &Path,
     _worktree: &str,
@@ -1929,8 +1964,6 @@ fn merge_unit(
             git(fork, &["rm", "-q", t])?;
         }
     }
-    // The fork must stay buildable: a CMake tree keeps referencing deleted
-    // sources until they leave the target lists, and each owning target
     // gains the port archive in their place. Non-CMake trees no-op here.
     // Archive paths are worker-contract conventional; whole-repo grade
     // builds them before configuring, so they exist when CMake globs them.
@@ -1951,9 +1984,16 @@ fn merge_unit(
                 "target_sources({target} PRIVATE rustsmith_empty.c)\n"
             ));
         }
-        text.push_str(&format!(
-            "target_link_libraries({target} PRIVATE {archive})\n"
-        ));
+        // Same signature as the file's existing use on this target:
+        // mixing plain and keyword forms is a configure error (Elmer
+        // links plain: TARGET_LINK_LIBRARIES(Matc_bin matc)).
+        if link_uses_keyword(&text, &target) {
+            text.push_str(&format!(
+                "target_link_libraries({target} PRIVATE {archive})\n"
+            ));
+        } else {
+            text.push_str(&format!("target_link_libraries({target} {archive})\n"));
+        }
         // Same-toolchain Rust archives collide on std/alloc
         // monomorphizations at final link (identical definitions,
         // dedup-safe; undefined references still fail, so every removed
@@ -2827,6 +2867,61 @@ mod tests {
         assert!(
             lists.contains("target_link_options(m PRIVATE LINKER:--allow-multiple-definition)"),
             "multi-definition tolerance missing: {lists}"
+        );
+    }
+
+    #[test]
+    fn link_signature_matches_file_convention() {
+        // Elmer links plain (uppercase); keyword stays keyword; mixed
+        // defaults to plain (the existing plain use cannot change);
+        // absent defaults to keyword; other targets do not sway it.
+        assert!(!link_uses_keyword("TARGET_LINK_LIBRARIES(Matc_bin matc)\n", "Matc_bin"));
+        assert!(link_uses_keyword("target_link_libraries(m PRIVATE foo.a)\n", "m"));
+        assert!(link_uses_keyword("target_link_libraries(m PUBLIC foo.a)\n", "m"));
+        assert!(!link_uses_keyword(
+            "target_link_libraries(m foo.a)\ntarget_link_libraries(m PRIVATE bar.a)\n",
+            "m"
+        ));
+        assert!(link_uses_keyword("add_library(m STATIC a.c)\n", "m"));
+        assert!(link_uses_keyword("TARGET_LINK_LIBRARIES(other matc)\n", "Matc_bin"));
+        assert!(link_uses_keyword("target_link_libraries(other PRIVATE x.a)\n", "m"));
+    }
+
+    #[test]
+    fn merge_unit_links_plain_where_file_links_plain() {
+        // matc/src/CMakeLists.txt links Matc_bin plain; the merge must
+        // emit plain too (mixed signatures are a configure error).
+        let dir = tempfile::tempdir().unwrap();
+        let fork = dir.path();
+        git(fork, &["init", "-q", "-b", "main"]).unwrap();
+        git(fork, &["config", "user.email", "t@t"]).unwrap();
+        git(fork, &["config", "user.name", "t"]).unwrap();
+        write_lists(
+            fork,
+            "CMakeLists.txt",
+            "ADD_EXECUTABLE(Matc_bin main.c)\nTARGET_LINK_LIBRARIES(Matc_bin matc)\n",
+        );
+        write_lists(fork, "main.c", "int main(void){return 0;}\n");
+        git(fork, &["add", "-A"]).unwrap();
+        git(fork, &["commit", "-qm", "seed"]).unwrap();
+        git(fork, &["checkout", "-qb", "unit/c_main.c"]).unwrap();
+        write_lists(fork, "rust/main/src/lib.rs", "// port\n");
+        git(fork, &["add", "-A"]).unwrap();
+        git(fork, &["commit", "-qm", "unit c:main.c"]).unwrap();
+        git(fork, &["checkout", "-q", "main"]).unwrap();
+        let merged = merge_unit(
+            fork,
+            "unit/c_main.c",
+            "c:main.c",
+            &["main.c".to_string()],
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert!(merged, "expected a reviewed merge commit");
+        let lists = std::fs::read_to_string(fork.join("CMakeLists.txt")).unwrap();
+        assert!(
+            lists.contains("target_link_libraries(Matc_bin ") && !lists.contains("target_link_libraries(Matc_bin PRIVATE"),
+            "plain link missing: {lists}"
         );
     }
 
