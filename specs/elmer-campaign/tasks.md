@@ -57,7 +57,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 
 **Goal**: `matc`-class slice green on the campaign harness with scoped grading; budget inputs frozen.
 
-- [ ] T005 [US1] Mirror run `RUSTSMITH_SCOPE=matc` (26 files): all scheduled units graded, no scope halt; per-unit wall seconds reported. Acceptance: run log + extrapolation recompute vs plan § wall-time math.
+- [ ] T005 [US1] [claimed fm/rs-elmer-c6, successor of fm/rs-elmer-c5 — resumed from staged artefacts] Mirror run `RUSTSMITH_SCOPE=matc` (26 files): all scheduled units graded, no scope halt; per-unit wall seconds reported. Acceptance: run log + extrapolation recompute vs plan § wall-time math.
 - [ ] T006 [P] [US1] Combined-splice all slice archives into one `matc` binary; extended corpus (12 cases + paired-`rand` + 6 scanner cases `:`, `,`, `;`, `while`, reverse range) byte-identical (`SPLICE<N>_GREEN`). Link with `-Wl,--allow-multiple-definition`; acceptance: corpus green, note kept for merge-path decision.
 - [ ] T007 [US1] Scoped-grading equivalence replay for the slice (ADR-028 fault protocol, one realistic fault/unit, both-ways grading): AGREE on every unit, `(full_failures − K) ⊆ affected`. Acceptance: per-unit table in PR body.
 
