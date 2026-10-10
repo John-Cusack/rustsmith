@@ -9,16 +9,20 @@
 
 [release]
 schema = 1
-# Original package identity (matches `template.json` `package` and recon facts).
-project = "pyyaml"
+# Original package identity. NOTE: this is `yaml`, not `pyyaml`:
+# `validate_names` requires `project` to be a Python module name (no hyphen)
+# and to equal `python_import`, and the core dir derives as `{project}-core`
+# (= `yaml-core`, which exists). The lane-canonical repo is therefore
+# `John-Cusack/yaml-rust`. The PyPI dist keeps the upstream dist name plus
+# `-rust` (= `pyyaml-rust`).
+project = "yaml"
 # Rust core crate published to crates.io (`yaml-core/Cargo.toml [package] name`).
 rust_crate = "yaml-rust-core"
 # Python distribution published to PyPI (`pyproject.toml [project] name`).
 # MUST differ from `project`: the original name stays with upstream.
-pypi_dist = "yaml-rust"
-# Python import name. MUST equal the package's import name: users swap the
-# install with zero import changes (`pip install yaml-rust`
-# still does `import yaml`).
+pypi_dist = "pyyaml-rust"
+# Python import name. MUST equal `project`: users swap the install with zero
+# import changes (`pip install pyyaml-rust` still does `import yaml`).
 python_import = "yaml"
 # Release version. MUST equal `[package] version` in `Cargo.toml`,
 # `yaml-core/Cargo.toml`, and `[project] version` in `pyproject.toml`.
@@ -42,6 +46,7 @@ testpypi_environment = "testpypi"
 license_spdx = "MIT"
 upstream = "yaml/pyyaml"
 upstream_url = "https://github.com/yaml/pyyaml"
+upstream_license = "MIT"
 upstream_authors = "Kirill Simonov"
 
 # Smoke checks run against the installed wheel (Python expressions; each must

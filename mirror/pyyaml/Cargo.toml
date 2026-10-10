@@ -1,5 +1,5 @@
 [package]
-name = "yaml-rust"
+name = "pyyaml-rust"
 version = "6.0.2"
 edition = "2021"
 description = "Pure-Rust YAML 1.1 engine with Python bindings (rustsmith Stage-1 mirror of yaml/pyyaml)"

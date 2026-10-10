@@ -1,4 +1,4 @@
-# yaml-rust
+# pyyaml-rust
 
 Stage-1 Rust mirror of [yaml/pyyaml](https://github.com/yaml/pyyaml)
 (`pyyaml` 6.0.2, MIT): YAML 1.1 parser and emitter for Python.
@@ -18,9 +18,9 @@ the upstream source verbatim:
   `representer.py`, loader/dumper API, `error`/`events`/`nodes`/`tokens`,
   `cyaml.py`.
 
-`lib/yaml/` keeps the exact public interface; when the compiled
+`yaml/` keeps the exact public interface; when the compiled
 extension is absent the modules fall back to the upstream Python loops,
-so the tree also imports without a build. `lib/yaml/_yaml.py` provides
+so the tree also imports without a build. `yaml/_yaml.py` provides
 `CParser`/`CEmitter` over the same Rust cores, so
 `yaml.__with_libyaml__` stays true and the libyaml-path suite grades the
 Rust engine on both sides of every comparison.
@@ -38,9 +38,9 @@ python3 -m pytest tests/ -q
 
 - `yaml-core/` — reusable Rust core (`yaml-rust-core` on crates.io).
 - `src/lib.rs` — PyO3 binding (`yaml._rust`).
-- `lib/yaml/scanner.py`, `lib/yaml/parser.py`, `lib/yaml/emitter.py` —
+- `yaml/scanner.py`, `yaml/parser.py`, `yaml/emitter.py` —
   upstream 6.0.2 plus delegating facades (diff against upstream shows
   only the delegation; the original loops stay as the no-extension
   fallback).
-- `lib/yaml/_yaml.py` — `CParser`/`CEmitter` over the Rust cores plus
+- `yaml/_yaml.py` — `CParser`/`CEmitter` over the Rust cores plus
   `get_version`/`get_version_string`.
