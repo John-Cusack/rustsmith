@@ -1,0 +1,19 @@
+This is a Stage-1 mirror of yaml/pyyaml (MIT).
+
+Upstream: https://github.com/yaml/pyyaml
+Original author: Kirill Simonov
+Upstream license: MIT (see upstream LICENSE, preserved in this tree).
+
+What changed vs upstream (behavior-identical port):
+- `lib/yaml/scanner.py`, `lib/yaml/parser.py`, `lib/yaml/emitter.py`:
+  the character-level state machines execute in the compiled
+  `yaml-rust-core` crate (exposed as `yaml._rust`). Token/event classes,
+  mark counters, lazy error ordering, and every error-message site stay
+  identical; the Rust cores return descriptors plus message templates,
+  and the Python facades build the exact upstream objects and render
+  `%`-formatting. The original Python loops stay in-file as the
+  no-extension fallback.
+- `lib/yaml/_yaml.py` (new): `CParser`/`CEmitter` over the same Rust
+  cores, so the `CLoader`/`CDumper` paths grade the ported engine.
+- Build backend: setuptools → maturin (PyO3 extension module
+  `yaml._rust`).

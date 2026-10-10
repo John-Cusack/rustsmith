@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "yaml-rust"
+version = "6.0.2"
+description = "YAML parser and emitter for Python (rustsmith Stage-1 mirror of yaml/pyyaml: scan/parse/emit engine in Rust, same API)"
+authors = [{ name = "Kirill Simonov" }]
+maintainers = [{ name = "Kirill Simonov", email = "xi@resolvent.net" }]
+requires-python = ">=3.8"
+readme = "README.md"
+license = "MIT"
+keywords = ["yaml", "parser", "emitter", "rust"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Rust",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Text Processing :: Markup",
+]
+
+[project.urls]
+Homepage = "https://github.com/John-Cusack/yaml-rust"
+Upstream = "https://github.com/yaml/pyyaml"
+
+[tool.maturin]
+module-name = "yaml._rust"
+bindings = "pyo3"
+python-source = "lib"
+features = ["pyo3/extension-module"]
+# The reusable Rust core ships inside the sdist as a path dependency
+# (verified by `release-prep`: the sdist rebuild test builds the wheel
+# from the unpacked sdist with no network checkout).
+sdist-include = ["yaml-core/**/*", "NOTICE", "release.toml"]
