@@ -911,15 +911,20 @@ pub unsafe extern "C" fn evalclause(mut root: *mut CLAUSE) -> *mut VARIABLE {
                 // SAFETY: condition tree live.
                 let res = evaltree((*root).this);
                 if !res.is_null() {
-                    // SAFETY: res data live through the scan.
+                    // SAFETY: res data live through the scan. C `*d++ == 0`
+                    // reads-then-advances: break leaves d one past the zero
+                    // and `*--d` re-points at it; checking without advancing
+                    // then stepping back reads before the buffer (wrong
+                    // branch for scalar-false conditions).
                     let mut d = var_matr(res);
                     let mut i: c_int = 0;
                     while i < var_nrow(res) * var_ncol(res) {
-                        if *d == 0.0 {
-                            break;
-                        }
+                        let v = *d;
                         d = d.offset(1);
                         i += 1;
+                        if v == 0.0 {
+                            break;
+                        }
                     }
                     d = d.offset(-1);
                     if *d == 0.0 {
@@ -952,15 +957,17 @@ pub unsafe extern "C" fn evalclause(mut root: *mut CLAUSE) -> *mut VARIABLE {
                     if res.is_null() {
                         break;
                     }
-                    // SAFETY: res data live through the scan.
+                    // SAFETY: res data live through the scan (same C `*d++`
+                    // read-then-advance pairing as the if statement above).
                     let mut d = var_matr(res);
                     let mut i: c_int = 0;
                     while i < var_nrow(res) * var_ncol(res) {
-                        if *d == 0.0 {
-                            break;
-                        }
+                        let v = *d;
                         d = d.offset(1);
                         i += 1;
+                        if v == 0.0 {
+                            break;
+                        }
                     }
                     d = d.offset(-1);
                     if *d != 0.0 {
