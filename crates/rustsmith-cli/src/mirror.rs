@@ -1194,6 +1194,21 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
                 return Err(format!("unit {id} scheduled before dep {d} passed (got {st})"));
             }
         }
+        // No-compilable-claim skip (spec US2): headers and helpers never
+        // produce a built object, so grading them can only halt at the
+        // substitute gate. Skip against the shared pristine build instead:
+        // recorded `skipped`, never graded, never merged. CTest spine only
+        // (the Python spine builds no pristine tree). Same object
+        // resolution as `substitute`, read-only.
+        let (orig_rel, merge_deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
+        if let Some(orig_build) = shared_orig_build.as_deref() {
+            let staged_src = a.fork.join("orig_src");
+            if !rustsmith_adapters::CmakeBridge::has_built_object(orig_build, &staged_src, &orig_rel) {
+                store.set_unit_status(id, "skipped").map_err(|e| e.to_string())?;
+                ev(store, run_id, "unit_skip", serde_json::json!({"unit": id, "reason": "outside_scope", "detail": "no built object (header/helper)"}));
+                continue;
+            }
+        }
         store.set_unit_status(id, "running").map_err(|e| e.to_string())?;
         ev(store, run_id, "unit_start", serde_json::json!({"unit": id}));
         // Worktree on branch unit/<sanitized id>: raw UnitIds contain `:` (and
@@ -1208,8 +1223,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // Bundle (held-out blind: no held-out input exists on this path).
         // Orig source + task come from the template manifest, never hardcodes.
         let bundle_dir = a.fork.join(format!(".bundles/{wt_name}"));
-        let (orig_rel, _) =
-            crate::units::unit_sources(&tspec, &recon_modules, id)?;
+        // `orig_rel` resolved above for the compilable-claim check.
         let orig_file = a.repo.join(&orig_rel);
         let orig_source =
             std::fs::read_to_string(&orig_file).unwrap_or_else(|_| String::from("// empty"));
@@ -1481,8 +1495,8 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         let providers = rustsmith_council::configured_providers();
         let (r1, r2) = assign_reviewers(None, &providers)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
-        let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
-        let merged = merge_unit(&a.fork, wt.as_str(), id, &deletes, |diff| {
+        // Deletes resolved with `orig_rel` above (same `unit_sources` call).
+        let merged = merge_unit(&a.fork, wt.as_str(), id, &merge_deletes, |diff| {
             record_review(store, run_id, id, diff, r1, r2)
         })?;
         let sha = git(&a.fork, &["rev-parse", "HEAD"])?;
