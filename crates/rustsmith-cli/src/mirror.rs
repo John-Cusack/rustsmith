@@ -126,6 +126,43 @@ fn skip_reason(
 fn dep_satisfied(status: &str) -> bool {
     status == "passed" || status == "skipped"
 }
+/// Campaign-known upstream oracle failures (Elmer decision A, pinned by
+/// T002 `specs/elmer-campaign/baseline.md`): 3 `fem/tests` solver cases
+/// segfaulting in `DefaultDirichletBCs` on the pristine tree. Ports must
+/// introduce zero regressions beyond K; any other failure fails the slice.
+/// This list is data, not a tunable: changes re-pin the baseline.
+pub(crate) const KNOWN_UPSTREAM_FAILURES: &[&str] = &[
+    "ConstantBCTemperature",
+    "ProfileBCTemperature",
+    "ProfileBCTemperatureRobin",
+];
+
+/// Parity verdict for a CTest-spine grade: the Elmer campaign tolerates
+/// exactly its known upstream failures (subset rule per unit — scoped
+/// affected sets are subsets by construction); every other package keeps
+/// the strict zero-failure gate. Python-spine callers never reach here.
+fn campaign_parity(
+    got: &rustsmith_core::GradedResult,
+    package: &str,
+) -> rustsmith_gates::GateVerdict {
+    if package == "Elmer" {
+        rustsmith_gates::parity_with_known_failures(got, KNOWN_UPSTREAM_FAILURES)
+    } else {
+        rustsmith_gates::oracle_parity(got)
+    }
+}
+
+/// Release-backstop exactness (T002 rule): the whole-suite grade passes at
+/// exactly 479/482 with failures == K. Subset tolerance carries units;
+/// only exact equality releases.
+fn backstop_exact(got: &rustsmith_core::GradedResult) -> bool {
+    let mut failed = rustsmith_gates::failed_names(got);
+    let mut known: Vec<String> = KNOWN_UPSTREAM_FAILURES.iter().map(|s| s.to_string()).collect();
+    failed.sort();
+    known.sort();
+    failed == known
+}
+
 
 /// Reviewer assignment: two seats, distinct providers, never the implementer.
 /// Providers come from config (never hardcoded); the seat->provider map is passed in.
@@ -1369,7 +1406,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
                     run_ctest_oracle_scoped(wt_path, &build_dir, &manifest, &orig_rel)?;
                 let runner = CtestRunner;
                 let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
-                let scoped_parity = gates::oracle_parity(&scoped_got);
+                // Campaign parity: Elmer tolerates exactly its known
+                // upstream failures here (subset rule); other packages
+                // keep the strict gate.
+                let scoped_parity = campaign_parity(&scoped_got, &package);
                 if was_scoped && !scoped_parity.passed {
                     // Confirm: full suite decides (record both verdicts).
                     let full_got = run_ctest_oracle(wt_path, &build_dir, &manifest)?;
@@ -1380,7 +1420,8 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
                         &manifest.baseline,
                         &full_got,
                     );
-                    let full_parity = gates::oracle_parity(&full_got);
+                    // Same campaign rule on the confirming full suite.
+                    let full_parity = campaign_parity(&full_got, &package);
                     let meta = serde_json::json!({
                         "scoped": true,
                         "affected": affected.len(),
@@ -1521,7 +1562,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         let runner = CtestRunner;
         let hashes = Oracle::current_hashes(&manifest, &a.fork, &runner);
         let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
-        let parity = gates::oracle_parity(&got);
+        // Campaign parity (subset rule) plus the release-backstop
+        // exactness: the whole suite passes at exactly 479/482 with
+        // failures == K (T002). Anything else fails the slice.
+        let parity = campaign_parity(&got, &package);
         (got, integrity, parity)
     };
     if !integrity.passed {
@@ -1532,6 +1576,15 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     }
     if !parity.passed {
         return Err("whole-repo grade failed".into());
+    }
+    if package == "Elmer" && !backstop_exact(&got) {
+        let reason = format!(
+            "whole-repo backstop drift: failures != K ({})",
+            serde_json::json!({"failed": rustsmith_gates::failed_names(&got)}),
+        );
+        store.set_halt(run_id, &reason).map_err(|e| e.to_string())?;
+        ev(store, run_id, "backstop_drift", serde_json::json!({"reason": reason}));
+        return Err(reason);
     }
     // Held-out suite through the spine runner (ctest `-R` on the CTest
     // spine; an empty held-out set matches nothing and fails honestly).
@@ -2347,6 +2400,47 @@ mod tests {
             }
         }
         assert_eq!((scheduled, oos, link), (1184, 61, 1780));
+    }
+
+    #[test]
+    fn campaign_parity_tolerates_only_known_upstream() {
+        use rustsmith_core::{GradedResult, Outcome};
+        use std::collections::BTreeMap;
+        let mut outcomes = BTreeMap::new();
+        for k in KNOWN_UPSTREAM_FAILURES {
+            outcomes.insert(k.to_string(), Outcome::Fail);
+        }
+        let got = GradedResult {
+            exit_code: 8,
+            passed: 479,
+            failed: 3,
+            skipped: vec![],
+            xfailed: vec![],
+            deselected: vec![],
+            stdout: String::new(),
+            outcomes,
+        };
+        // Elmer: exact K passes; backstop exactness holds.
+        assert!(campaign_parity(&got, "Elmer").passed);
+        assert!(backstop_exact(&got));
+        // Elmer subset (scoped run missing one K test) passes parity but
+        // fails backstop exactness (whole-suite rule is equality).
+        let mut scoped = got.clone();
+        scoped.passed = 100;
+        scoped.failed = 2;
+        scoped.outcomes.remove("ConstantBCTemperature");
+        assert!(campaign_parity(&scoped, "Elmer").passed);
+        assert!(!backstop_exact(&scoped));
+        // Extra failure fails everywhere.
+        let mut extra = got.clone();
+        extra.failed = 4;
+        extra.outcomes.insert("HeatSolve".to_string(), Outcome::Fail);
+        assert!(!campaign_parity(&extra, "Elmer").passed);
+        assert!(!backstop_exact(&extra));
+        // Other packages keep the strict gate even on K names.
+        assert!(!campaign_parity(&got, "Mini").passed);
+        let clean = GradedResult { exit_code: 0, passed: 5, failed: 0, outcomes: BTreeMap::new(), ..got };
+        assert!(campaign_parity(&clean, "Mini").passed);
     }
 
     #[test]
