@@ -85,7 +85,7 @@ pub(crate) fn in_scope(rel: &str, prefixes: Option<&[String]>) -> bool {
 /// numerics the frozen recon does NOT mark `out_of_scope` (recon's vendored
 /// segments are `contrib/` et al.; see `unit_vendored`), so the scheduler
 /// skips them here without touching the recon frozen shape. Frozen inventory
-/// counts (IMPLEMENTATION_ELMER.md §1): `mathlibs/` 1587 + `umfpack/` 193.
+/// counts: `mathlibs/` 1587 + `umfpack/` 193.
 /// These units link; they are never ported.
 pub(crate) const VENDORED_LINK_PREFIXES: &[&str] = &["mathlibs", "umfpack"];
 
@@ -1063,8 +1063,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     // `RUSTSMITH_SCOPE` prefix allowlist (empty/unset = whole tree), plus the
     // T001 vendored link-target exclusion (`mathlibs/`, `umfpack/`; recon
     // frozen shape untouched). Headers and helpers skip standalone here
-    // (link, don't port); header-follower attachment is a later track
-    // (see IMPLEMENTATION_ELMER.md S1).
+    // (link, don't port); header-follower attachment is a later track.
     let oos = out_of_scope_set(&dag_json);
     let scope = scope_prefixes();
     // Scheduler works over this DAG: leaf-first order, ready = deps passed.

@@ -1,16 +1,14 @@
 # Implement: polyglot composite adapter (parallel tracks A–I)
 
-Goal: implement `docs/adr/008-polyglot-composite-adapter.md` (accepted) per
-`docs/IMPLEMENTATION_POLYGLOT.md`, closing every hardcoded Python site without
-breaking crc/strsimpy parity. Review context:
-`docs/adr/007-polyglot-composite-adapter.review.md`.
+Goal: implement `docs/adr/008-polyglot-composite-adapter.md` (accepted),
+closing every hardcoded Python site without breaking crc/strsimpy parity.
+Review context: `docs/adr/007-polyglot-composite-adapter.review.md`.
 
 ## Read first (all agents)
 
 1. `docs/adr/008-polyglot-composite-adapter.md` — signatures are normative. Follow them;
    record why in code comments only if the code forces a deviation.
-2. `docs/IMPLEMENTATION_POLYGLOT.md` — your track's Target/Change/Acceptance + integration order.
-3. Current code you own (see track). Do not open files hoping — read your owned ranges only.
+2. Current code you own (see track). Do not open files hoping — read your owned ranges only.
 
 ## Shared contracts (verbatim, no invention)
 
