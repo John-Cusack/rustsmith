@@ -220,7 +220,7 @@ Status is one of: `open` | `in progress (<branch>)` | `mirrored (oracle N/N, hel
 
 ## Ported packages
 
-Every merged port below passed its graded run at 100% oracle parity (frozen upstream suite, test count/skip list identical to baseline) plus a host-only held-out suite no agent ever sees. Speedup cells cite measured workloads only; anything unmeasured reads "not benchmarked" — never a guess. Excluded here: Elmer (method work, not a package).
+Every merged port below passed its graded run at 100% oracle parity (frozen upstream suite, test count/skip list identical to baseline), modulo explicitly disclosed environment skips where a row says so, plus a host-only held-out suite no agent ever sees. Speedup cells cite measured workloads only; anything unmeasured reads "not benchmarked" — never a guess. Excluded here: Elmer (method work, not a package).
 
 | Package | Upstream | Accuracy proof | Measured speedup | Install |
 |---|---|---|---|---|
@@ -229,10 +229,10 @@ Every merged port below passed its graded run at 100% oracle parity (frozen upst
 | packaging | [pypa/packaging](https://github.com/pypa/packaging) | oracle 62483/62483, heldout 13/13 | not benchmarked | — |
 | charset-normalizer | [Ousret/charset_normalizer](https://github.com/Ousret/charset_normalizer) | oracle 297/297, heldout 20/20 | not benchmarked | — |
 | strsimpy | [luozhouyang/python-string-similarity](https://github.com/luozhouyang/python-string-similarity) | oracle 18/18, heldout 16/16 | not benchmarked | [strsimpy-rust (TestPyPI)](https://test.pypi.org/project/strsimpy-rust/0.2.1/) · [mirror](https://github.com/John-Cusack/strsimpy-rust) |
-| markdown-it-py | [executablebooks/markdown-it-py](https://github.com/executablebooks/markdown-it-py) | oracle 1031 passed / 0 failed / 1 env-skip of 1032; heldout 16/18 (2 env-skips) | not benchmarked | — |
-| multipart | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) | oracle 162/162, heldout 55/55 | not benchmarked | — |
+| markdown-it-py | [executablebooks/markdown-it-py](https://github.com/executablebooks/markdown-it-py) | oracle 1031 passed / 0 failed / 1 env-skip of 1032; heldout 16/18 (2 env-skips) | not benchmarked | [markdown-it-py-rust (TestPyPI)](https://test.pypi.org/project/markdown-it-py-rust/4.2.0/) · [mirror](https://github.com/John-Cusack/markdown_it-rust) |
+| python-multipart | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) | oracle 162/162, heldout 55/55 | not benchmarked | — |
 | pyparsing | [pyparsing/pyparsing](https://github.com/pyparsing/pyparsing) | oracle 2104/2104, heldout 41/41 + 9 pins | not benchmarked | [pyparsing-rust (TestPyPI)](https://test.pypi.org/project/pyparsing-rust/3.3.3/) · [mirror](https://github.com/John-Cusack/pyparsing-rust) |
-| pyyaml | [yaml/pyyaml](https://github.com/yaml/pyyaml) | oracle 2608/2608, heldout 36/36 + 9 pins | 1.9x safe_load / 1.9x scan, 0.93x dump (§5 bench) | — |
+| pyyaml | [yaml/pyyaml](https://github.com/yaml/pyyaml) | oracle 2608/2608, heldout 36/36 + 9 pins | 1.9x safe_load / 1.9x scan, 0.93x dump (§5 bench) | [pyyaml-rust (TestPyPI)](https://test.pypi.org/project/pyyaml-rust/6.0.2/) · [mirror](https://github.com/John-Cusack/yaml-rust) |
 
 ## Status and docs
 
