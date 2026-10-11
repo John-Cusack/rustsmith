@@ -69,7 +69,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 
 **Goal**: leaf subsystems green in parallel lanes.
 
-- [ ] T008 [P] [US2] Lane `elmergrid` (131 units): mirror slice green, combined-splice corpus green where a binary exists, costs reported. Files: slice ports under `rust/<crate>/` only. Non-goal: `fem/` core.
+- [ ] T008 [P] [US2] [claimed fm/rs-elmer-lane2] Lane `elmergrid` (131 units): mirror slice green, combined-splice corpus green where a binary exists, costs reported. Files: slice ports under `rust/<crate>/` only. Non-goal: `fem/` core.
 - [ ] T009 [P] [US2] Lane `meshgen2d` (60 units): same acceptance as T008. Files: slice ports only (disjoint from T008).
 - [ ] T010 [P] [US2] Lane `fhutiter` porting-rules coverage (17 units, whole-file non-`BIND(C)` per ADR-027 sequencing only where shape-proven; else refused): ports build + substitute where allowed, honest `no differential probes` halt kept. Files: slice ports only. Non-goal: inventing probe paths.
 - [ ] T011 [P] [US2] Per-lane scoped-grading equivalence (fault protocol) for T008–T010 slices. Non-goal: changing selection code to accommodate weak ports.
