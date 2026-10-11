@@ -22,7 +22,7 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 fn usage() -> &'static str {
-    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>] [--build-dir <dir>]\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> --build-dir <dir> --unit <repo-rel-path> (ctest scoped)\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>\n       rustsmith release-prep --project <mirror/<pkg>> --fork <dir> [--opt <dir>] --recon-out <dir> --out <dir>\n       rustsmith release-prep --init --project <mirror/<pkg>> --recon-out <dir> [--fork <dir>] [--upstream <owner/repo>] [--github-owner <owner>] [--module <import>] [--version <x.y.z>] [--license-spdx <id>] [--force]\n       rustsmith release-record --state <release-state.json> --registry testpypi|pypi|crates-io --result success|failed [--detail <text>]\n       rustsmith release-status --state <release-state.json>\n       rustsmith create-github-repo --fork <dir> --project <mirror/<pkg>> --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes]"
+    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>] [--build-dir <dir>]\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> --build-dir <dir> --unit <repo-rel-path> (ctest scoped)\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>\n       rustsmith release-prep --project <mirror/<pkg>> --fork <dir> [--opt <dir>] --recon-out <dir> --out <dir>\n       rustsmith release-prep --init --project <mirror/<pkg>> --recon-out <dir> [--fork <dir>] [--upstream <owner/repo>] [--github-owner <owner>] [--module <import>] [--version <x.y.z>] [--license-spdx <id>] [--force]\n       rustsmith release-record --state <release-state.json> --registry testpypi|pypi|crates-io --result success|failed [--detail <text>]\n       rustsmith release-status --state <release-state.json>\n       rustsmith create-github-repo --fork <dir> --project <mirror/<pkg>> --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes]\n       rustsmith combine-stores --stores <a.db,b.db> --out <merged.db>"
 }
 
 fn main() {
@@ -48,6 +48,7 @@ fn run() -> Result<(), String> {
         "mirror" => cmd_mirror(&args[2..]),
         "optimize" => cmd_optimize(&args[2..]),
         "grade-candidate" => cmd_grade_candidate(&args[2..]),
+        "combine-stores" => cmd_combine_stores(&args[2..]),
         "learn" => cmd_learn(&args[2..]),
         "report" => cmd_report(&args[2..]),
         "status" => cmd_status(&args[2..]),
@@ -1319,6 +1320,20 @@ fn git_cli(dir: &std::path::Path, args: &[&str]) -> Result<String, String> {
         return Err(format!("git {} failed", args.join(" ")));
     }
     Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+/// Combine per-run store.db files into one rollup (fleet index for hunks).
+/// `runs` merge idempotently, `hunks` copy verbatim scoped by run_id.
+fn cmd_combine_stores(args: &[String]) -> Result<(), String> {
+    let stores = flag(args, "--stores").ok_or("missing --stores")?;
+    let out = PathBuf::from(flag(args, "--out").ok_or("missing --out")?);
+    let sources: Vec<PathBuf> = stores.split(',').map(PathBuf::from).collect();
+    if sources.is_empty() {
+        return Err("no stores listed".into());
+    }
+    let refs: Vec<&std::path::Path> = sources.iter().map(PathBuf::as_path).collect();
+    let rep = rustsmith_store::combine_stores(&refs, &out).map_err(|e| e.to_string())?;
+    println!("{rep}");
+    Ok(())
 }
 fn cmd_learn(args: &[String]) -> Result<(), String> {
     match args.first().map(|s| s.as_str()) {

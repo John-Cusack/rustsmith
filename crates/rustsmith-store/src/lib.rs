@@ -14,6 +14,8 @@ pub enum StoreError {
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("invalid: {0}")]
+    Invalid(String),
 }
 
 /// M6 harvest/report row types (full column reads).
@@ -40,6 +42,17 @@ pub struct FailedRow {
 pub struct RoundRow {
     pub round: i64, pub stop_reason: String,
     pub gain_low: Option<f64>, pub gain_high: Option<f64>,
+}
+/// One merged hunk in the grade-to-merge transaction (attribution ledger).
+/// `source` names the hunk origin, never an optimization technique (mirror
+/// hunks are reference-template copies). `wall_delta_pct`/`workload` are
+/// NULL when unmeasured -- never fake zeros.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HunkRow {
+    pub run_id: String, pub unit_id: String, pub package: String, pub source: String,
+    pub before_ref: String, pub after_ref: String,
+    pub wall_delta_pct: Option<f64>, pub workload: Option<String>,
+    pub verdict: String,
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GithubRepoRow {
@@ -233,6 +246,7 @@ CREATE TABLE IF NOT EXISTS github_repos (
         )?;
         }
         self.migrate_stage2()?;
+        self.migrate_hunks()?;
         Ok(())
     }
 
@@ -269,6 +283,29 @@ CREATE TABLE IF NOT EXISTS github_repos (
                 conn.execute(&format!("ALTER TABLE optimizations ADD COLUMN {col} {ddl}"), [])?;
             }
         }
+        Ok(())
+    }
+
+    /// Attribution-ledger table (forward-only: CREATE IF NOT EXISTS; later
+    /// changes append ALTERs here, never rewrites). `wall_delta_pct` and
+    /// `workload` stay NULL when unmeasured -- never fake zeros.
+    fn migrate_hunks(&self) -> Result<(), StoreError> {
+        let conn = self.conn.lock();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS hunks (
+               id INTEGER PRIMARY KEY,
+               run_id TEXT NOT NULL REFERENCES runs(id),
+               unit_id TEXT NOT NULL,
+               package TEXT NOT NULL,
+               source TEXT NOT NULL,
+               before_ref TEXT NOT NULL,
+               after_ref TEXT NOT NULL,
+               wall_delta_pct REAL,
+               workload TEXT,
+               verdict TEXT NOT NULL,
+               recorded_at INTEGER NOT NULL
+             );",
+        )?;
         Ok(())
     }
 
@@ -734,6 +771,56 @@ CREATE TABLE IF NOT EXISTS github_repos (
         Ok(())
     }
 
+    /// One merged hunk in the grade-to-merge transaction. Identity columns
+    /// are mandatory; `wall_delta_pct`/`workload` pass through as NULL when
+    /// unmeasured (the mirror lane measures neither -- never fake zeros).
+    /// Returns the row id.
+    pub fn record_hunk(&self, row: &HunkRow) -> Result<i64, StoreError> {
+        for (what, v) in [
+            ("run_id", &row.run_id),
+            ("unit_id", &row.unit_id),
+            ("package", &row.package),
+            ("source", &row.source),
+            ("before_ref", &row.before_ref),
+            ("after_ref", &row.after_ref),
+            ("verdict", &row.verdict),
+        ] {
+            if v.is_empty() {
+                return Err(StoreError::Invalid(format!("hunk {what} must be non-empty")));
+            }
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO hunks (run_id, unit_id, package, source, before_ref, after_ref, wall_delta_pct, workload, verdict, recorded_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            params![row.run_id, row.unit_id, row.package, row.source, row.before_ref, row.after_ref, row.wall_delta_pct, row.workload, row.verdict, now],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Hunks for one run, in record order (combine-stores rollup reads these).
+    pub fn list_hunks(&self, run_id: &str) -> Result<Vec<HunkRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT run_id, unit_id, package, source, before_ref, after_ref, wall_delta_pct, workload, verdict FROM hunks WHERE run_id=?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok(HunkRow {
+                run_id: r.get(0)?, unit_id: r.get(1)?, package: r.get(2)?, source: r.get(3)?,
+                before_ref: r.get(4)?, after_ref: r.get(5)?,
+                wall_delta_pct: r.get(6)?, workload: r.get(7)?, verdict: r.get(8)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Standard retrospective aggregations (§17.4, deterministic over store.db).
     pub fn learn_stats(&self) -> Result<serde_json::Value, StoreError> {
         let conn = self.conn.lock();
@@ -775,6 +862,48 @@ CREATE TABLE IF NOT EXISTS github_repos (
         }
         Ok(serde_json::json!({"yield_by_technique": by_technique, "ceiling_calibration": calib, "gate_kills": kills, "cost_per_point": cost}))
     }
+}
+
+/// Combine per-run store.db files into one rollup (fleet index for hunks).
+/// `runs` merge with OR IGNORE (same run never duplicates); `hunks` copy
+/// verbatim (run_id scopes every row). Missing sources are errors, never
+/// silently skipped. The output file is replaced when it exists.
+pub fn combine_stores(sources: &[&Path], out: &Path) -> Result<serde_json::Value, StoreError> {
+    for s in sources {
+        if !s.is_file() {
+            return Err(StoreError::Invalid(format!(
+                "store not found: {}",
+                s.display()
+            )));
+        }
+    }
+    if out.exists() {
+        std::fs::remove_file(out)?;
+    }
+    let merged = Store::open(out)?;
+    let mut total_hunks = 0i64;
+    let mut per_store = Vec::new();
+    {
+        let conn = merged.conn.lock();
+        for (i, src) in sources.iter().enumerate() {
+            let alias = format!("src{i}");
+            let lit = src.display().to_string().replace('\'', "''");
+            conn.execute_batch(&format!("ATTACH DATABASE '{lit}' AS {alias};"))?;
+            conn.execute_batch(&format!(
+                "INSERT OR IGNORE INTO runs (id, repo_url, source_lang, status, stage, started_at, ended_at, halt_reason) SELECT id, repo_url, source_lang, status, stage, started_at, ended_at, halt_reason FROM {alias}.runs;"
+            ))?;
+            let hunks: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {alias}.hunks"), [], |r| {
+                r.get(0)
+            })?;
+            conn.execute_batch(&format!(
+                "INSERT INTO hunks (run_id, unit_id, package, source, before_ref, after_ref, wall_delta_pct, workload, verdict, recorded_at) SELECT run_id, unit_id, package, source, before_ref, after_ref, wall_delta_pct, workload, verdict, recorded_at FROM {alias}.hunks;"
+            ))?;
+            total_hunks += hunks;
+            per_store.push(serde_json::json!({"store": src.display().to_string(), "hunks": hunks}));
+            conn.execute_batch(&format!("DETACH DATABASE {alias};"))?;
+        }
+    }
+    Ok(serde_json::json!({"hunks": total_hunks, "stores": per_store}))
 }
 
 #[cfg(test)]
@@ -831,5 +960,62 @@ mod tests {
         let row = s.get_github_repo("r1").unwrap().unwrap();
         assert_eq!(row.sha, "def");
         assert_eq!(row.visibility, "public");
+    }
+
+    fn hunk(unit: &str) -> HunkRow {
+        HunkRow {
+            run_id: "r1".into(), unit_id: unit.into(), package: "crc".into(),
+            source: "reference-template".into(), before_ref: "aaa".into(),
+            after_ref: "bbb".into(), wall_delta_pct: None, workload: None,
+            verdict: "merged".into(),
+        }
+    }
+
+    #[test]
+    fn hunks_migrate_forward_and_reject_unlabelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("store.db");
+        let ev = dir.path().join("events.jsonl");
+        let s = Store::open_with_events(&db, &ev).unwrap();
+        s.create_run("r1", "https://example.com/x", "python", "mirror").unwrap();
+        // Reopen applies no second migration (forward-only, idempotent).
+        drop(s);
+        let s = Store::open_with_events(&db, &ev).unwrap();
+        // Identity columns mandatory; wall/workload NULL passes through.
+        let mut bad = hunk("u1");
+        bad.source.clear();
+        assert!(s.record_hunk(&bad).is_err());
+        s.record_hunk(&hunk("u1")).unwrap();
+        let rows = s.list_hunks("r1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].source, "reference-template");
+        assert_eq!((rows[0].wall_delta_pct, rows[0].workload.clone()), (None, None));
+    }
+
+    #[test]
+    fn combine_stores_merges_hunks_without_loss() {
+        let dir = tempfile::tempdir().unwrap();
+        let mk = |name: &str, run: &str, units: &[&str]| {
+            let db = dir.path().join(name);
+            let ev = dir.path().join(format!("{name}.events"));
+            let s = Store::open_with_events(&db, &ev).unwrap();
+            s.create_run(run, "https://example.com/x", "python", "mirror").unwrap();
+            for u in units {
+                let mut h = hunk(u);
+                h.run_id = run.into();
+                s.record_hunk(&h).unwrap();
+            }
+            db
+        };
+        let a = mk("a.db", "r1", &["u1", "u2"]);
+        let b = mk("b.db", "r2", &["u3"]);
+        let out = dir.path().join("fleet.db");
+        let rep = combine_stores(&[a.as_path(), b.as_path()], &out).unwrap();
+        assert_eq!(rep["hunks"], 3);
+        let m = Store::open(&out).unwrap();
+        assert_eq!(m.list_hunks("r1").unwrap().len(), 2);
+        assert_eq!(m.list_hunks("r2").unwrap().len(), 1);
+        // Missing sources are errors, never skipped.
+        assert!(combine_stores(&[dir.path().join("nope.db").as_path()], &out).is_err());
     }
 }
