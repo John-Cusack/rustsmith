@@ -222,17 +222,26 @@ Status is one of: `open` | `in progress (<branch>)` | `mirrored (oracle N/N, hel
 
 Every merged port below passed its graded run at 100% oracle parity (frozen upstream suite, test count/skip list identical to baseline), modulo explicitly disclosed environment skips where a row says so, plus a host-only held-out suite no agent ever sees. Speedup cells cite measured workloads only; anything unmeasured reads "not benchmarked" — never a guess. Excluded here: Elmer (method work, not a package).
 
+Standing rule (2026-10-11): a row counts as `ported` only with both (a) an install option (PyPI/TestPyPI link, crates.io where applicable — every link below verified live) and (b) measured benchmark figures on the board. Grade-green rows missing either sit under `parity-graded — install/bench pending`: never deleted, never inflated.
+
+### Ported
+
 | Package | Upstream | Accuracy proof | Measured speedup | Install |
 |---|---|---|---|---|
-| crc | [Nicoretti/crc](https://github.com/Nicoretti/crc) | oracle 80/80, heldout 11/11 | not benchmarked | [crc-rust (PyPI)](https://pypi.org/project/crc-rust/) · [crc-rust-core (crates.io)](https://crates.io/crates/crc-rust-core) · [mirror](https://github.com/John-Cusack/crc-rust) |
 | python-dateutil | [dateutil/dateutil](https://github.com/dateutil/dateutil) | oracle 2032/2032, heldout 41/41 | 5.6x fuzzy-noisy / 3.8x strict-parse / 1.7x iso (§5 bench); 1.6–4.2x rrule queries (ADR-021) | [python-dateutil-rust (PyPI)](https://pypi.org/project/python-dateutil-rust/) · [dateutil-core (crates.io)](https://crates.io/crates/dateutil-core) · [mirror](https://github.com/John-Cusack/dateutil-rust) |
+| pyyaml | [yaml/pyyaml](https://github.com/yaml/pyyaml) | oracle 2608/2608, heldout 36/36 + 9 pins (graded 2026-10-09) | 1.9x safe_load / 1.9x scan, 0.93x dump (§5 bench) | [pyyaml-rust (TestPyPI)](https://test.pypi.org/project/pyyaml-rust/6.0.2/) · [mirror](https://github.com/John-Cusack/yaml-rust) |
+
+### Parity-graded — install/bench pending
+
+| Package | Upstream | Accuracy proof | Measured speedup | Install |
+|---|---|---|---|---|
+| crc | [Nicoretti/crc](https://github.com/Nicoretti/crc) | oracle 80/80, heldout 11/11, divergence 0.0000 (graded 2026-10-06) | not benchmarked | [crc-rust (PyPI)](https://pypi.org/project/crc-rust/) · [crc-rust-core (crates.io)](https://crates.io/crates/crc-rust-core) · [mirror](https://github.com/John-Cusack/crc-rust) |
 | packaging | [pypa/packaging](https://github.com/pypa/packaging) | oracle 62483/62483, heldout 13/13 | not benchmarked | — |
 | charset-normalizer | [Ousret/charset_normalizer](https://github.com/Ousret/charset_normalizer) | oracle 297/297, heldout 20/20 | not benchmarked | — |
-| strsimpy | [luozhouyang/python-string-similarity](https://github.com/luozhouyang/python-string-similarity) | oracle 18/18, heldout 16/16 | not benchmarked | [strsimpy-rust (TestPyPI)](https://test.pypi.org/project/strsimpy-rust/0.2.1/) · [mirror](https://github.com/John-Cusack/strsimpy-rust) |
-| markdown-it-py | [executablebooks/markdown-it-py](https://github.com/executablebooks/markdown-it-py) | oracle 1031 passed / 0 failed / 1 env-skip of 1032; heldout 16/18 (2 env-skips) | not benchmarked | [markdown-it-py-rust (TestPyPI)](https://test.pypi.org/project/markdown-it-py-rust/4.2.0/) · [mirror](https://github.com/John-Cusack/markdown_it-rust) |
-| python-multipart | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) | oracle 162/162, heldout 55/55 | not benchmarked | — |
-| pyparsing | [pyparsing/pyparsing](https://github.com/pyparsing/pyparsing) | oracle 2104/2104, heldout 41/41 + 9 pins | not benchmarked | [pyparsing-rust (TestPyPI)](https://test.pypi.org/project/pyparsing-rust/3.3.3/) · [mirror](https://github.com/John-Cusack/pyparsing-rust) |
-| pyyaml | [yaml/pyyaml](https://github.com/yaml/pyyaml) | oracle 2608/2608, heldout 36/36 + 9 pins | 1.9x safe_load / 1.9x scan, 0.93x dump (§5 bench) | [pyyaml-rust (TestPyPI)](https://test.pypi.org/project/pyyaml-rust/6.0.2/) · [mirror](https://github.com/John-Cusack/yaml-rust) |
+| strsimpy | [luozhouyang/python-string-similarity](https://github.com/luozhouyang/python-string-similarity) | oracle 18/18, heldout 16/16, divergence 0.0000 (graded 2026-10-06) | not benchmarked | [strsimpy-rust (TestPyPI)](https://test.pypi.org/project/strsimpy-rust/0.2.1/) · [mirror](https://github.com/John-Cusack/strsimpy-rust) |
+| markdown-it-py | [executablebooks/markdown-it-py](https://github.com/executablebooks/markdown-it-py) | oracle 1031 passed / 0 failed / 1 env-skip of 1032; heldout 16/18 (2 env-skips) (graded 2026-10-07) | not benchmarked | [markdown-it-py-rust (TestPyPI)](https://test.pypi.org/project/markdown-it-py-rust/4.2.0/) · [mirror](https://github.com/John-Cusack/markdown_it-rust) |
+| python-multipart | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) | oracle 162/162, heldout 55/55, divergence 0.0000 (run mp-port-graded2) | not benchmarked | — |
+| pyparsing | [pyparsing/pyparsing](https://github.com/pyparsing/pyparsing) | oracle 2104/2104, heldout 41/41 + 9 pins, divergence 0.0000 (run pp-mirror2; graded 2026-10-08) | not benchmarked | [pyparsing-rust (TestPyPI)](https://test.pypi.org/project/pyparsing-rust/3.3.3/) · [mirror](https://github.com/John-Cusack/pyparsing-rust) |
 
 ## Status and docs
 
