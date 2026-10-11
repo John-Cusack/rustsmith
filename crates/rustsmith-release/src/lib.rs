@@ -11,6 +11,8 @@
 //! (`rustsmith-cli/src/release.rs`); everything here is pure and unit-tested.
 //! This crate never touches agents, council seats, gates, or the oracle.
 
+pub mod trove;
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -249,6 +251,142 @@ pub fn validate_names(cfg: &ReleaseConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Canonical release naming derived from the upstream distribution name
+/// (recon `probe.package`; `release-prep --init`). Five lanes hand-authored
+/// these shapes before the scaffold existed; new lanes derive them.
+/// `project` is the hyphen-free module name and always equals
+/// `python_import`; `pypi_dist` is the upstream dist plus `-rust`; the
+/// publishing repo is `<project>-rust`.
+pub fn module_for_dist(dist: &str) -> String {
+    dist.chars()
+        .map(|c| if c == '-' || c == '.' { '_' } else { c })
+        .collect()
+}
+
+/// Upstream dist plus `-rust` (the original name stays with upstream).
+pub fn rust_dist_for(dist: &str) -> String {
+    format!("{dist}-rust")
+}
+
+/// Publishing repo name for a module (`<project>-rust`).
+pub fn repo_name_for_module(module: &str) -> String {
+    format!("{module}-rust")
+}
+
+/// Default core crate name (`_` normalized to `-`, plus `-rust-core`).
+pub fn crate_name_for_module(module: &str) -> String {
+    format!("{}-rust-core", module.replace('_', "-"))
+}
+
+/// Inputs to [`scaffold_release_toml`]. `dist` is the frozen recon identity
+/// (`probe.package`); `module_override` covers lanes where the import name
+/// differs from the dist-derived module (`pyyaml` imports as `yaml`,
+/// `python-dateutil` as `dateutil`, `markdown-it-py` as `markdown_it`).
+/// Everything else is a reviewed default the lane adjusts before first use.
+pub struct ScaffoldInputs {
+    pub dist: String,
+    pub module_override: Option<String>,
+    pub upstream: String,
+    pub github_owner: String,
+    pub version: String,
+    pub license_spdx: String,
+    pub upstream_license: String,
+}
+
+/// Render a `release.toml` body from canonical names. The output parses and
+/// satisfies [`validate_names`]; the lane reviews it (smoke vectors
+/// especially) before the first `release-prep`.
+pub fn scaffold_release_toml(inp: &ScaffoldInputs) -> Result<String, String> {
+    let module = inp.module_override.clone().unwrap_or_else(|| module_for_dist(&inp.dist));
+    if !is_module_name(&module) {
+        return Err(format!("scaffold: module {module:?} is not a Python module name"));
+    }
+    let cfg = ReleaseConfig {
+        project: module.clone(),
+        rust_crate: crate_name_for_module(&module),
+        pypi_dist: rust_dist_for(&inp.dist),
+        python_import: module.clone(),
+        version: inp.version.clone(),
+        requires_python: ">=3.9".into(),
+        python_versions: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        platforms: ["ubuntu-22.04", "macos-14", "windows-2022"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        github_repo: format!("{}/{}", inp.github_owner, repo_name_for_module(&module)),
+        release_workflow: ".github/workflows/release.yml".into(),
+        pypi_environment: "pypi".into(),
+        testpypi_environment: "testpypi".into(),
+        license_spdx: inp.license_spdx.clone(),
+        upstream: inp.upstream.clone(),
+        upstream_url: format!("https://github.com/{}", inp.upstream),
+        upstream_license: inp.upstream_license.clone(),
+        upstream_authors: String::new(),
+        smoke_exprs: vec![format!("{module}.__name__ == '{module}'")],
+    };
+    validate_names(&cfg)?;
+    let py_versions = cfg
+        .python_versions
+        .iter()
+        .map(|v| format!("\"{v}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let platforms = cfg
+        .platforms
+        .iter()
+        .map(|v| format!("\"{v}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "# Release configuration scaffolded by `release-prep --init`.\n\
+         # Reviewed defaults: replace the smoke vector with real installed-package\n\
+         # checks and fill in `upstream_authors` before the first `release-prep`.\n\
+         # Field meanings are documented in `docs/RELEASE.md`.\n\
+         \n\
+         [release]\n\
+         schema = 1\n\
+         project = \"{project}\"\n\
+         rust_crate = \"{rust_crate}\"\n\
+         pypi_dist = \"{pypi_dist}\"\n\
+         python_import = \"{python_import}\"\n\
+         version = \"{version}\"\n\
+         requires_python = \"{requires_python}\"\n\
+         python_versions = [{py_versions}]\n\
+         platforms = [{platforms}]\n\
+         github_repo = \"{github_repo}\"\n\
+         release_workflow = \"{release_workflow}\"\n\
+         pypi_environment = \"{pypi_environment}\"\n\
+         testpypi_environment = \"{testpypi_environment}\"\n\
+         license_spdx = \"{license_spdx}\"\n\
+         upstream = \"{upstream}\"\n\
+         upstream_url = \"{upstream_url}\"\n\
+         upstream_license = \"{upstream_license}\"\n\
+         upstream_authors = \"{upstream_authors}\"\n\
+         smoke_exprs = [\n\
+           \"{smoke}\",\n\
+         ]\n",
+        project = cfg.project,
+        rust_crate = cfg.rust_crate,
+        pypi_dist = cfg.pypi_dist,
+        python_import = cfg.python_import,
+        version = cfg.version,
+        requires_python = cfg.requires_python,
+        github_repo = cfg.github_repo,
+        release_workflow = cfg.release_workflow,
+        pypi_environment = cfg.pypi_environment,
+        testpypi_environment = cfg.testpypi_environment,
+        license_spdx = cfg.license_spdx,
+        upstream = cfg.upstream,
+        upstream_url = cfg.upstream_url,
+        upstream_license = cfg.upstream_license,
+        upstream_authors = cfg.upstream_authors,
+        smoke = cfg.smoke_exprs[0],
+    ))
+}
+
 // --- line-oriented manifest readers (same style as the CLI packaging reads) ---
 
 fn section_value(text: &str, section: &str, key: &str) -> Option<String> {
@@ -283,6 +421,63 @@ fn section_contains(text: &str, section: &str, key: &str, want: &str) -> bool {
         }
     }
     false
+}
+
+/// `[project] classifiers` entries from `pyproject.toml` (line-oriented,
+/// multi-line lists included; absent list yields empty). Quoted strings only;
+/// comments stripped like the other readers here.
+pub fn project_classifiers(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_list = false;
+    for line in text.lines() {
+        let l = line.trim();
+        if l.starts_with('[') && l.ends_with(']') {
+            cur = l[1..l.len() - 1].split_whitespace().next().unwrap_or("").into();
+            in_list = false;
+            continue;
+        }
+        if cur != "project" {
+            continue;
+        }
+        let t = l.split('#').next().unwrap_or("").trim();
+        if !in_list {
+            let Some(rest) = t.strip_prefix("classifiers") else { continue };
+            let rest = rest.trim().strip_prefix('=').unwrap_or(rest.trim()).trim();
+            let Some(inner) = rest.strip_prefix('[') else { continue };
+            in_list = !inner.contains(']');
+            out.extend(quoted_strings(inner));
+            if !in_list {
+                break;
+            }
+            continue;
+        }
+        in_list = !t.contains(']');
+        out.extend(quoted_strings(t));
+        if !in_list {
+            break;
+        }
+    }
+    out
+}
+
+/// Double- or single-quoted string values on one line.
+fn quoted_strings(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '"' || c == '\'' {
+            let mut s = String::new();
+            for d in chars.by_ref() {
+                if d == c {
+                    break;
+                }
+                s.push(d);
+            }
+            out.push(s);
+        }
+    }
+    out
 }
 
 /// Validate the configuration against the project tree (manifests agree,
@@ -376,6 +571,15 @@ pub fn validate_tree(cfg: &ReleaseConfig, project_dir: &Path) -> Result<(), Stri
         && !pyproject.contains("license")
     {
         return Err(format!("{}: pyproject.toml lacks a license field", project_dir.display()));
+    }
+    for classifier in project_classifiers(&pyproject) {
+        if !trove::is_known_classifier(&classifier) {
+            return Err(format!(
+                "{}: pyproject classifier {classifier:?} is not a trove classifier (trove-classifiers=={}; fix the value, never the list)",
+                project_dir.display(),
+                trove::TROVE_LIST_VERSION,
+            ));
+        }
     }
     let readme = section_value(&pyproject, "project", "readme").unwrap_or_default();
     if !readme.is_empty() && !project_dir.join(&readme).is_file() {
@@ -1249,6 +1453,66 @@ mod tests {
         let mut c = example();
         c.python_versions = vec!["3.8".into()];
         assert!(validate_names(&c).unwrap_err().contains("below"));
+    }
+
+    #[test]
+    fn scaffold_derives_canonical_names() {
+        let inp = ScaffoldInputs {
+            dist: "python-multipart".into(),
+            module_override: None,
+            upstream: "Kludex/python-multipart".into(),
+            github_owner: "John-Cusack".into(),
+            version: "0.0.32".into(),
+            license_spdx: "Apache-2.0".into(),
+            upstream_license: "Apache-2.0".into(),
+        };
+        let body = scaffold_release_toml(&inp).unwrap();
+        let v: toml::Value = body.parse().unwrap();
+        let t = &v["release"];
+        assert_eq!(t["project"].as_str(), Some("python_multipart"));
+        assert_eq!(t["python_import"].as_str(), Some("python_multipart"));
+        assert_eq!(t["pypi_dist"].as_str(), Some("python-multipart-rust"));
+        assert_eq!(t["github_repo"].as_str(), Some("John-Cusack/python_multipart-rust"));
+        assert_eq!(t["upstream_url"].as_str(), Some("https://github.com/Kludex/python-multipart"));
+        let cfg = parse_release_config(&body).unwrap();
+        assert!(validate_names(&cfg).is_ok());
+    }
+
+    #[test]
+    fn scaffold_module_override_for_import_named_lanes() {
+        // pyyaml distributes as `pyyaml` but imports as `yaml`.
+        let inp = ScaffoldInputs {
+            dist: "pyyaml".into(),
+            module_override: Some("yaml".into()),
+            upstream: "yaml/pyyaml".into(),
+            github_owner: "John-Cusack".into(),
+            version: "6.0.2".into(),
+            license_spdx: "MIT".into(),
+            upstream_license: "MIT".into(),
+        };
+        let body = scaffold_release_toml(&inp).unwrap();
+        let v: toml::Value = body.parse().unwrap();
+        let t = &v["release"];
+        assert_eq!(t["project"].as_str(), Some("yaml"));
+        assert_eq!(t["pypi_dist"].as_str(), Some("pyyaml-rust"));
+        assert_eq!(t["github_repo"].as_str(), Some("John-Cusack/yaml-rust"));
+        let cfg = parse_release_config(&body).unwrap();
+        assert!(validate_names(&cfg).is_ok());
+    }
+
+    #[test]
+    fn classifiers_parsed_multiline_and_checked_against_trove() {
+        let text = "[project]\nname = \"x\"\nclassifiers = [\n  \"Programming Language :: Rust\",\n  'Topic :: System :: Checksums', # bogus\n]\n";
+        assert_eq!(
+            project_classifiers(text),
+            vec![
+                "Programming Language :: Rust".to_string(),
+                "Topic :: System :: Checksums".to_string()
+            ]
+        );
+        assert!(trove::is_known_classifier("Programming Language :: Rust"));
+        assert!(!trove::is_known_classifier("Topic :: System :: Checksums"));
+        assert!(project_classifiers("[project]\nname = \"x\"\n").is_empty());
     }
 
     #[test]

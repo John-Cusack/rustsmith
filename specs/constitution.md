@@ -52,8 +52,11 @@ text, never to append knowledge.
 
 ## Limits & Release Discipline
 
-- Never publish to TestPyPI, PyPI, or crates.io, and never push to an
-  upstream package's remote. Releases are human-gated.
+- No unreviewed publish — TestPyPI via the release lane with a human gate,
+  PyPI/crates.io human-gated per package. Never push to an upstream
+  package's remote. (Amended 2026-10-11 per captain ruling: the prior
+  "never publish to TestPyPI" read contradicted four TestPyPI-held lanes;
+  flagged for ratification at constitution review.)
 - At most 3 concurrent rustsmith runs (`[run].max_parallel_runs`).
 - Run dirs are isolated (`--fork` / `--work` / `--store` / `--run-id`
   under `/tmp`, never `~/runs/*`). Never `--stage full` on Elmer until
@@ -78,4 +81,4 @@ Until ratification, it is a draft for review: amendments arrive as
 review comments on the pilot PR, and ratification is a captain
 decision recorded here with date.
 
-**Version**: 0.1.0 (DRAFT) | **Ratified**: UNRATIFIED — pending captain review | **Last Amended**: 2026-10-08
+**Version**: 0.1.0 (DRAFT) | **Ratified**: UNRATIFIED — pending captain review | **Last Amended**: 2026-10-11

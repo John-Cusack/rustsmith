@@ -212,6 +212,41 @@ expect_fail "renamed import" "must equal"
 bad; rm -rf "$WORK/bad/.git"
 expect_fail "no source commit" "no git HEAD"
 
+echo "-- release-prep --init scaffolds canonical names from recon facts"
+mkdir -p "$WORK/initproj" "$WORK/initrecon"
+cat > "$WORK/initrecon/facts.json" <<'EOF'
+{"probe": {"package": "python-multipart", "attribution": [{"license": "Apache-2.0", "upstream": "Kludex/python-multipart"}]}}
+EOF
+cargo run -q -p rustsmith-cli -- release-prep --init \
+  --project "$WORK/initproj" --recon-out "$WORK/initrecon" \
+  --github-owner John-Cusack --version 0.0.32 > "$WORK/init.json"
+grep -q '^project = "python_multipart"$' "$WORK/initproj/release.toml" \
+  || (echo "FAIL: init project not hyphen-free module"; exit 1)
+grep -q '^pypi_dist = "python-multipart-rust"$' "$WORK/initproj/release.toml" \
+  || (echo "FAIL: init pypi_dist not upstream-rust"; exit 1)
+grep -q '^github_repo = "John-Cusack/python_multipart-rust"$' "$WORK/initproj/release.toml" \
+  || (echo "FAIL: init repo not <project>-rust"; exit 1)
+grep -q '"project":"python_multipart"' "$WORK/init.json" \
+  || (echo "FAIL: init summary missing canonical project"; exit 1)
+if cargo run -q -p rustsmith-cli -- release-prep --init \
+  --project "$WORK/initproj" --recon-out "$WORK/initrecon" 2>/dev/null; then
+  echo "FAIL: init overwrote without --force"; exit 1
+fi
+cargo run -q -p rustsmith-cli -- release-prep --init \
+  --project "$WORK/initproj" --recon-out "$WORK/initrecon" \
+  --github-owner John-Cusack --version 0.0.32 --module yaml \
+  --upstream yaml/pyyaml --force > /dev/null \
+  || (echo "FAIL: init --force with --module override refused"; exit 1)
+grep -q '^project = "yaml"$' "$WORK/initproj/release.toml" \
+  || (echo "FAIL: init --module override not honored"; exit 1)
+grep -q '^pypi_dist = "python-multipart-rust"$' "$WORK/initproj/release.toml" \
+  || (echo "FAIL: init override moved the dist (dist stays facts-derived)"; exit 1)
+echo "  init scaffold OK"
+
+echo "-- invalid trove classifier fails naming it"
+bad; sed -i 's/^  "Topic :: .*",$/  "Topic :: System :: Checksums",/' "$WORK/bad/pyproject.toml"
+expect_fail "bogus trove classifier" "not a trove classifier"
+
 echo "-- per-registry tracking: partial never complete, retries per-registry"
 ST="$OUT/release-state.json"
 if cargo run -q -p rustsmith-cli -- release-record --state "$ST" --registry bogus --result success; then

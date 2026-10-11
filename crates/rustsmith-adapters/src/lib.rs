@@ -723,14 +723,13 @@ pub const UNCLAIMED_HALT_THRESHOLD: f64 = 0.2;
 
 /// Extensions that are never source: manifests, docs, lockfiles, caches.
 /// Anything else with an extension that no frontend claims lands in
-/// `unclaimed`.
+/// `unclaimed` — unless it is test-local (see [`probe`]: the single fixture
+/// rule subsumes the old per-extension carve-outs, e.g. ADR-021 `.http`:
+/// multipart's `tests/test_data/http/*.http` is claimed as test-local data,
+/// and a non-test-local `.http` file is genuinely unclaimed source).
 const NON_SOURCE_EXTS: &[&str] = &[
     "md", "markdown", "rst", "txt", "toml", "cfg", "ini", "json", "yaml", "yml", "lock", "typed",
     "pyc", "pyo", "log",
-    // Raw HTTP message fixtures consumed by parser test suites at runtime
-    // (e.g. python-multipart's tests/test_data/http/*.http); data, never
-    // compiled source (ADR-021).
-    "http",
     // CMake configure files are build config, never units (Track I: keeps the
     // extension census viable on CMake trees; no Python fixture has `.cmake`).
     "cmake",
@@ -2335,6 +2334,44 @@ mod tests {
         assert_eq!(report.frontends, vec!["python"]);
         assert_eq!(report.unclaimed, vec!["data/spec.zzz"]);
         assert_eq!(report.unclaimed_share, 0.5);
+    }
+
+    #[test]
+    fn probe_test_local_unknown_ext_is_claimed_fixture_never_flipping_spine() {
+        // Single SPEC probe-census rule (T11; subsumes ADR-014/021/025/030):
+        // test-local files no frontend claims count as claimed fixtures and
+        // never flip the spine. Covers unknown extensions (pyyaml's
+        // tests/legacy_tests/data/*.data shape) and the old `.http`
+        // carve-out (multipart's tests/test_data/http/*.http shape).
+        let dir = tempfile::tempdir().unwrap();
+        write_tmp_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
+        write_tmp_file(&dir.path().join("tests/data/spec.zzz"), "opaque\n");
+        write_tmp_file(&dir.path().join("tests/test_data/http/req.http"), "GET / HTTP/1.0\n\n");
+        write_tmp_file(&dir.path().join("tests/hello-world.c"), "int main(void){return 0;}\n");
+        write_tmp_file(
+            &dir.path().join("pyproject.toml"),
+            "[project]\nname = \"pkg\"\n",
+        );
+        let report = probe(dir.path()).unwrap();
+        assert_eq!(report.frontends, vec!["python"]);
+        assert!(report.unclaimed.is_empty(), "unclaimed: {:?}", report.unclaimed);
+        assert_eq!(report.unclaimed_share, 0.0);
+    }
+
+    #[test]
+    fn probe_non_test_local_unknown_ext_stays_unclaimed() {
+        // The fixture rule is test-locality, not extension: the same bytes
+        // outside test dirs are genuinely unclaimed source.
+        let dir = tempfile::tempdir().unwrap();
+        write_tmp_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
+        write_tmp_file(&dir.path().join("data/req.http"), "GET / HTTP/1.0\n\n");
+        write_tmp_file(
+            &dir.path().join("pyproject.toml"),
+            "[project]\nname = \"pkg\"\n",
+        );
+        let report = probe(dir.path()).unwrap();
+        assert_eq!(report.frontends, vec!["python"]);
+        assert_eq!(report.unclaimed, vec!["data/req.http"]);
     }
 
     #[test]
