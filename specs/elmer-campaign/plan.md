@@ -2,7 +2,7 @@
 
 **Branch**: `fm/rs-speckit-pilot` | **Date**: 2026-10-08 | **Spec**: `specs/elmer-campaign/spec.md`
 
-**Input**: `specs/elmer-campaign/spec.md`; sources `docs/IMPLEMENTATION_ELMER.md`,
+**Input**: `specs/elmer-campaign/spec.md`; sources
 `docs/ELMER_S3_PILOT.md`, ADR-027, ADR-028, S5 outcome (§7).
 
 ## Summary

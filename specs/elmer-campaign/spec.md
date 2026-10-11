@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Input**: `docs/IMPLEMENTATION_ELMER.md`, `docs/ELMER_S3_PILOT.md` §3
-(3025 units, scoped-grading lever now landed), ADR-027 (ABI shim
-design), ADR-028 (scoped per-unit grading).
+**Input**: `docs/ELMER_S3_PILOT.md` §3 (3025 units, scoped-grading lever
+now landed), ADR-027 (ABI shim design), ADR-028 (scoped per-unit
+grading).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -21,8 +21,7 @@ heldout. The session ends with measured per-unit wall time and a
 full-port budget extrapolation.
 
 **Why this priority**: No full-tree run is credible before a pilot
-slice reports green costs (IMPLEMENTATION_ELMER.md §6: never
-`--stage full` until then). S3 already proved this for `matc`
+slice reports green costs. S3 already proved this for `matc`
 (preflight + splice22 + mirror green3); the campaign replays the
 pattern per slice.
 
