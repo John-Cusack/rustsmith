@@ -23,8 +23,25 @@ manual step after review; rustsmith never pushes anywhere.
 
 ## 1. Release configuration (`mirror/<package>/release.toml`)
 
-One file per converted project. Copy `mirror/crc/release.toml` and fill in
-the new values. Fields:
+One file per converted project. Scaffold it from frozen recon facts — never
+hand-author the canonical names:
+
+```sh
+rustsmith release-prep --init --project mirror/<pkg> --recon-out <recon> \
+  [--fork <fork>] [--upstream <owner/repo>] [--github-owner <owner>] \
+  [--module <import>] [--version <x.y.z>] [--license-spdx <id>] [--force]
+```
+
+`--init` reads the upstream dist from `probe.package` and the
+upstream/license defaults from `probe.attribution` in
+`<recon-out>/facts.json`, then derives `project`/`python_import` (hyphen-free
+module, `--module` when the import name differs from the dist, e.g. `pyyaml`
+→ `yaml`), `pypi_dist` (upstream + `-rust`), and `github_repo`
+(`<project>-rust`). `--version` defaults to the fork's `[project] version`;
+`--license-spdx` defaults to the recon-detected id only when it is a known
+SPDX tag (guessed licenses never ship). The scaffold parses and passes
+`validate_names`; review it (smoke vectors, authors, core crate default)
+before the first prep. See ADR-031. Fields:
 
 | Field | Meaning |
 |---|---|
@@ -58,7 +75,9 @@ the missing prerequisite — see §6):
 3. **Metadata agrees everywhere.** Crate name/version, dist name/version,
    `requires-python`, maturin `module-name` (must live under the import
    package and match the `[lib]` target), the `<import>/__init__.py` shim,
-   and `NOTICE` (upstream + license tag) are all cross-checked.
+   `NOTICE` (upstream + license tag), and `[project] classifiers` (every
+   entry must be an exact trove classifier; see ADR-032) are all
+   cross-checked.
 
 ## 3. `release-prep` (local, no uploads)
 
@@ -190,6 +209,9 @@ Every error names the field and the file. Common ones:
   and upstream attribution must ship.
 - `` sdist is missing rebuild inputs `` / `` sdist rebuild failed `` — the
   sdist does not carry the core (check `sdist-include` and path deps).
+- `` pyproject classifier "Topic :: ..." is not a trove classifier `` —
+  fix the value against the canonical list (never the list); absent
+  classifiers stay valid.
 - `` release partial (not complete) `` — not an error in the artifacts:
   publish/record the remaining registries.
 

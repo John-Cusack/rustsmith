@@ -249,7 +249,7 @@ Gate failure is never fatal on its own. It fails the unit, increments `attempts`
 
 Deterministic analysis first, then the Architect.
 
-1. Detect the language and build system; select the adapter.
+1. Detect the language and build system; select the adapter. Probe-census rule: test-local files (`test/`, `tests/`, `bench/`, `example/`, `examples/`) that no frontend claims count as claimed fixtures and never flip the spine — one rule, no per-extension allowlist.
 2. Build the module and call graph (tree-sitter for Python, plus import analysis).
 3. Inventory the tests; run them on the original to establish the baseline, including the skip list and exact test count.
 4. Classify dependencies as `port`, `bind`, or `keep`.

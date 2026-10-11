@@ -196,6 +196,9 @@ fn tail(log: &str, n: usize) -> String {
 }
 
 pub fn cmd_release_prep(args: &[String]) -> Result<(), String> {
+    if has_flag(args, "--init") {
+        return cmd_release_init(args);
+    }
     let project = PathBuf::from(flag(args, "--project").ok_or("missing --project")?);
     let fork = PathBuf::from(flag(args, "--fork").ok_or("missing --fork")?);
     let recon_out = PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out")?);
@@ -584,6 +587,112 @@ pub fn cmd_release_prep(args: &[String]) -> Result<(), String> {
         })
     );
     Ok(())
+}
+
+/// `release-prep --init`: scaffold `release.toml` from frozen recon facts so
+/// new lanes never hand-author the canonical names (T1: five lanes paid the
+/// hyphen-rule tax). Reads the upstream dist from `probe.package` and the
+/// upstream/license defaults from `probe.attribution` in
+/// `<recon-out>/facts.json`; writes `<project>/release.toml` (refused when
+/// present unless `--force`). The scaffold parses and passes `validate_names`;
+/// the lane reviews it (smoke vectors, authors, core crate default) before
+/// the first real prep.
+fn cmd_release_init(args: &[String]) -> Result<(), String> {
+    let project = PathBuf::from(flag(args, "--project").ok_or("missing --project (mirror dir receiving release.toml)")?);
+    let recon_out = PathBuf::from(flag(args, "--recon-out").ok_or("missing --recon-out (frozen facts with probe.package)")?);
+    if !project.is_dir() {
+        return Err(format!("{}: no such project dir", project.display()));
+    }
+    let facts_path = recon_out.join("facts.json");
+    let facts_text = std::fs::read_to_string(&facts_path)
+        .map_err(|e| format!("{}: cannot read recon facts: {e}", facts_path.display()))?;
+    let facts: serde_json::Value = serde_json::from_str(&facts_text)
+        .map_err(|e| format!("{}: unparseable recon facts: {e}", facts_path.display()))?;
+    let dist = facts
+        .pointer("/probe/package")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("{}: facts lack probe.package (re-run recon)", facts_path.display()))?
+        .to_string();
+    let attr = facts.pointer("/probe/attribution/0").cloned().unwrap_or(serde_json::json!({}));
+    let detected_license = attr.get("license").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let facts_upstream = attr.get("upstream").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let upstream = flag(args, "--upstream").unwrap_or(facts_upstream);
+    let owner = upstream
+        .split_once('/')
+        .filter(|(o, r)| !o.is_empty() && !r.is_empty() && !r.contains('/'))
+        .map(|(o, _)| o.to_string())
+        .ok_or_else(|| {
+            format!("no upstream `owner/repo`: pass --upstream (facts carry {upstream:?}; recon ran on a remote-less tree)")
+        })?;
+    let github_owner = flag(args, "--github-owner").unwrap_or(owner);
+    let license_spdx = match flag(args, "--license-spdx") {
+        Some(v) => v,
+        None if rustsmith_release::KNOWN_SPDX.contains(&detected_license.as_str()) => detected_license.clone(),
+        None => {
+            return Err(format!(
+                "detected license {detected_license:?} is not an SPDX publish id (known: {}); pass --license-spdx",
+                rustsmith_release::KNOWN_SPDX.join(", ")
+            ))
+        }
+    };
+    let upstream_license = flag(args, "--upstream-license")
+        .unwrap_or_else(|| if detected_license.is_empty() { license_spdx.clone() } else { detected_license.clone() });
+    let version = flag(args, "--version")
+        .or_else(|| flag(args, "--fork").and_then(|f| fork_pyproject_version(Path::new(&f))))
+        .unwrap_or_else(|| "0.1.0".to_string());
+    let body = rustsmith_release::scaffold_release_toml(&rustsmith_release::ScaffoldInputs {
+        dist: dist.clone(),
+        module_override: flag(args, "--module"),
+        upstream: upstream.clone(),
+        github_owner: github_owner.clone(),
+        version,
+        license_spdx,
+        upstream_license,
+    })?;
+    let dest = project.join("release.toml");
+    if dest.exists() && !has_flag(args, "--force") {
+        return Err(format!("{}: release.toml exists (re-run with --force to overwrite)", dest.display()));
+    }
+    atomic_write(&dest, body.as_bytes())?;
+    let cfg = rustsmith_release::load_release_config(&project)?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "release_toml": dest.display().to_string(),
+            "dist": dist,
+            "project": cfg.project,
+            "pypi_dist": cfg.pypi_dist,
+            "github_repo": cfg.github_repo,
+            "upstream": upstream,
+        })
+    );
+    Ok(())
+}
+
+/// `[project] version` from a fork's `pyproject.toml` (line-oriented, same
+/// style as the release readers). `None` when absent: lanes pin `--version`.
+fn fork_pyproject_version(fork: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(fork.join("pyproject.toml")).ok()?;
+    let mut cur = String::new();
+    for line in text.lines() {
+        let l = line.trim();
+        if l.starts_with('[') && l.ends_with(']') {
+            cur = l[1..l.len() - 1].split_whitespace().next().unwrap_or("").into();
+            continue;
+        }
+        if cur == "project" {
+            let t = l.split('#').next().unwrap_or("").trim();
+            if let Some(rest) = t.strip_prefix("version") {
+                let v = rest.trim().strip_prefix('=').unwrap_or(rest.trim()).trim();
+                let v = v.trim_matches('"').trim_matches('\'');
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Core manifest path inside the staged tree (prefers the conventional
