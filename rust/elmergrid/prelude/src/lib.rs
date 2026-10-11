@@ -658,6 +658,9 @@ extern "C" {
     pub fn strchr(s: *const c_char, c: c_int) -> *mut c_char;
     pub fn strrchr(s: *const c_char, c: c_int) -> *mut c_char;
     pub fn strstr(haystack: *const c_char, needle: *const c_char) -> *mut c_char;
+    pub fn strspn(s: *const c_char, accept: *const c_char) -> size_t;
+    pub fn toupper(c: c_int) -> c_int;
+    pub fn putchar(c: c_int) -> c_int;
     pub fn chdir(path: *const c_char) -> c_int;
     pub fn mkdir(path: *const c_char, mode: c_uint) -> c_int;
     pub fn memcpy(dst: *mut c_void, src: *const c_void, n: size_t) -> *mut c_void;
@@ -666,6 +669,7 @@ extern "C" {
     pub fn fabs(x: c_double) -> c_double;
     pub fn pow(x: c_double, y: c_double) -> c_double;
     pub fn sqrt(x: c_double) -> c_double;
+    pub fn ceil(x: c_double) -> c_double;
     pub fn sin(x: c_double) -> c_double;
     pub fn cos(x: c_double) -> c_double;
     pub fn atan2(y: c_double, x: c_double) -> c_double;
