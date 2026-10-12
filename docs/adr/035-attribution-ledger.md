@@ -1,4 +1,4 @@
-# ADR-034: Attribution ledger as a store.db hunks table (narrowed)
+# ADR-035: Attribution ledger as a store.db hunks table (narrowed)
 
 Date: 2026-10-11. Supersedes the sidecar design first drafted for this PR
 (per-mirror SQLite DBs beside the code): per scope ruling, the ledger lives
