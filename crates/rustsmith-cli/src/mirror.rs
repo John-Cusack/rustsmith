@@ -1481,12 +1481,32 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         let (r1, r2) = assign_reviewers(None, &providers)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
         let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
+        let pre = git(&a.fork, &["rev-parse", "HEAD"])?;
         let merged = merge_unit(&a.fork, wt.as_str(), id, &deletes, |diff| {
             record_review(store, run_id, id, diff, r1, r2)
         })?;
         let sha = git(&a.fork, &["rev-parse", "HEAD"])?;
         store.set_unit_commit(id, &sha).map_err(|e| e.to_string())?;
         store.set_unit_status(id, "passed").map_err(|e| e.to_string())?;
+        // Attribution ledger: one hunk row in the grade-to-merge transaction.
+        // Mirror hunks are reference-template copies (source, not technique);
+        // the lane measures no perf delta, so wall/workload stay NULL -- never
+        // fake zeros. Noop passthroughs land no hunk and write no row.
+        if merged {
+            store
+                .record_hunk(&rustsmith_store::HunkRow {
+                    run_id: run_id.clone(),
+                    unit_id: id.clone(),
+                    package: package.clone(),
+                    source: "reference-template".into(),
+                    before_ref: pre,
+                    after_ref: sha.clone(),
+                    wall_delta_pct: None,
+                    workload: None,
+                    verdict: "merged".into(),
+                })
+                .map_err(|e| e.to_string())?;
+        }
         ev(store, run_id, "merge", serde_json::json!({"unit": id, "sha": sha, "noop": !merged}));
         let _ = sandbox.drop_worktree(&a.fork, wt.as_std_path());
     }
