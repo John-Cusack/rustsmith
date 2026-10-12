@@ -685,6 +685,7 @@ extern "C" {
     pub fn ceil(x: c_double) -> c_double;
     pub fn sin(x: c_double) -> c_double;
     pub fn cos(x: c_double) -> c_double;
+    pub fn acos(x: c_double) -> c_double;
     pub fn atan2(y: c_double, x: c_double) -> c_double;
     pub static mut stdin: *mut FILE;
     pub static mut stdout: *mut FILE;
