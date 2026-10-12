@@ -50,6 +50,9 @@ pub use core::ffi::c_void;
 pub const TRUE: c_int = 1;
 pub const FALSE: c_int = 0;
 
+// NOTE: stdio EOF marker (glibc -1); comparisons only, never stored width-sensitively.
+pub const EOF: c_int = -1;
+
 // NOTE: Elmer's 9-digit literal, NOT full-precision PI; replacing it with
 // core::f64::consts::PI would change RAD_TO_DEG/DEG_TO_RAD bit patterns.
 #[allow(clippy::approx_constant)]
@@ -638,23 +641,33 @@ extern "C" {
     pub fn sscanf(buf: *const c_char, fmt: *const c_char, ...) -> c_int;
     pub fn fscanf(stream: *mut FILE, fmt: *const c_char, ...) -> c_int;
     pub fn fputc(c: c_int, stream: *mut FILE) -> c_int;
+    pub fn fgetc(stream: *mut FILE) -> c_int;
+    pub fn fread(
+        ptr: *mut c_void,
+        size: size_t,
+        nmemb: size_t,
+        stream: *mut FILE,
+    ) -> size_t;
     pub fn fwrite(
         ptr: *const c_void,
         size: size_t,
         nmemb: size_t,
         stream: *mut FILE,
     ) -> size_t;
+    pub fn fflush(stream: *mut FILE) -> c_int;
     pub fn puts(s: *const c_char) -> c_int;
     pub fn fputs(s: *const c_char, stream: *mut FILE) -> c_int;
     pub fn fgets(s: *mut c_char, n: c_int, stream: *mut FILE) -> *mut c_char;
     pub fn fopen(path: *const c_char, mode: *const c_char) -> *mut FILE;
     pub fn fclose(stream: *mut FILE) -> c_int;
+    pub fn rewind(stream: *mut FILE);
     pub fn strlen(s: *const c_char) -> size_t;
     pub fn strcpy(dst: *mut c_char, src: *const c_char) -> *mut c_char;
     pub fn strncpy(dst: *mut c_char, src: *const c_char, n: size_t) -> *mut c_char;
     pub fn strcat(dst: *mut c_char, src: *const c_char) -> *mut c_char;
     pub fn strcmp(s1: *const c_char, s2: *const c_char) -> c_int;
     pub fn strncmp(s1: *const c_char, s2: *const c_char, n: size_t) -> c_int;
+    pub fn memcmp(s1: *const c_void, s2: *const c_void, n: size_t) -> c_int;
     pub fn strchr(s: *const c_char, c: c_int) -> *mut c_char;
     pub fn strrchr(s: *const c_char, c: c_int) -> *mut c_char;
     pub fn strstr(haystack: *const c_char, needle: *const c_char) -> *mut c_char;
