@@ -242,6 +242,7 @@ Standing rule (2026-10-11): a row counts as `ported` only with both (a) an insta
 | markdown-it-py | [executablebooks/markdown-it-py](https://github.com/executablebooks/markdown-it-py) | oracle 1031 passed / 0 failed / 1 env-skip of 1032; heldout 16/18 (2 env-skips) (graded 2026-10-07) | not benchmarked | [markdown-it-py-rust (TestPyPI)](https://test.pypi.org/project/markdown-it-py-rust/4.2.0/) · [mirror](https://github.com/John-Cusack/markdown_it-rust) |
 | python-multipart | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) | oracle 162/162, heldout 55/55, divergence 0.0000 (run mp-port-graded2) | not benchmarked | — |
 | pyparsing | [pyparsing/pyparsing](https://github.com/pyparsing/pyparsing) | oracle 2104/2104, heldout 41/41 + 9 pins, divergence 0.0000 (run pp-mirror2; graded 2026-10-08) | not benchmarked | [pyparsing-rust (TestPyPI)](https://test.pypi.org/project/pyparsing-rust/3.3.3/) · [mirror](https://github.com/John-Cusack/pyparsing-rust) |
+| pygments | [pygments/pygments](https://github.com/pygments/pygments) | oracle 5175 passed / 0 failed / 16 skipped of 5191 (upstream 2.19.1, graded 2026-10-13, Rust + fallback paths identical); port tests 11/11, core 12/12; heldout n/a (direct-PR lane, no control-plane held-out suite) | 9.8x regex_opt / 1.05x highlight / 1.00x lex-only (§Bench in `mirror/pygments/README.md`) | — (publishing owned by later release lane) |
 
 ## Status and docs
 

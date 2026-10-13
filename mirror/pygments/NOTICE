@@ -1,0 +1,26 @@
+This is a Stage-1 mirror of pygments/pygments (BSD-2-Clause).
+
+Upstream: https://github.com/pygments/pygments
+Original author: Georg Brandl and the Pygments team
+Upstream license: BSD-2-Clause (see upstream LICENSE, preserved in this tree).
+
+What changed vs upstream (behavior-identical port):
+- `pygments/formatters/html.py`: `escape_html` and
+  `HtmlFormatter._translate_parts` delegate to the compiled
+  `pygments-rust-core` crate (exposed as `pygments._pygments`) when
+  present, else the upstream `translate` path. Custom-table calls
+  always use the upstream path.
+- `pygments/formatters/svg.py`: `escape_html` delegates the same way
+  (the replace chain with `&` first is order-equivalent to the
+  `translate` mapping); fallback is the upstream chain verbatim.
+- `pygments/lexer.py`: `Lexer._preprocess_lexer_input` runs newline
+  normalization and tab-expansion/trailing-newline in Rust when
+  present; BOM/decoding branches and `strip`/`stripnl`/`stripall`
+  stay in Python verbatim. Every other method — `get_tokens`,
+  `RegexLexer.get_tokens_unprocessed`, `ExtendedRegexLexer`,
+  `DelegatingLexer` — is the upstream source verbatim.
+- `pygments/regexopt.py`: `regex_opt` delegates to Rust when present;
+  `regex_opt_inner`, `make_charset`, and the fallback path are the
+  upstream source verbatim.
+- Build backend: hatchling → maturin (PyO3 extension module
+  `pygments._pygments`).
