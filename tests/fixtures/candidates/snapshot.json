@@ -1,0 +1,8 @@
+{"last_update": "2026-10-01 12:40:51", "source": "ClickHouse",
+ "rows": [
+  {"project": "packaging", "download_count": 1550430820},
+  {"project": "jinja2", "download_count": 900000000},
+  {"project": "certifi", "download_count": 800000000},
+  {"project": "pandas", "download_count": 700000000},
+  {"project": "unknownpkg-zz", "download_count": 600000000}
+ ]}

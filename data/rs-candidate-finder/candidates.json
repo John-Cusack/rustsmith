@@ -1,0 +1,484 @@
+[
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [cubby](https://crates.io/crates/cubby), [rs3gw](https://crates.io/crates/rs3gw), [s3-endpoint](https://crates.io/crates/s3-endpoint)",
+    "dependents": 3938,
+    "downloads": 2460723068,
+    "evidence": [
+      "download rank #1 (2.46B)",
+      "3938 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 27 .py files, 6847 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): json"
+    ],
+    "path": "(b) mirror",
+    "payoff": 4921.446136,
+    "project": "boto3",
+    "rank": 1,
+    "why": "No full Rust equivalent; 6847 LOC pure-Python surface, keywords: json (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no full replacement; nearest: [pep440_rs](https://crates.io/crates/pep440_rs) (versions only) / [pep508_rs](https://crates.io/crates/pep508_rs) (markers only) / [uv-pep440](https://crates.io/crates/uv-pep440) (unstable internal crate, no stable full API)",
+    "dependents": 4628,
+    "downloads": 1550430820,
+    "evidence": [
+      "download rank #2 (1.55B)",
+      "4628 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): partial/partial/partial",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 22 .py files, 12715 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): mark, pars, token, url, version"
+    ],
+    "path": "(b) mirror",
+    "payoff": 9302.584920000001,
+    "project": "packaging",
+    "rank": 2,
+    "why": "No full Rust equivalent; 12715 LOC pure-Python surface, keywords: mark, pars, token, url, version (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [chia](https://crates.io/crates/chia), [hyfetch](https://crates.io/crates/hyfetch), [chik](https://crates.io/crates/chik)",
+    "dependents": 7473,
+    "downloads": 1396876439,
+    "evidence": [
+      "download rank #3 (1.40B)",
+      "7473 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 3 .py files, 14213 LOC Python, 0 native files"
+    ],
+    "path": "(b) mirror",
+    "payoff": 1396.876439,
+    "project": "typing-extensions",
+    "rank": 3,
+    "why": "No full Rust equivalent; 14213 LOC pure-Python surface, no hot keywords (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [idna](https://crates.io/crates/idna), [idna_adapter](https://crates.io/crates/idna_adapter), [idna-cli](https://crates.io/crates/idna-cli)",
+    "dependents": 2888,
+    "downloads": 1339499236,
+    "evidence": [
+      "download rank #4 (1.34B)",
+      "2888 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 10 .py files, 20422 LOC Python, 0 native files"
+    ],
+    "path": "(b) mirror",
+    "payoff": 1339.499236,
+    "project": "idna",
+    "rank": 4,
+    "why": "No full Rust equivalent; 20422 LOC pure-Python surface, no hot keywords (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [uv-sbom](https://crates.io/crates/uv-sbom), [url_jail](https://crates.io/crates/url_jail), [fetter](https://crates.io/crates/fetter)",
+    "dependents": 5751,
+    "downloads": 1324020131,
+    "evidence": [
+      "download rank #5 (1.32B)",
+      "5751 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 42 .py files, 13595 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): url, version"
+    ],
+    "path": "(b) mirror",
+    "payoff": 3972.0603929999997,
+    "project": "urllib3",
+    "rank": 5,
+    "why": "No full Rust equivalent; 13595 LOC pure-Python surface, keywords: url, version (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "none needed — CA-bundle data package; nothing to compile or port",
+    "dependents": 3902,
+    "downloads": 1290239262,
+    "evidence": [
+      "download rank #6 (1.29B)",
+      "3902 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): noop"
+    ],
+    "path": "(a) adopt/wrap",
+    "payoff": null,
+    "project": "certifi",
+    "rank": 6,
+    "why": "Nothing to port (CA-bundle data package; nothing to compile or port); adopt = do nothing."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [requests](https://crates.io/crates/requests), [rmcp](https://crates.io/crates/rmcp), [rmcp-macros](https://crates.io/crates/rmcp-macros)",
+    "dependents": 32025,
+    "downloads": 1208056002,
+    "evidence": [
+      "download rank #7 (1.21B)",
+      "32025 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 20 .py files, 6394 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): version"
+    ],
+    "path": "(b) mirror",
+    "payoff": 2416.112004,
+    "project": "requests",
+    "rank": 7,
+    "why": "No full Rust equivalent; 6394 LOC pure-Python surface, keywords: version (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no mirror alternative sought — upstream already builds native code",
+    "dependents": 2462,
+    "downloads": 1186581556,
+    "evidence": [
+      "download rank #8 (1.19B)",
+      "2462 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): partial/partial/partial",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 16 .py files, 6685 LOC Python, 4 native files",
+      "workload keywords observed (ESTIMATE of hotness): charset, version",
+      "build corroboration measured: sdist build files declare native compilation"
+    ],
+    "path": "(c) upstream",
+    "payoff": null,
+    "project": "charset-normalizer",
+    "rank": 8,
+    "why": "Upstream already builds 4 native files with 6685 LOC Python around them (ESTIMATE: fit); a PyO3/maturin speed core belongs inside the original package."
+  },
+  {
+    "alternative": "no mirror alternative sought — upstream already builds native code",
+    "dependents": 3396,
+    "downloads": 1070154291,
+    "evidence": [
+      "download rank #9 (1.07B)",
+      "3396 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 106 .py files, 16265 LOC Python, 103 native files",
+      "workload keywords observed (ESTIMATE of hotness): crypt, decod, encod, hash, pars, serial",
+      "build corroboration measured: sdist build files declare native compilation"
+    ],
+    "path": "(c) upstream",
+    "payoff": null,
+    "project": "cryptography",
+    "rank": 9,
+    "why": "Upstream already builds 103 native files with 16265 LOC Python around them (ESTIMATE: fit); a PyO3/maturin speed core belongs inside the original package."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [pyo3-setup](https://crates.io/crates/pyo3-setup), [fetter](https://crates.io/crates/fetter), [pyo3](https://crates.io/crates/pyo3)",
+    "dependents": 7488,
+    "downloads": 973493203,
+    "evidence": [
+      "download rank #10 (973M)",
+      "7488 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 231 .py files, 60327 LOC Python, 1 native files",
+      "workload keywords observed (ESTIMATE of hotness): date, json, mark, pars, token, valid, version, xml",
+      "no native-build declaration in sdist build files (measured): C files read as data, not as a built extension"
+    ],
+    "path": "(b) mirror",
+    "payoff": 8761.438827,
+    "project": "setuptools",
+    "rank": 10,
+    "why": "No full Rust equivalent; 60327 LOC pure-Python surface, keywords: date, json, mark, pars, token, valid, version, xml (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no mirror alternative sought — upstream already builds native code",
+    "dependents": 1188,
+    "downloads": 949615436,
+    "evidence": [
+      "download rank #11 (950M)",
+      "1188 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 56 .py files, 16054 LOC Python, 35 native files",
+      "workload keywords observed (ESTIMATE of hotness): csv, pars",
+      "build corroboration measured: sdist build files declare native compilation"
+    ],
+    "path": "(c) upstream",
+    "payoff": null,
+    "project": "cffi",
+    "rank": 11,
+    "why": "Upstream already builds 35 native files with 16054 LOC Python around them (ESTIMATE: fit); a PyO3/maturin speed core belongs inside the original package."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [pygmentize](https://crates.io/crates/pygmentize), [paint](https://crates.io/crates/paint), [codevideorenderer](https://crates.io/crates/codevideorenderer)",
+    "dependents": 1834,
+    "downloads": 931583890,
+    "evidence": [
+      "download rank #12 (932M)",
+      "1834 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 358 .py files, 130572 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): date, html, json, lex, mark, pars, regex, scann, token, yaml"
+    ],
+    "path": "(b) mirror",
+    "payoff": 10247.42279,
+    "project": "pygments",
+    "rank": 12,
+    "why": "No full Rust equivalent; 130572 LOC pure-Python surface, keywords: date, html, json, lex, mark, pars, regex, scann, token, yaml (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no mirror alternative sought — upstream already builds native code",
+    "dependents": 8566,
+    "downloads": 910851659,
+    "evidence": [
+      "download rank #13 (911M)",
+      "8566 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): partial/partial",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 21 .py files, 6354 LOC Python, 4 native files",
+      "workload keywords observed (ESTIMATE of hotness): pars, scann, serial, token, yaml",
+      "build corroboration measured: sdist build files declare native compilation"
+    ],
+    "path": "(c) upstream",
+    "payoff": null,
+    "project": "pyyaml",
+    "rank": 13,
+    "why": "Upstream already builds 4 native files with 6354 LOC Python around them (ESTIMATE: fit); a PyO3/maturin speed core belongs inside the original package."
+  },
+  {
+    "alternative": "no full replacement; nearest: [chrono](https://crates.io/crates/chrono) (strict parsing only, no fuzzy parse, no rrule) / [dateparser](https://crates.io/crates/dateparser) (no recurrence rules) / [jiff](https://crates.io/crates/jiff) (no recurrence rules)",
+    "dependents": 6070,
+    "downloads": 904912826,
+    "evidence": [
+      "download rank #14 (905M)",
+      "6070 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): partial/partial/partial",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 21 .py files, 7821 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): date, json, pars, valid, version, yaml"
+    ],
+    "path": "(b) mirror",
+    "payoff": 6334.389782,
+    "project": "python-dateutil",
+    "rank": 14,
+    "why": "No full Rust equivalent; 7821 LOC pure-Python surface, keywords: date, json, pars, valid, version, yaml (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "none needed — single-file Python 2/3 compat shim, shrinking; nothing worth porting",
+    "dependents": 6588,
+    "downloads": 894556866,
+    "evidence": [
+      "download rank #15 (895M)",
+      "6588 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): noop"
+    ],
+    "path": "(a) adopt/wrap",
+    "payoff": null,
+    "project": "six",
+    "rank": 15,
+    "why": "Nothing to port (single-file Python 2/3 compat shim, shrinking; nothing worth porting); adopt = do nothing."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [pluggy](https://crates.io/crates/pluggy), [pluggy-rs](https://crates.io/crates/pluggy-rs), [ruff-tools](https://crates.io/crates/ruff-tools)",
+    "dependents": 779,
+    "downloads": 877688356,
+    "evidence": [
+      "download rank #16 (878M)",
+      "779 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 10 .py files, 1753 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): version, yaml"
+    ],
+    "path": "(b) mirror",
+    "payoff": 2633.065068,
+    "project": "pluggy",
+    "rank": 16,
+    "why": "No full Rust equivalent; 1753 LOC pure-Python surface, keywords: version, yaml (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [botocore_parser](https://crates.io/crates/botocore_parser), [lava-api-forge](https://crates.io/crates/lava-api-forge), [cloudformation-validate-data-source](https://crates.io/crates/cloudformation-validate-data-source)",
+    "dependents": 979,
+    "downloads": 853428832,
+    "evidence": [
+      "download rank #17 (853M)",
+      "979 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 60 .py files, 35677 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): compress, crypt, csv, date, json, lex, mark, pars, serial, token, url, valid"
+    ],
+    "path": "(b) mirror",
+    "payoff": 11094.574816,
+    "project": "botocore",
+    "rank": 17,
+    "why": "No full Rust equivalent; 35677 LOC pure-Python surface, keywords: compress, crypt, csv, date, json, lex, mark, pars, serial, token, url, valid (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no mirror alternative sought — native core already exists upstream",
+    "dependents": 9821,
+    "downloads": 842605827,
+    "evidence": [
+      "download rank #18 (843M)",
+      "9821 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): upstream"
+    ],
+    "path": "(c) upstream",
+    "payoff": null,
+    "project": "pydantic",
+    "rank": 18,
+    "why": "validation core already Rust upstream; remaining Python is API sugar — win belongs upstream, not in a fork."
+  },
+  {
+    "alternative": "no curated verdict and no search performed",
+    "dependents": 746,
+    "downloads": 837756809,
+    "evidence": [
+      "download rank #19 (838M)",
+      "746 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 8 .py files, 5818 LOC Python, 130 native files",
+      "workload keywords observed (ESTIMATE of hotness): lex, pars, regex, version",
+      "no native-build declaration in sdist build files (measured): C files read as data, not as a built extension"
+    ],
+    "path": "(b) mirror",
+    "payoff": 4188.784045,
+    "project": "pycparser",
+    "rank": 19,
+    "why": "No full Rust equivalent; 5818 LOC pure-Python surface, keywords: lex, pars, regex, version (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [click](https://crates.io/crates/click), [egui-elegance](https://crates.io/crates/egui-elegance), [gitpane](https://crates.io/crates/gitpane)",
+    "dependents": 10358,
+    "downloads": 817239080,
+    "evidence": [
+      "download rank #20 (817M)",
+      "10358 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 17 .py files, 12674 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): pars"
+    ],
+    "path": "(b) mirror",
+    "payoff": 1634.47816,
+    "project": "click",
+    "rank": 20,
+    "why": "No full Rust equivalent; 12674 LOC pure-Python surface, keywords: pars (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no mirror alternative sought — upstream already builds native code",
+    "dependents": 0,
+    "downloads": 808518099,
+    "evidence": [
+      "download rank #21 (809M)",
+      "0 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 3 .py files, 12138 LOC Python, 141 native files",
+      "workload keywords observed (ESTIMATE of hotness): date, json, lex, mark, serial, url, valid",
+      "build corroboration measured: sdist build files declare native compilation"
+    ],
+    "path": "(c) upstream",
+    "payoff": null,
+    "project": "pydantic-core",
+    "rank": 21,
+    "why": "Upstream already builds 141 native files with 12138 LOC Python around them (ESTIMATE: fit); a PyO3/maturin speed core belongs inside the original package."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [pyo3-anyio](https://crates.io/crates/pyo3-anyio), [uv-sbom](https://crates.io/crates/uv-sbom), [astral-pubgrub](https://crates.io/crates/astral-pubgrub)",
+    "dependents": 795,
+    "downloads": 803361854,
+    "evidence": [
+      "download rank #22 (803M)",
+      "795 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 46 .py files, 16390 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): json, version, yaml"
+    ],
+    "path": "(b) mirror",
+    "payoff": 3213.447416,
+    "project": "anyio",
+    "rank": 22,
+    "why": "No full Rust equivalent; 16390 LOC pure-Python surface, keywords: json, version, yaml (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no mirror alternative sought — native core already exists upstream",
+    "dependents": 36144,
+    "downloads": 801552837,
+    "evidence": [
+      "download rank #23 (802M)",
+      "36144 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): upstream"
+    ],
+    "path": "(c) upstream",
+    "payoff": null,
+    "project": "numpy",
+    "rank": 23,
+    "why": "already a C/Fortran core — win belongs upstream, not in a fork."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [pytest-language-server](https://crates.io/crates/pytest-language-server), [offload](https://crates.io/crates/offload), [cartoon](https://crates.io/crates/cartoon)",
+    "dependents": 25992,
+    "downloads": 780160913,
+    "evidence": [
+      "download rank #24 (780M)",
+      "25992 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 93 .py files, 38781 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): date, mark, pars, version, xml, yaml"
+    ],
+    "path": "(b) mirror",
+    "payoff": 5461.126391000001,
+    "project": "pytest",
+    "rank": 24,
+    "why": "No full Rust equivalent; 38781 LOC pure-Python surface, keywords: date, mark, pars, version, xml, yaml (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "none needed — trivial INI parsing, I/O-bound; nothing worth porting",
+    "dependents": 501,
+    "downloads": 755640889,
+    "evidence": [
+      "download rank #25 (756M)",
+      "501 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): noop"
+    ],
+    "path": "(a) adopt/wrap",
+    "payoff": null,
+    "project": "iniconfig",
+    "rank": 25,
+    "why": "Nothing to port (trivial INI parsing, I/O-bound; nothing worth porting); adopt = do nothing."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [uv-sbom](https://crates.io/crates/uv-sbom)",
+    "dependents": 285,
+    "downloads": 724456796,
+    "evidence": [
+      "download rank #26 (724M)",
+      "285 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 2 .py files, 562 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): yaml"
+    ],
+    "path": "(b) mirror",
+    "payoff": 1448.913592,
+    "project": "annotated-types",
+    "rank": 26,
+    "why": "No full Rust equivalent; 562 LOC pure-Python surface, keywords: yaml (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [h11](https://crates.io/crates/h11), [rust-h11](https://crates.io/crates/rust-h11), [h11r](https://crates.io/crates/h11r)",
+    "dependents": 389,
+    "downloads": 710837874,
+    "evidence": [
+      "download rank #27 (711M)",
+      "389 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 13 .py files, 2654 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): version"
+    ],
+    "path": "(b) mirror",
+    "payoff": 1421.675748,
+    "project": "h11",
+    "rank": 27,
+    "why": "No full Rust equivalent; 2654 LOC pure-Python surface, keywords: version (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "none needed — thin typing dispatch; nothing to port",
+    "dependents": 0,
+    "downloads": 695426964,
+    "evidence": [
+      "download rank #28 (695M)",
+      "0 dependent packages (ecosyste.ms, as observed)",
+      "curated table (measured 2026-10-13): noop"
+    ],
+    "path": "(a) adopt/wrap",
+    "payoff": null,
+    "project": "typing-inspection",
+    "rank": 28,
+    "why": "Nothing to port (thin typing dispatch; nothing to port); adopt = do nothing."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [attrs](https://crates.io/crates/attrs), [imagequant-sys](https://crates.io/crates/imagequant-sys), [custom_attrs](https://crates.io/crates/custom_attrs)",
+    "dependents": 2857,
+    "downloads": 692326327,
+    "evidence": [
+      "download rank #29 (692M)",
+      "2857 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 22 .py files, 7182 LOC Python, 0 native files",
+      "workload keywords observed (ESTIMATE of hotness): mark, valid, version, yaml"
+    ],
+    "path": "(b) mirror",
+    "payoff": 3461.6316349999997,
+    "project": "attrs",
+    "rank": 29,
+    "why": "No full Rust equivalent; 7182 LOC pure-Python surface, keywords: mark, valid, version, yaml (payoff ESTIMATE, ranked below)."
+  },
+  {
+    "alternative": "no curated verdict; nearest crates.io hits (observed, UNJUDGED — a human must confirm before (a)): [aerosync](https://crates.io/crates/aerosync)",
+    "dependents": 263,
+    "downloads": 645004335,
+    "evidence": [
+      "download rank #30 (645M)",
+      "263 dependent packages (ecosyste.ms, as observed)",
+      "sdist layout measured (shipped paths only, tests/examples/docs excluded): 17 .py files, 9066 LOC Python, 0 native files"
+    ],
+    "path": "(b) mirror",
+    "payoff": 645.004335,
+    "project": "s3transfer",
+    "rank": 30,
+    "why": "No full Rust equivalent; 9066 LOC pure-Python surface, no hot keywords (payoff ESTIMATE, ranked below)."
+  }
+]

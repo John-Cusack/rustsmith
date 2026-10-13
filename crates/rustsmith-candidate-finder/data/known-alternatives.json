@@ -1,0 +1,40 @@
+{"alternatives": {
+  "beautifulsoup4": [{"crate": "scraper", "link": "https://crates.io/crates/scraper", "scope": "capability covered (html5ever underneath); remainder is API sugar", "verdict": "full"}],
+  "certifi": [{"crate": "(none needed)", "link": "https://pypi.org/project/certifi/", "scope": "CA-bundle data package; nothing to compile or port", "verdict": "noop"}],
+  "charset-normalizer": [
+    {"crate": "chardetng", "link": "https://crates.io/crates/chardetng", "scope": "legacy-web detection only", "verdict": "partial"},
+    {"crate": "charset-normalizer-rs", "link": "https://crates.io/crates/charset-normalizer-rs", "scope": "subset of the Python API", "verdict": "partial"},
+    {"crate": "encoding_rs", "link": "https://crates.io/crates/encoding_rs", "scope": "decode/encode, no charset detection", "verdict": "partial"}],
+  "iniconfig": [{"crate": "(none needed)", "link": "https://pypi.org/project/iniconfig/", "scope": "trivial INI parsing, I/O-bound; nothing worth porting", "verdict": "noop"}],
+  "jinja2": [{"crate": "minijinja", "link": "https://crates.io/crates/minijinja", "scope": "full-feature Jinja2-compatible template engine", "verdict": "full"}],
+  "jsonschema": [{"crate": "jsonschema", "link": "https://crates.io/crates/jsonschema", "scope": "mature JSON Schema validator", "verdict": "full"}],
+  "markdown-it-py": [
+    {"crate": "pulldown-cmark", "link": "https://crates.io/crates/pulldown-cmark", "scope": "fast renderer, no plugin token-stream API", "verdict": "partial"},
+    {"crate": "comrak", "link": "https://crates.io/crates/comrak", "scope": "GFM renderer, different plugin model", "verdict": "partial"},
+    {"crate": "markdown-it", "link": "https://crates.io/crates/markdown-it", "scope": "direct port but stale since 2024-07", "verdict": "partial"}],
+  "numpy": [{"crate": "(upstream native)", "link": "https://numpy.org/", "scope": "already a C/Fortran core", "verdict": "upstream"}],
+  "packaging": [
+    {"crate": "pep440_rs", "link": "https://crates.io/crates/pep440_rs", "scope": "versions only", "verdict": "partial"},
+    {"crate": "pep508_rs", "link": "https://crates.io/crates/pep508_rs", "scope": "markers only", "verdict": "partial"},
+    {"crate": "uv-pep440", "link": "https://crates.io/crates/uv-pep440", "scope": "unstable internal crate, no stable full API", "verdict": "partial"}],
+  "pandas": [{"crate": "(upstream native)", "link": "https://pandas.pydata.org/", "scope": "hot paths already Cython; polars covers new builds", "verdict": "upstream"}],
+  "pyparsing": [
+    {"crate": "nom", "link": "https://crates.io/crates/nom", "scope": "code-first combinators, no runtime-constructible grammar API", "verdict": "partial"},
+    {"crate": "winnow", "link": "https://crates.io/crates/winnow", "scope": "code-first combinators", "verdict": "partial"},
+    {"crate": "pest", "link": "https://crates.io/crates/pest", "scope": "PEG codegen, different authoring model", "verdict": "partial"}],
+  "python-dateutil": [
+    {"crate": "chrono", "link": "https://crates.io/crates/chrono", "scope": "strict parsing only, no fuzzy parse, no rrule", "verdict": "partial"},
+    {"crate": "dateparser", "link": "https://crates.io/crates/dateparser", "scope": "no recurrence rules", "verdict": "partial"},
+    {"crate": "jiff", "link": "https://crates.io/crates/jiff", "scope": "no recurrence rules", "verdict": "partial"}],
+  "python-multipart": [
+    {"crate": "multer", "link": "https://crates.io/crates/multer", "scope": "async-only", "verdict": "partial"},
+    {"crate": "multipart", "link": "https://crates.io/crates/multipart", "scope": "unmaintained since 2021", "verdict": "partial"},
+    {"crate": "form-data", "link": "https://crates.io/crates/form-data", "scope": "async, tiny scope", "verdict": "partial"}],
+  "pydantic": [{"crate": "pydantic-core", "link": "https://crates.io/crates/pydantic-core", "scope": "validation core already Rust upstream; remaining Python is API sugar", "verdict": "upstream"}],
+  "pytz": [{"crate": "(none needed)", "link": "https://pypi.org/project/pytz/", "scope": "tz-database bundle; nothing to compile or port", "verdict": "noop"}],
+  "pyyaml": [
+    {"crate": "serde_yaml_ng", "link": "https://crates.io/crates/serde_yaml_ng", "scope": "C wrapper around libyaml, not pure Rust", "verdict": "partial"},
+    {"crate": "unsafe-libyaml", "link": "https://crates.io/crates/unsafe-libyaml", "scope": "raw bindings, unsafe surface", "verdict": "partial"}],
+  "six": [{"crate": "(none needed)", "link": "https://pypi.org/project/six/", "scope": "single-file Python 2/3 compat shim, shrinking; nothing worth porting", "verdict": "noop"}],
+  "typing-inspection": [{"crate": "(none needed)", "link": "https://pypi.org/project/typing-inspection/", "scope": "thin typing dispatch; nothing to port", "verdict": "noop"}]
+}}

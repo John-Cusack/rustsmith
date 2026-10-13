@@ -349,6 +349,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsmith-candidate-finder"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rustsmith-cli"
 version = "0.1.0"
 dependencies = [
@@ -356,6 +364,7 @@ dependencies = [
  "hex",
  "rustsmith-adapters",
  "rustsmith-agent",
+ "rustsmith-candidate-finder",
  "rustsmith-core",
  "rustsmith-council",
  "rustsmith-gates",
