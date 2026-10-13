@@ -1,0 +1,11 @@
+[package]
+name = "rustsmith-candidate-finder"
+version.workspace = true
+edition = "2021"
+description = "PyPI → Rust rewrite candidate finder: classify top packages into adopt/wrap, mirror-rewrite, or upstream-contribution paths"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
