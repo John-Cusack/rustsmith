@@ -1,0 +1,19 @@
+[package]
+name = "pygments-rust"
+version = "2.19.1"
+edition = "2021"
+description = "Pygments syntax highlighting with hot text kernels in Rust (rustsmith Stage-1 mirror of pygments/pygments)"
+license = "BSD-2-Clause"
+repository = "https://github.com/John-Cusack/pygments-rust"
+homepage = "https://github.com/pygments/pygments"
+
+[lib]
+name = "_pygments"
+crate-type = ["cdylib"]
+
+[dependencies]
+pygments-rust-core = { path = "pygments-core", version = "2.19.1" }
+pyo3 = { version = "0.23", features = ["macros"] }
+
+[workspace]
+members = ["pygments-core"]

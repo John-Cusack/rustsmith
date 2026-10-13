@@ -1,0 +1,11 @@
+[package]
+name = "pygments-rust-core"
+version = "2.19.1"
+edition = "2021"
+description = "Pure-Rust text kernels for the pygments Stage-1 mirror (no Python dependency)"
+license = "BSD-2-Clause"
+repository = "https://github.com/pygments/pygments"
+
+[lib]
+name = "pygments_rust_core"
+path = "src/lib.rs"
