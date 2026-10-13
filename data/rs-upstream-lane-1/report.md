@@ -1,8 +1,8 @@
-# rs-upstream-lane-1 report — charset-normalizer upstream PR
+# rs-upstream-lane-1 report — charset-normalizer (no-gain) + pyyaml (PR opened) upstream work
 
 Target: [Ousret/charset_normalizer](https://github.com/Ousret/charset_normalizer) (charset-normalizer 3.5.2).
 Fork: [John-Cusack/charset_normalizer](https://github.com/John-Cusack/charset_normalizer).
-Status: NO-GAIN — no genuine win found after measured attempts (see §5); upstream PR not opened, awaiting firstmate decision.
+Status: UPSTREAM PR OPENED (pyyaml redirect) — https://github.com/yaml/pyyaml/pull/976 (open, not a draft). Charset section (§§1–7) retained as the honest no-gain record.
 
 ## 1. Target selection (from rs-candidate-finder)
 
@@ -101,9 +101,64 @@ was opened.
 - Fork prepared (no PR opened): `John-Cusack/charset_normalizer`,
   branch `rs-upstream-perf` at upstream HEAD `4b33559`.
 
-## 7. Upstream PR — NOT OPENED (no-gain; needs-decision below)
+## 7. Upstream PR (charset) — NOT OPENED (no-gain; superseded by §8 redirect)
 
 ---
+
+## 8. Redirect: pyyaml scan accelerator (firstmate decision 001.msg)
+
+Firstmate redirected the lane to "the candidate with the strongest
+measured-headroom evidence, skipping mature native cores unless measured
+headroom is shown". **pyyaml** (dl-rank 13, 911M dl/mo, 8,566 dependents)
+is the only `(c)`-upstream package with a measured speedup on our side:
+1.9x safe_load / 1.9x scan (pure-Python path), parity-graded
+(oracle 2608/2608, heldout 36/36+9), install shipped. Measured headroom
+shown per the decision; cryptography/cffi/numpy/pydantic(-core) have
+mature native cores and no measured headroom on our side.
+
+Upstream: [yaml/pyyaml](https://github.com/yaml/pyyaml) @ `f5e4504`
+(7.0.0.dev0). Fork: [John-Cusack/pyyaml](https://github.com/John-Cusack/pyyaml),
+branch `rs-upstream-scan-core`. **PR: https://github.com/yaml/pyyaml/pull/976**
+(open, `draft: no`, verified via `gh-axi pr view`).
+
+Process (same checklist): no CONTRIBUTING / PR template / CoC beyond the
+repo (none found); gates are `make test-python` (pure) + `make test-libyaml`
+(C ext) + cibuildwheel matrix; build is setuptools+Cython with an
+established optional-native-feature pattern (libyaml feature-check with
+pure fallback). Baseline reproduced: 1287 passed pure (libyaml tests skip
+without the ext). No Rust discussion in upstream issues; the acceptable
+shape is the lane-spec default (optional speed core + pure fallback),
+mirroring their libyaml optionality — no ADR needed.
+
+Key scoping measurement (three-way, §5 synthetic docs, CPython 3.12.3):
+pure 90.5 ms vs Rust 45.9 ms vs libyaml C 7.4 ms per `safe_load`. The C
+loader is 6x faster than our engine, so the PR is **scan-only**:
+`yaml.scan` has no C fast path upstream (pure Python for every user) and
+our engine gives 1.9x there (40.3 ms → 20.7 ms). Parser/emitter trimmed
+out of the vendored core; dump (0.93x) and load paths untouched.
+
+Correctness: 2619 passed on the accelerated tree (pure + Rust + libyaml C
+comparisons + 3 new mark tests); token+mark differential pure-vs-Rust over
+the in-repo corpus (565 files): **0 divergences**. The differential caught
+one real engine bug the suite could not (unknown-directive end mark 33 vs
+correct 4 — token suites compare classes only): fixed in the engine, locked
+by `tests/test_scan_marks.py`, negative control verified (test fails on the
+unfixed engine).
+
+Proof (frozen in-repo corpus, 565 files x30, best-of-4, CPU-pinned,
+interleaved): pure 7.95 s / 0.186 MB peak vs Rust 2.11 s / 0.350 MB peak
+= **3.8x** wall. Overhead disclosed in the PR body: +0.16 MB transient
+(double-buffered text), tiny-doc scans 0.85x (64 vs 55 us), load/C
+deliberately out of scope. Reproduction commands + versions in the PR body.
+
+Fork diff: `lib/yaml/scanner.py` +175/-0 (probe, helpers byte-identical to
+the graded mirror, init tail, 3 dispatch guards, `_peek_rust`);
+`setup.py` +31 (setuptools-rust iff installed + cargo present, else
+warn-skip); `MANIFEST.in` +1 (`graft rust`); `rust/` (trimmed scan-only
+engine, renamed `yaml-scan-core`/`yaml-scan`, clean `cargo build`+`clippy`,
+committed `Cargo.lock` with dependency versions identical to the graded
+lock); `tests/test_scan_marks.py` (new). No tokens, no internal paths.
+`cargo build`/`clippy` warning-free; crate metadata repointed upstream.
 
 ## Standing upstream-lane checklist (process artifact)
 
@@ -114,7 +169,11 @@ Generalized from the exact steps followed for charset-normalizer:
    `(c) upstream` row by dl-rank. List missing or no `(c)` row →
    stop at `needs-decision`, never pick by gut feel. Record dl/mo,
    dependents, hot units, and what our side already measured (parity and/or
-   speedup) for the chosen package.
+   speedup) for the chosen package. If the top-ranked target proves no-gain
+   after genuine measured attempts, redirect only on supervisor decision —
+   preferably to the fit with the strongest *measured* headroom on our side
+   (here: pyyaml's 1.9x), skipping mature-native-core packages unless such
+   headroom is shown.
 2. **Discover the contribution process to the letter.** Read CONTRIBUTING,
    pull-request template (or note its absence), code of conduct, dev-setup
    docs, CI workflow. Record every hard gate (sign-offs, changelog, issues,
