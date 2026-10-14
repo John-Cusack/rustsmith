@@ -82,13 +82,27 @@ fn cmd_classify(args: &[String]) -> Result<(), String> {
     let out_md = PathBuf::from(flag(args, "--out").ok_or("missing --out")?);
     let limit: usize = flag(args, "--limit").map(|s| s.parse().unwrap_or(30)).unwrap_or(30);
     let offline = has_flag(args, "--offline");
+    let headroom_rows: Vec<rustsmith_headroom::ProbeRow> = match flag(args, "--headroom") {
+        Some(p) => rustsmith_headroom::load_rows(std::path::Path::new(&p))?,
+        None => Vec::new(),
+    };
+    if !headroom_rows.is_empty() {
+        eprintln!("headroom: {} measured rows", headroom_rows.len());
+    }
     let snapshot = f::load_snapshot(&input)?;
     let mut rows = Vec::new();
     for (i, row) in snapshot.rows.iter().take(limit).enumerate() {
         let rank = i + 1;
         eprintln!("[{rank}/{limit}] {} ...", row.project);
         let signals = f::gather(&row.project, offline);
-        rows.push(f::classify(rank, &row.project, row.download_count, &signals));
+        let probe = headroom_rows.iter().find(|r| r.package == row.project);
+        rows.push(f::classify_with_headroom(
+            rank,
+            &row.project,
+            row.download_count,
+            &signals,
+            probe,
+        ));
     }
     let md = f::render_markdown(&snapshot, &rows, limit, offline);
     if let Some(parent) = out_md.parent() {
@@ -125,6 +139,10 @@ fn cmd_classify(args: &[String]) -> Result<(), String> {
                 "filter": filter,
                 "filter_reason": filter_reason,
                 "filter_provenance": filter_provenance,
+                "headroom_score": c.headroom_score,
+                "headroom_verdict": c.headroom_verdict,
+                "headroom_workload": c.headroom_workload,
+                "headroom_filter": c.headroom_filter,
             })
         })
         .collect();

@@ -1,0 +1,86 @@
+{
+  "package": "charset-normalizer",
+  "version": "3.5.2",
+  "workload": {
+    "name": "detect-28-blobs",
+    "source": "doc-synthetic",
+    "iters": 28,
+    "detail": "28 mixed-encoding blobs (latin-1/cp1251/cp1253/utf-8/cp1254), from_bytes().best() each"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 0.016438836988527328,
+  "tottime_secs": 0.016436062000000005,
+  "fractions": {
+    "pure_python": 0.9241008582226081,
+    "native": 0.07579376373732344,
+    "io_wait": 0.0,
+    "regex": 0.0,
+    "overhead": 0.0001053780400682353
+  },
+  "concentration": {
+    "top1": 0.6069120449898521,
+    "top5": 0.780506121235123,
+    "hot_modules": 6
+  },
+  "top": [
+    {
+      "file": "charset_normalizer/api.py",
+      "func": "from_bytes",
+      "tottime_ms": 9.975244000000002,
+      "ncalls": 24
+    },
+    {
+      "file": "charset_normalizer/utils.py",
+      "func": "cut_sequence_chunks",
+      "tottime_ms": 1.118623,
+      "ncalls": 1308
+    },
+    {
+      "file": "~",
+      "func": "<built-in method _codecs.charmap_decode>",
+      "tottime_ms": 0.9459080000000001,
+      "ncalls": 1092
+    },
+    {
+      "file": "__init__.py",
+      "func": "log",
+      "tottime_ms": 0.418287,
+      "ncalls": 1532
+    },
+    {
+      "file": "~",
+      "func": "<method 'append' of 'list' objects>",
+      "tottime_ms": 0.370385,
+      "ncalls": 3680
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.hash>",
+      "tottime_ms": 0.23125100000000004,
+      "ncalls": 504
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.max>",
+      "tottime_ms": 0.224586,
+      "ncalls": 516
+    },
+    {
+      "file": "charset_normalizer/models.py",
+      "func": "append",
+      "tottime_ms": 0.21253300000000003,
+      "ncalls": 148
+    }
+  ],
+  "loop_nature": "thin_native",
+  "loop_factor": 0.15,
+  "native_cover": [
+    "charset_normalizer.cd",
+    "charset_normalizer.md"
+  ],
+  "score": 0.1,
+  "verdict": "exclude",
+  "why": "saturated native core: ships compiled charset_normalizer.cd/charset_normalizer.md and leaves no Python hot loop (thin profile, pure-python residual 92% is dispatch skin); do not nominate"
+}

@@ -567,8 +567,17 @@ pub struct Classification {
     pub payoff: Option<f64>,
     pub why: String,
     pub evidence: Vec<String>,
+    /// Measured headroom score, when a probe row was applied (`--headroom`).
+    /// `None` = unmeasured; unmeasured is never guessed.
+    pub headroom_score: Option<f64>,
+    /// Probe verdict (`rewrite` | `upstream_only` | `exclude`), if measured.
+    pub headroom_verdict: Option<String>,
+    /// Probe workload name, if measured.
+    pub headroom_workload: Option<String>,
+    /// Filter slot the probe contributed (`headroom/<disposition>`), if it
+    /// changed the nomination standing; evidence-only rows leave this `None`.
+    pub headroom_filter: Option<String>,
 }
-
 /// Classify `project` (download rank `rank`, `downloads`/mo) from `signals`
 /// plus the curated table and the learned filter table. Rules (see ADR-036;
 /// rule 6 is ADR-043):
@@ -632,6 +641,58 @@ fn apply_filters(c: &mut Classification, filters: &[FilterHit]) {
     }
 }
 
+/// Learned headroom rule (ADR-044, rule 7 alongside the six ADR-043
+/// filters): apply a measured probe row to a finished classification.
+/// The row always rides into evidence with its measured fractions; it
+/// changes the nomination standing ONLY when no curated filter already
+/// dispositions the package (curated lane data outranks one probe
+/// workload) — then `exclude` flags a mirror EXCLUDED and `upstream_only`
+/// re-paths a mirror to (c). `rewrite` never re-paths: it is measured
+/// support for the nomination. Non-mirror rows keep their path.
+/// Unmeasured packages (`None`) classify exactly as before.
+pub fn apply_headroom(c: &mut Classification, row: Option<&rustsmith_headroom::ProbeRow>) {
+    let Some(r) = row else { return };
+    c.headroom_score = Some(r.score);
+    c.headroom_verdict = Some(r.verdict.name().into());
+    c.headroom_workload = Some(r.workload.name.clone());
+    c.evidence.push(r.evidence_line());
+    if c.path != Path::Mirror {
+        return;
+    }
+    if !exclusion_filters(&c.project).is_empty() {
+        return;
+    }
+    match r.disposition() {
+        Some("exclude") => {
+            c.headroom_filter = Some("headroom/exclude".into());
+            c.why.push_str(&format!(" EXCLUDED from nomination (headroom: {}).", r.why));
+        }
+        Some("upstream_only") => {
+            c.headroom_filter = Some("headroom/upstream_only".into());
+            c.path = Path::Upstream;
+            c.payoff = None;
+            c.alternative =
+                "no mirror alternative sought — headroom probe caps the portable share".into();
+            c.why = format!("{} Until a probe workload shows portable headroom, upstream-probe only.", r.why);
+        }
+        _ => {}
+    }
+}
+
+/// [`classify`] plus the learned headroom rule: `headroom` is the probe
+/// row for `project` (`None` = unmeasured, never guessed).
+pub fn classify_with_headroom(
+    rank: usize,
+    project: &str,
+    downloads: u64,
+    signals: &Signals,
+    headroom: Option<&rustsmith_headroom::ProbeRow>,
+) -> Classification {
+    let mut c = classify(rank, project, downloads, signals);
+    apply_headroom(&mut c, headroom);
+    c
+}
+
 /// Classify `project` (download rank `rank`, `downloads`/mo) from `signals`
 /// plus the curated table. Rules (see ADR-036):
 ///
@@ -676,6 +737,10 @@ fn classify_inner(
                 k.crate_name
             ),
             evidence: ev,
+            headroom_score: None,
+            headroom_verdict: None,
+            headroom_workload: None,
+            headroom_filter: None,
         };
     }
     if let Some(k) = known.iter().find(|k| k.verdict == "noop") {
@@ -689,6 +754,10 @@ fn classify_inner(
             payoff: None,
             why: format!("Nothing to port ({}); adopt = do nothing.", k.scope),
             evidence: ev,
+            headroom_score: None,
+            headroom_verdict: None,
+            headroom_workload: None,
+            headroom_filter: None,
         };
     }
     if let Some(k) = known.iter().find(|k| k.verdict == "upstream") {
@@ -703,6 +772,10 @@ fn classify_inner(
                 .into(),
             why: format!("{} — win belongs upstream, not in a fork.", k.scope),
             evidence: ev,
+            headroom_score: None,
+            headroom_verdict: None,
+            headroom_workload: None,
+            headroom_filter: None,
         };
     }
 
@@ -745,6 +818,10 @@ fn classify_inner(
                     st.py_loc
                 ),
                 evidence: ev,
+                headroom_score: None,
+                headroom_verdict: None,
+                headroom_workload: None,
+                headroom_filter: None,
             };
         }
         // Rule 4: data-only/trivial surface.
@@ -762,6 +839,10 @@ fn classify_inner(
                     st.py_loc, st.py_files
                 ),
                 evidence: ev,
+                headroom_score: None,
+                headroom_verdict: None,
+                headroom_workload: None,
+                headroom_filter: None,
             };
         }
         // Rule 5: mirror candidate with measured layout.
@@ -783,6 +864,10 @@ fn classify_inner(
                 st.py_loc, kw_txt
             ),
             evidence: ev,
+            headroom_score: None,
+            headroom_verdict: None,
+            headroom_workload: None,
+            headroom_filter: None,
         };
     }
     if let Some(e) = &signals.sdist_error {
@@ -802,6 +887,10 @@ fn classify_inner(
         payoff: Some(downloads as f64 / 1e6),
         why: "No full Rust equivalent documented; layout unobserved so payoff is downloads-only (ESTIMATE, ranked below).".into(),
         evidence: ev,
+        headroom_score: None,
+        headroom_verdict: None,
+        headroom_workload: None,
+        headroom_filter: None,
     }
 }
 
@@ -861,6 +950,9 @@ pub fn render_markdown(
 ) -> String {
     // Learned-filter disposition per row (curated data; re-read here so the
     // report sections stay correct even for hand-built classifications).
+    // A headroom probe row contributes its slot only when it changed the
+    // standing (`headroom_filter` set by `apply_headroom`); evidence-only
+    // rows never move sections.
     let disp = |c: &&Classification| {
         exclusion_filters(&c.project)
             .first()
@@ -871,7 +963,11 @@ pub fn render_markdown(
         exclusion_filters(&c.project)
             .first()
             .map(|f| f.slot())
+            .or_else(|| c.headroom_filter.clone())
             .unwrap_or_else(|| "—".into())
+    };
+    let excluded_by_headroom = |c: &&Classification| {
+        c.headroom_filter.as_deref() == Some("headroom/exclude")
     };
     let by_payoff = |a: &&Classification, b: &&Classification| {
         b.payoff
@@ -881,7 +977,12 @@ pub fn render_markdown(
     };
     let mut clean: Vec<&Classification> = rows
         .iter()
-        .filter(|c| c.path == Path::Mirror && disp(c) != "demote" && disp(c) != "exclude")
+        .filter(|c| {
+            c.path == Path::Mirror
+                && disp(c) != "demote"
+                && disp(c) != "exclude"
+                && !excluded_by_headroom(c)
+        })
         .collect();
     let mut demoted: Vec<&Classification> = rows
         .iter()
@@ -889,7 +990,9 @@ pub fn render_markdown(
         .collect();
     let mut excluded: Vec<&Classification> = rows
         .iter()
-        .filter(|c| c.path == Path::Mirror && disp(c) == "exclude")
+        .filter(|c| {
+            c.path == Path::Mirror && (disp(c) == "exclude" || excluded_by_headroom(c))
+        })
         .collect();
     clean.sort_by(by_payoff);
     demoted.sort_by(by_payoff);
@@ -910,17 +1013,19 @@ pub fn render_markdown(
     o.push_str("Paths: **(a) adopt/wrap** — a Rust alternative exists, adopt it; \
         **(b) mirror** — no alternative, ranked by estimated payoff; \
         **(c) upstream** — the win belongs inside the original package. \
-        Filters (ADR-043) demote or exclude flagged mirrors; see Filter column.\n\n");
+        Filters (ADR-043) demote or exclude flagged mirrors; measured headroom rows \
+        (ADR-044, `--headroom`) exclude or re-path unfiltered mirrors; see Filter column.\n\n");
     o.push_str("Evidence labels: bare claims are MEASURED (download counts, \
         sdist file layout, curated-table verdicts dated 2026-10-13, filter \
-        verdicts dated 2026-10-14); anything \
+        verdicts dated 2026-10-14, headroom probe rows with box/workload labels); anything \
         marked ESTIMATE is a heuristic (keyword hotness, payoff score, \
-        upstream-fit judgment, unjudged crates.io hits).\n\n");
+        upstream-fit judgment, unjudged crates.io hits). Unmeasured packages carry no headroom claim.\n\n");
     o.push_str("| Dl-rank | Package | dl/mo | Dependents | Path | Alternative / gap | Why | Filter |\n");
     o.push_str("|---|---|---|---|---|---|---|---|\n");
     let mut pay_rank = 0;
     for c in clean.iter().chain(demoted.iter()).chain(rest.iter()) {
-        let excluded_row = c.path == Path::Mirror && disp(c) == "exclude";
+        let excluded_row = c.path == Path::Mirror
+            && (disp(c) == "exclude" || excluded_by_headroom(c));
         let pay = match c.path {
             Path::Mirror if excluded_row => "excluded".into(),
             Path::Mirror => {
@@ -1178,6 +1283,104 @@ mod tests {
         assert!(pc < pe, "excluded mirror must not take a nomination slot");
         assert!(md.contains("aws_owned/exclude"), "Filter column must carry the slot");
         assert!(md.contains("excluded"), "excluded row must not show a payoff rank");
+    }
+
+    // Learned headroom rule (ADR-044, rule 7) helpers + tests.
+    fn probe_row(
+        verdict: rustsmith_headroom::Verdict,
+        score: f64,
+        pure: f64,
+    ) -> rustsmith_headroom::ProbeRow {
+        use rustsmith_headroom::{FuncRow, RawProfile, WorkloadDesc};
+        use std::collections::HashMap;
+        let raw = RawProfile {
+            funcs: vec![FuncRow {
+                file: "pkg/mod.py".into(),
+                func: "hot".into(),
+                ncalls: 1_000_000,
+                tottime: pure,
+                cumtime: pure,
+            }],
+            modules: HashMap::new(),
+            wall_secs: 5.0,
+            version: "9.9".into(),
+        };
+        let meta = WorkloadDesc {
+            name: "wl".into(),
+            source: "doc-synthetic".into(),
+            iters: 1,
+            detail: "d".into(),
+        };
+        let mut r =
+            rustsmith_headroom::build_row("somepkg-zz", "pkg", &meta, "cprofile", "box", "3.12", &raw);
+        // Pin the verdict/score under test without depending on thresholds.
+        r.verdict = verdict;
+        r.score = score;
+        r
+    }
+
+    #[test]
+    fn headroom_exclude_flags_clean_mirror() {
+        let mut c = classify(1, "somepkg-zz", 100, &Signals::default());
+        assert_eq!(c.path, Path::Mirror);
+        let row = probe_row(rustsmith_headroom::Verdict::Exclude, 0.05, 0.1);
+        apply_headroom(&mut c, Some(&row));
+        assert!(c.why.contains("EXCLUDED from nomination (headroom:"));
+        assert_eq!(c.headroom_filter.as_deref(), Some("headroom/exclude"));
+        assert_eq!(c.headroom_score, Some(0.05));
+        assert!(c.evidence.iter().any(|e| e.contains("headroom probe (measured")));
+    }
+
+    #[test]
+    fn headroom_upstream_only_repaths_clean_mirror() {
+        let mut c = classify(1, "somepkg-zz", 100, &Signals::default());
+        let row = probe_row(rustsmith_headroom::Verdict::UpstreamOnly, 0.3, 0.4);
+        apply_headroom(&mut c, Some(&row));
+        assert_eq!(c.path, Path::Upstream);
+        assert_eq!(c.payoff, None);
+        assert_eq!(c.headroom_filter.as_deref(), Some("headroom/upstream_only"));
+    }
+
+    #[test]
+    fn headroom_rewrite_supports_but_never_repaths() {
+        let mut c = classify(1, "somepkg-zz", 100, &Signals::default());
+        let row = probe_row(rustsmith_headroom::Verdict::Rewrite, 0.8, 0.9);
+        apply_headroom(&mut c, Some(&row));
+        assert_eq!(c.path, Path::Mirror);
+        assert_eq!(c.headroom_filter, None);
+        assert!(c.evidence.iter().any(|e| e.contains("headroom probe (measured")));
+    }
+
+    #[test]
+    fn curated_filter_outranks_probe_row() {
+        // pygments carries a curated demote; a probe upstream_only adds
+        // measured evidence but must not move the curated standing.
+        let mut c = classify(12, "pygments", 100, &Signals::default());
+        assert!(c.why.contains("Demoted (shared_engine)"));
+        let row = probe_row(rustsmith_headroom::Verdict::UpstreamOnly, 0.46, 0.46);
+        apply_headroom(&mut c, Some(&row));
+        assert_eq!(c.path, Path::Mirror);
+        assert!(c.why.contains("Demoted (shared_engine)"));
+        assert_eq!(c.headroom_filter, None);
+        assert!(c.evidence.iter().any(|e| e.contains("headroom probe (measured")));
+    }
+
+    #[test]
+    fn headroom_leaves_non_mirrors_alone() {
+        let mut c = classify(1, "jinja2", 100, &Signals::default());
+        assert_eq!(c.path, Path::Adopt);
+        let row = probe_row(rustsmith_headroom::Verdict::Exclude, 0.05, 0.1);
+        apply_headroom(&mut c, Some(&row));
+        assert_eq!(c.path, Path::Adopt);
+        assert_eq!(c.headroom_filter, None);
+    }
+
+    #[test]
+    fn unmeasured_package_classifies_as_before() {
+        let c = classify_with_headroom(1, "somepkg-zz", 100, &Signals::default(), None);
+        assert_eq!(c.path, Path::Mirror);
+        assert_eq!(c.headroom_score, None);
+        assert_eq!(c.headroom_filter, None);
     }
 
 }

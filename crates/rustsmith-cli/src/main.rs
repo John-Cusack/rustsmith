@@ -1,5 +1,6 @@
 mod candidates;
 mod candidate_finder;
+mod headroom;
 mod github;
 mod heldout;
 mod mirror;
@@ -23,7 +24,7 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 fn usage() -> &'static str {
-    "usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store <store.db>] [--run-id <id>] [--stage full|recon|mirror|optimize|harvest] [--plant-live test-edit|hardcode] [--config <toml>]\n       rustsmith run-batch --repo <a[,b...]> --work <dir> [--store <store.db>] [--run-id-prefix <p>] [--config <toml>]\n       rustsmith run --stage recon --repo <path> --run-id <id> [--store <store.db>] [--heldout <dir>] (M0 legacy)\n       rustsmith audit --run-id <id> [--store <store.db>]\n       rustsmith verify --manifest <oracle/manifest.json> --tree <path>\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> [--heldout <dir>] [--build-dir <dir>]\n       rustsmith grade --manifest <oracle/manifest.json> --tree <path> --build-dir <dir> --unit <repo-rel-path> (ctest scoped)\n       rustsmith worker-probe --store <db> --run-id <id> --unit <id> --prompt-out <file>\n       rustsmith seat-probe --store <db> --run-id <id> --question <q>\n       rustsmith release-prep --project <mirror/<pkg>> --fork <dir> [--opt <dir>] --recon-out <dir> --out <dir>\n       rustsmith release-prep --init --project <mirror/<pkg>> --recon-out <dir> [--fork <dir>] [--upstream <owner/repo>] [--github-owner <owner>] [--module <import>] [--version <x.y.z>] [--license-spdx <id>] [--force]\n       rustsmith release-record --state <release-state.json> --registry testpypi|pypi|crates-io --result success|failed [--detail <text>]\n       rustsmith release-status --state <release-state.json>\n       rustsmith create-github-repo --fork <dir> --project <mirror/<pkg>> --recon-out <dir> --run-id <id> [--store <store.db>] [--private] [--yes]\n       rustsmith combine-stores --stores <a.db,b.db> --out <merged.db>\n       rustsmith candidates fetch --out <snapshot.json> [--url <url>]\n       rustsmith candidates classify --input <snapshot.json> --out <candidates.md> [--limit <n>] [--offline]"
+    include_str!("usage.txt")
 }
 
 fn main() {
@@ -61,6 +62,7 @@ fn run() -> Result<(), String> {
         "release-publish" => release::cmd_release_publish(&args[2..]),
         "create-github-repo" => github::cmd_create_github_repo(&args[2..]),
         "candidates" => candidate_finder::cmd_candidates(&args[2..]),
+        "headroom" => headroom::cmd_headroom(&args[2..]),
         _ => Err(usage().into()),
     }
 }

@@ -1,0 +1,85 @@
+{
+  "package": "pyyaml",
+  "version": "6.0.3",
+  "workload": {
+    "name": "safeload-4000svc",
+    "source": "doc-synthetic",
+    "iters": 3,
+    "detail": "yaml.safe_load() (pure-Python SafeLoader) of generated 4000-service doc, x3"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 10.68514661397785,
+  "tottime_secs": 10.685133710000002,
+  "fractions": {
+    "pure_python": 0.9929101728573498,
+    "native": 0.0003863044779811183,
+    "io_wait": 0.0,
+    "regex": 0.0055032054437435755,
+    "overhead": 0.0012003172209250714
+  },
+  "concentration": {
+    "top1": 0.08654820043426484,
+    "top5": 0.3310840902897788,
+    "hot_modules": 6
+  },
+  "top": [
+    {
+      "file": "yaml/scanner.py",
+      "func": "need_more_tokens",
+      "tottime_ms": 924.779094,
+      "ncalls": 2748156
+    },
+    {
+      "file": "yaml/scanner.py",
+      "func": "stale_possible_simple_keys",
+      "tottime_ms": 735.554967,
+      "ncalls": 2868117
+    },
+    {
+      "file": "yaml/scanner.py",
+      "func": "check_token",
+      "tottime_ms": 729.577154,
+      "ncalls": 1644099
+    },
+    {
+      "file": "yaml/scanner.py",
+      "func": "scan_plain",
+      "tottime_ms": 655.346223,
+      "ncalls": 180003
+    },
+    {
+      "file": "yaml/scanner.py",
+      "func": "fetch_more_tokens",
+      "tottime_ms": 492.420336,
+      "ncalls": 372009
+    },
+    {
+      "file": "yaml/parser.py",
+      "func": "parse_node",
+      "tottime_ms": 488.90036900000007,
+      "ncalls": 216009
+    },
+    {
+      "file": "yaml/reader.py",
+      "func": "forward",
+      "tottime_ms": 487.18412800000004,
+      "ncalls": 912012
+    },
+    {
+      "file": "yaml/reader.py",
+      "func": "peek",
+      "tottime_ms": 398.569335,
+      "ncalls": 3938763
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [
+    "yaml._yaml"
+  ],
+  "score": 0.8439736469287473,
+  "verdict": "rewrite",
+  "why": "99% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}

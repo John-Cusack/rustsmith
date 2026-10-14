@@ -10,6 +10,7 @@ members = [
     "crates/rustsmith-adapters",
     "crates/rustsmith-cli",
     "crates/rustsmith-candidate-finder",
+    "crates/rustsmith-headroom",
     "crates/rustsmith-release",
     "crates/rustsmith-report",
 ]
