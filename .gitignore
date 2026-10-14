@@ -24,3 +24,4 @@ __pycache__/
 
 # lane port workspaces build offline from path deps only
 rust/elmergrid/Cargo.lock
+rust/elmerice/Cargo.lock
