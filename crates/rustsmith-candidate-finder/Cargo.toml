@@ -9,3 +9,4 @@ repository.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+rustsmith-headroom = { version = "0.1.0", path = "../rustsmith-headroom" }

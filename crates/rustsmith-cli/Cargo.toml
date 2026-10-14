@@ -24,6 +24,7 @@ rustsmith-harvest = { version = "0.1.0", path = "../rustsmith-harvest" }
 rustsmith-report = { version = "0.1.0", path = "../rustsmith-report" }
 rustsmith-release = { version = "0.1.0", path = "../rustsmith-release" }
 rustsmith-candidate-finder = { version = "0.1.0", path = "../rustsmith-candidate-finder" }
+rustsmith-headroom = { version = "0.1.0", path = "../rustsmith-headroom" }
 serde_json = { workspace = true }
 walkdir = { workspace = true }
 camino = "1"

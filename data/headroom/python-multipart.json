@@ -1,0 +1,83 @@
+{
+  "package": "python-multipart",
+  "version": "0.0.32",
+  "workload": {
+    "name": "form-event-heavy",
+    "source": "doc-synthetic",
+    "iters": 10,
+    "detail": "200 small fields + 20 small files fed in 4KB chunks, parsed x10"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 0.08915085403714329,
+  "tottime_secs": 0.089144182,
+  "fractions": {
+    "pure_python": 0.870784859521174,
+    "native": 0.10739815863698206,
+    "io_wait": 0.006636731491910486,
+    "regex": 0.0,
+    "overhead": 0.015180250349933103
+  },
+  "concentration": {
+    "top1": 0.23461767813405926,
+    "top5": 0.5418028290393646,
+    "hot_modules": 2
+  },
+  "top": [
+    {
+      "file": "python_multipart/multipart.py",
+      "func": "_internal_write",
+      "tottime_ms": 20.914801,
+      "ncalls": 1030
+    },
+    {
+      "file": "python_multipart/multipart.py",
+      "func": "callback",
+      "tottime_ms": 9.976537,
+      "ncalls": 19430
+    },
+    {
+      "file": "python_multipart/multipart.py",
+      "func": "_parseparam",
+      "tottime_ms": 7.332366,
+      "ncalls": 2210
+    },
+    {
+      "file": "python_multipart/multipart.py",
+      "func": "parse_options_header",
+      "tottime_ms": 5.340633,
+      "ncalls": 2210
+    },
+    {
+      "file": "~",
+      "func": "<method 'get' of 'dict' objects>",
+      "tottime_ms": 4.734233,
+      "ncalls": 41720
+    },
+    {
+      "file": "python_multipart/multipart.py",
+      "func": "data_callback",
+      "tottime_ms": 4.665929,
+      "ncalls": 10090
+    },
+    {
+      "file": "python_multipart/multipart.py",
+      "func": "on_headers_finished",
+      "tottime_ms": 3.8992680000000006,
+      "ncalls": 2200
+    },
+    {
+      "file": "~",
+      "func": "<method 'find' of 'bytes' objects>",
+      "tottime_ms": 3.7960570000000002,
+      "ncalls": 8020
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.7401671305929979,
+  "verdict": "rewrite",
+  "why": "87% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}

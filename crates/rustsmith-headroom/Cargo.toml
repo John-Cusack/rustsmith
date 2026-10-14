@@ -1,0 +1,12 @@
+[package]
+name = "rustsmith-headroom"
+version.workspace = true
+edition = "2021"
+description = "Pre-port headroom probe: predicted Rust speedup for a PyPI candidate from a sampled workload"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }

@@ -1,0 +1,83 @@
+{
+  "package": "pygments",
+  "version": "2.21.0",
+  "workload": {
+    "name": "highlight-synth-120k",
+    "source": "doc-synthetic",
+    "iters": 3,
+    "detail": "highlight() of generated 120KB Python module, PythonLexer + HtmlFormatter, x3"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 2.2346050909836777,
+  "tottime_secs": 2.234597786,
+  "fractions": {
+    "pure_python": 0.45749973369032954,
+    "native": 0.0016155054939269503,
+    "io_wait": 0.0016605744547175524,
+    "regex": 0.5392225220794163,
+    "overhead": 1.6642816095585267e-6
+  },
+  "concentration": {
+    "top1": 0.5148848675177198,
+    "top5": 0.9433926164285568,
+    "hot_modules": 4
+  },
+  "top": [
+    {
+      "file": "~",
+      "func": "<method 'match' of 're.Pattern' objects>",
+      "tottime_ms": 1150.560585,
+      "ncalls": 8746365
+    },
+    {
+      "file": "pygments/lexer.py",
+      "func": "get_tokens_unprocessed",
+      "tottime_ms": 713.526465,
+      "ncalls": 264600
+    },
+    {
+      "file": "pygments/formatters/html.py",
+      "func": "_format_lines",
+      "tottime_ms": 171.74815700000002,
+      "ncalls": 16200
+    },
+    {
+      "file": "pygments/lexer.py",
+      "func": "streamer",
+      "tottime_ms": 42.195685000000005,
+      "ncalls": 264600
+    },
+    {
+      "file": "~",
+      "func": "<method 'group' of 're.Match' objects>",
+      "tottime_ms": 30.07216,
+      "ncalls": 271797
+    },
+    {
+      "file": "~",
+      "func": "<method 'extend' of 'list' objects>",
+      "tottime_ms": 27.114205000000002,
+      "ncalls": 228600
+    },
+    {
+      "file": "~",
+      "func": "<method 'end' of 're.Match' objects>",
+      "tottime_ms": 22.029941,
+      "ncalls": 257397
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.len>",
+      "tottime_ms": 18.570214,
+      "ncalls": 279396
+    }
+  ],
+  "loop_nature": "tight_loop",
+  "loop_factor": 1.0,
+  "native_cover": [],
+  "score": 0.45749973369032954,
+  "verdict": "upstream_only",
+  "why": "shared-engine tie: 54% of hot time already runs in the C re engine; only the Python dispatch around it (46%) is portable"
+}
