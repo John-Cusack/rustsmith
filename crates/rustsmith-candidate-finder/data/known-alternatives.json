@@ -36,5 +36,52 @@
     {"crate": "serde_yaml_ng", "link": "https://crates.io/crates/serde_yaml_ng", "scope": "C wrapper around libyaml, not pure Rust", "verdict": "partial"},
     {"crate": "unsafe-libyaml", "link": "https://crates.io/crates/unsafe-libyaml", "scope": "raw bindings, unsafe surface", "verdict": "partial"}],
   "six": [{"crate": "(none needed)", "link": "https://pypi.org/project/six/", "scope": "single-file Python 2/3 compat shim, shrinking; nothing worth porting", "verdict": "noop"}],
-  "typing-inspection": [{"crate": "(none needed)", "link": "https://pypi.org/project/typing-inspection/", "scope": "thin typing dispatch; nothing to port", "verdict": "noop"}]
+  "typing-inspection": [{"crate": "(none needed)", "link": "https://pypi.org/project/typing-inspection/", "scope": "thin typing dispatch; nothing to port", "verdict": "noop"}],
+  "arrow": [
+    {"crate": "jiff", "link": "https://crates.io/crates/jiff", "scope": "no fuzzy parse, no humanize, no recurrence", "verdict": "partial"}],
+  "babel": [
+    {"crate": "icu", "link": "https://crates.io/crates/icu", "scope": "full i18n via ICU4X but a different (component, not drop-in) API", "verdict": "partial"}],
+  "dateparser": [
+    {"crate": "dateparser", "link": "https://crates.io/crates/dateparser", "scope": "narrower language/coverage scope, no equivalent pipeline API", "verdict": "partial"}],
+  "docutils": [
+    {"crate": "rst", "link": "https://crates.io/crates/rst", "scope": "nascent parser/renderer, no transform/publishing pipeline", "verdict": "partial"},
+    {"crate": "oak-rst", "link": "https://crates.io/crates/oak-rst", "scope": "incremental parser only, no document model", "verdict": "partial"}],
+  "feedparser": [
+    {"crate": "feed-rs", "link": "https://crates.io/crates/feed-rs", "scope": "handles Atom, RSS 2.0/1.0/0.x and JSON Feed", "verdict": "full"}],
+  "idna": [
+    {"crate": "idna", "link": "https://crates.io/crates/idna", "scope": "Servo UTS46 implementation, full IDNA + punycode", "verdict": "full"}],
+  "markdown": [
+    {"crate": "pulldown-cmark", "link": "https://crates.io/crates/pulldown-cmark", "scope": "fast renderer, no block-parser extension API", "verdict": "partial"},
+    {"crate": "comrak", "link": "https://crates.io/crates/comrak", "scope": "GFM renderer, different extension model", "verdict": "partial"}],
+  "marshmallow": [
+    {"crate": "serde", "link": "https://crates.io/crates/serde", "scope": "code-first framework, no runtime schema/validation API", "verdict": "partial"}],
+  "mistune": [
+    {"crate": "comrak", "link": "https://crates.io/crates/comrak", "scope": "GFM renderer, different plugin model", "verdict": "partial"},
+    {"crate": "pulldown-cmark", "link": "https://crates.io/crates/pulldown-cmark", "scope": "fast renderer, no plugin token-stream API", "verdict": "partial"}],
+  "openpyxl": [
+    {"crate": "calamine", "link": "https://crates.io/crates/calamine", "scope": "read-only; write path plus style/chart/pivot model uncovered", "verdict": "partial"}],
+  "rich": [
+    {"crate": "ratatui", "link": "https://crates.io/crates/ratatui", "scope": "app-framework TUI, not a console/renderable print API", "verdict": "partial"}],
+  "rsa": [
+    {"crate": "rsa", "link": "https://crates.io/crates/rsa", "scope": "RustCrypto full PKCS#1 v1.5/OAEP/PSS implementation", "verdict": "full"}],
+  "sortedcontainers": [
+    {"crate": "(std BTreeMap)", "link": "https://doc.rust-lang.org/std/collections/struct.BTreeMap.html", "scope": "capability covered by std, but a different (non-drop-in) API", "verdict": "partial"}],
+  "soupsieve": [
+    {"crate": "selectors", "link": "https://crates.io/crates/selectors", "scope": "Servo matching engine only, no soupsieve compiler/API", "verdict": "partial"}],
+  "sqlglot": [
+    {"crate": "sqlparser", "link": "https://crates.io/crates/sqlparser", "scope": "ANSI lexer/parser only; no dialect transpile, no optimizer", "verdict": "partial"},
+    {"crate": "sqlglot-rust", "link": "https://crates.io/crates/sqlglot-rust", "scope": "nascent port inspired by sqlglot, not a replacement", "verdict": "partial"}],
+  "sqlparse": [
+    {"crate": "sqlparser", "link": "https://crates.io/crates/sqlparser", "scope": "ANSI lexer/parser only, different token-stream API", "verdict": "partial"}],
+  "sympy": [
+    {"crate": "symcas", "link": "https://crates.io/crates/symcas", "scope": "primitive CAS, nowhere near sympy's scope", "verdict": "partial"}],
+  "tabulate": [
+    {"crate": "comfy-table", "link": "https://crates.io/crates/comfy-table", "scope": "table builder, not a tabulate-compatible format API", "verdict": "partial"},
+    {"crate": "tabulate-rs", "link": "https://crates.io/crates/tabulate-rs", "scope": "port attempt, negligible adoption", "verdict": "partial"}],
+  "tomli": [
+    {"crate": "toml", "link": "https://crates.io/crates/toml", "scope": "native full TOML encoder/decoder", "verdict": "full"}],
+  "tomlkit": [
+    {"crate": "toml_edit", "link": "https://crates.io/crates/toml_edit", "scope": "format-preserving parser, but a different document API", "verdict": "partial"}],
+  "xlsxwriter": [
+    {"crate": "rust_xlsxwriter", "link": "https://crates.io/crates/rust_xlsxwriter", "scope": "full-featured xlsx writer in the same lineage", "verdict": "full"}]
 }}

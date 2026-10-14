@@ -100,6 +100,18 @@ fn cmd_classify(args: &[String]) -> Result<(), String> {
     let json_rows: Vec<serde_json::Value> = rows
         .iter()
         .map(|c| {
+            let (filter, filter_reason, filter_provenance) = match f::exclusion_filters(&c.project).first() {
+                Some(h) => (
+                    serde_json::json!(h.slot()),
+                    serde_json::json!(h.reason.clone()),
+                    serde_json::json!(h.provenance.clone()),
+                ),
+                None => (
+                    serde_json::Value::Null,
+                    serde_json::Value::Null,
+                    serde_json::Value::Null,
+                ),
+            };
             serde_json::json!({
                 "rank": c.rank,
                 "project": c.project,
@@ -110,6 +122,9 @@ fn cmd_classify(args: &[String]) -> Result<(), String> {
                 "payoff": c.payoff,
                 "why": c.why,
                 "evidence": c.evidence,
+                "filter": filter,
+                "filter_reason": filter_reason,
+                "filter_provenance": filter_provenance,
             })
         })
         .collect();
