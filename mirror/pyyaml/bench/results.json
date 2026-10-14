@@ -1,0 +1,149 @@
+{
+  "package": "pyyaml",
+  "baseline": "same tree, extension blocked (pure-Python fallback)",
+  "host": {
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "python": "3.12.3"
+  },
+  "command": [
+    "mirror/pyyaml/bench/bench.py",
+    "--port-python",
+    "/home/john/firstmate/data/rs-bench-backfill/work/venvs/pyyaml/bin/python",
+    "--reps",
+    "7"
+  ],
+  "measured_at": "2026-10-14T00:05:13Z",
+  "workloads": [
+    {
+      "label": "R1 scan 8.7KB manifests",
+      "track": "representative",
+      "size": "8686 bytes, 40 docs",
+      "distribution": "corpus_manifests.yaml (sha 04b85e43d7d5): k8s-shaped services; token stream",
+      "iters": 10,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 47.577384,
+        "mad_ms": 0.4032009999999957,
+        "rss_kb": 18524,
+        "alloc_b": 69769,
+        "digest": "630e288e1dcbef9b"
+      },
+      "port": {
+        "median_ms": 15.647755,
+        "mad_ms": 0.074681,
+        "rss_kb": 18524,
+        "alloc_b": 75309,
+        "digest": "630e288e1dcbef9b"
+      },
+      "speedup_x": 3.0405245992156704,
+      "verdict": "faster"
+    },
+    {
+      "label": "R2 safe_load single service",
+      "track": "representative",
+      "size": "217 bytes, 1 doc",
+      "distribution": "first doc of corpus_manifests.yaml; full compose+construct path (SafeLoader)",
+      "iters": 10,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 1.824981,
+        "mad_ms": 0.0034769999999999524,
+        "rss_kb": 18524,
+        "alloc_b": 29866,
+        "digest": "1ae96b0b351d7023"
+      },
+      "port": {
+        "median_ms": 0.598852,
+        "mad_ms": 0.04809199999999991,
+        "rss_kb": 18524,
+        "alloc_b": 28861,
+        "digest": "1ae96b0b351d7023"
+      },
+      "speedup_x": 3.0474658179316423,
+      "verdict": "faster"
+    },
+    {
+      "label": "R3 dump nested object",
+      "track": "representative",
+      "size": "~9KB emitted",
+      "distribution": "safe_load of corpus_manifests re-emitted; emitter path (expect ~1x, lane found 0.93x)",
+      "iters": 10,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 0.820391,
+        "mad_ms": 0.019096000000000002,
+        "rss_kb": 18524,
+        "alloc_b": 27801,
+        "digest": "f76a16946700b5d6"
+      },
+      "port": {
+        "median_ms": 0.427268,
+        "mad_ms": 0.002915000000000001,
+        "rss_kb": 18524,
+        "alloc_b": 27913,
+        "digest": "f76a16946700b5d6"
+      },
+      "speedup_x": 1.9200852860499733,
+      "verdict": "faster"
+    },
+    {
+      "label": "S1 load_all 65KB 300-doc stream",
+      "track": "showcase",
+      "size": "65290 bytes, 300 docs",
+      "distribution": "corpus_bulk.yaml (sha 3e82c186d4e): bulk ingest ceiling",
+      "iters": 3,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 716.789728,
+        "mad_ms": 6.172264999999925,
+        "rss_kb": 20828,
+        "alloc_b": 1481703,
+        "digest": "9f53854a75c47637"
+      },
+      "port": {
+        "median_ms": 166.902102,
+        "mad_ms": 1.1457960000000185,
+        "rss_kb": 20828,
+        "alloc_b": 1540266,
+        "digest": "9f53854a75c47637"
+      },
+      "speedup_x": 4.294671663272401,
+      "verdict": "faster"
+    },
+    {
+      "label": "X1 per-crossing overhead (tiny scan)",
+      "track": "overhead",
+      "size": "1 doc, 14 bytes",
+      "distribution": "fixed 'a: 1'; measures per-call dispatch floor, not throughput",
+      "iters": 2000,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 0.166255,
+        "mad_ms": 0.0011620000000000241,
+        "rss_kb": 20828,
+        "alloc_b": 93412,
+        "digest": "45884c988503f4e5"
+      },
+      "port": {
+        "median_ms": 0.134805,
+        "mad_ms": 0.0005910000000000082,
+        "rss_kb": 20828,
+        "alloc_b": 92796,
+        "digest": "45884c988503f4e5"
+      },
+      "speedup_x": 1.2332999517822036,
+      "verdict": "faster"
+    }
+  ]
+}

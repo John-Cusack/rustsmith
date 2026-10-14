@@ -1,0 +1,125 @@
+{
+  "package": "charset-normalizer",
+  "baseline": "charset-normalizer 3.5.1 (PyPI)",
+  "host": {
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "python": "3.12.3"
+  },
+  "command": [
+    "mirror/charset-normalizer/bench/bench.py",
+    "--base-python",
+    "/home/john/firstmate/data/rs-bench-backfill/work/venvs/charset-normalizer-base/bin/python",
+    "--port-python",
+    "/home/john/firstmate/data/rs-bench-backfill/work/venvs/charset-normalizer-port/bin/python",
+    "--reps",
+    "7"
+  ],
+  "measured_at": "2026-10-14T00:01:45Z",
+  "workloads": [
+    {
+      "label": "R1 from_bytes 3 mixed docs",
+      "track": "representative",
+      "size": "30492 + 36000 + 120727 bytes",
+      "distribution": "corpus_latin (7eb4bc8c7589, utf-8 with accents) + corpus_cjk (5c11fdf379df, utf-8) + corpus_logs (a9f17ac3e94e, ascii); detect each",
+      "iters": 5,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 11.691837,
+        "mad_ms": 0.16040399999999977,
+        "rss_kb": 22252,
+        "alloc_b": 150266,
+        "digest": "37d5d8327b36135d"
+      },
+      "port": {
+        "median_ms": 4.489141,
+        "mad_ms": 0.049864999999999604,
+        "rss_kb": 22008,
+        "alloc_b": 31087,
+        "digest": "37d5d8327b36135d"
+      },
+      "speedup_x": 2.604470877613334,
+      "verdict": "faster"
+    },
+    {
+      "label": "R2 from_bytes 121KB ascii logs",
+      "track": "representative",
+      "size": "120727 bytes",
+      "distribution": "corpus_logs (a9f17ac3e94e): 2000 ascii log lines; ingest fast path",
+      "iters": 10,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 0.418492,
+        "mad_ms": 0.0028359999999999497,
+        "rss_kb": 22252,
+        "alloc_b": 137165,
+        "digest": "0c02b2d5ae3c9090"
+      },
+      "port": {
+        "median_ms": 1.267738,
+        "mad_ms": 0.04886299999999988,
+        "rss_kb": 22252,
+        "alloc_b": 29356,
+        "digest": "0c02b2d5ae3c9090"
+      },
+      "speedup_x": 0.3301092181507535,
+      "verdict": "slower"
+    },
+    {
+      "label": "S1 from_bytes 1MB latin bulk",
+      "track": "showcase",
+      "size": "1048576 bytes",
+      "distribution": "corpus_latin repeated to 1MB (utf-8); decode-all + per-char scoring ceiling",
+      "iters": 3,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 6.297062,
+        "mad_ms": 0.08513099999999962,
+        "rss_kb": 26884,
+        "alloc_b": 2112113,
+        "digest": "d582cd52a87a7dc6"
+      },
+      "port": {
+        "median_ms": 11.116519,
+        "mad_ms": 0.1847790000000007,
+        "rss_kb": 26884,
+        "alloc_b": 28004,
+        "digest": "d582cd52a87a7dc6"
+      },
+      "speedup_x": 0.5664598783126265,
+      "verdict": "slower"
+    },
+    {
+      "label": "X1 per-crossing overhead (tiny ascii detect)",
+      "track": "overhead",
+      "size": "11 bytes",
+      "distribution": "fixed b'hello world'; measures per-call dispatch floor, not throughput",
+      "iters": 500,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 0.193977,
+        "mad_ms": 0.0005010000000000014,
+        "rss_kb": 26884,
+        "alloc_b": 43557,
+        "digest": "0c02b2d5ae3c9090"
+      },
+      "port": {
+        "median_ms": 0.054853,
+        "mad_ms": 0.0004620000000000041,
+        "rss_kb": 26884,
+        "alloc_b": 52107,
+        "digest": "0c02b2d5ae3c9090"
+      },
+      "speedup_x": 3.5363061272856546,
+      "verdict": "faster"
+    }
+  ]
+}

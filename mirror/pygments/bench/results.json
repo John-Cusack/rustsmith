@@ -1,0 +1,147 @@
+{
+  "package": "pygments",
+  "baseline": "same tree, seam-blocked (pure-Python fallback)",
+  "host": {
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "python": "3.12.3"
+  },
+  "command": [
+    "mirror/pygments/bench/highlight.py",
+    "--reps",
+    "15"
+  ],
+  "measured_at": "2026-10-14T00:04:44Z",
+  "workloads": [
+    {
+      "label": "R1 highlight 110KB python->HTML",
+      "track": "representative",
+      "size": "highlight",
+      "distribution": "corpus_py.txt: 110KB CPython stdlib-flavored source; full highlight pipeline",
+      "iters": 1,
+      "reps": 15,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native allocs invisible, favoring the ported side. rss_mb covers both sides.",
+      "baseline": {
+        "median_ms": 116.47572799120098,
+        "mad_ms": 1.2927240459248424,
+        "rss_kb": 459996.0,
+        "alloc_b": 1049750,
+        "digest": "a72085a4fb1d63e8"
+      },
+      "port": {
+        "median_ms": 113.46904397942126,
+        "mad_ms": 0.7907150429673493,
+        "rss_kb": 459996.0,
+        "alloc_b": 1049750,
+        "digest": "a72085a4fb1d63e8"
+      },
+      "speedup_x": 1.0264978350599747,
+      "verdict": "no-change"
+    },
+    {
+      "label": "R2 lex-only 110KB python",
+      "track": "representative",
+      "size": "lex-only",
+      "distribution": "corpus_py.txt; tokenize only, `re` engine dominates (ADR-038)",
+      "iters": 1,
+      "reps": 15,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native allocs invisible, favoring the ported side. rss_mb covers both sides.",
+      "baseline": {
+        "median_ms": 91.0046580247581,
+        "mad_ms": 0.5200130399316549,
+        "rss_kb": 459996.0,
+        "alloc_b": 476930,
+        "digest": "dc937b59892604f5"
+      },
+      "port": {
+        "median_ms": 91.2358250352554,
+        "mad_ms": 0.6120560574345291,
+        "rss_kb": 459996.0,
+        "alloc_b": 476930,
+        "digest": "dc937b59892604f5"
+      },
+      "speedup_x": 0.9974662693036647,
+      "verdict": "no-change"
+    },
+    {
+      "label": "R3 highlight 70KB escape-heavy JS->HTML",
+      "track": "representative",
+      "size": "highlight",
+      "distribution": "corpus_escape.txt: 70KB '<>&\"'-dense JS; escape-preprocess path",
+      "iters": 1,
+      "reps": 15,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native allocs invisible, favoring the ported side. rss_mb covers both sides.",
+      "baseline": {
+        "median_ms": 27.978156984318048,
+        "mad_ms": 0.1276609837077558,
+        "rss_kb": 459996.0,
+        "alloc_b": 681958,
+        "digest": "d882c784ced0548a"
+      },
+      "port": {
+        "median_ms": 27.92371396208182,
+        "mad_ms": 0.20746293012052774,
+        "rss_kb": 459996.0,
+        "alloc_b": 681958,
+        "digest": "d882c784ced0548a"
+      },
+      "speedup_x": 1.0019497056269147,
+      "verdict": "no-change"
+    },
+    {
+      "label": "S1 regex_opt C-keyword list",
+      "track": "showcase",
+      "size": "regex_opt",
+      "distribution": "import-time builder over 44 C keywords; pure-Python regex assembly vs Rust",
+      "iters": 1,
+      "reps": 15,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native allocs invisible, favoring the ported side. rss_mb covers both sides.",
+      "baseline": {
+        "median_ms": 0.19531900761649013,
+        "mad_ms": 0.0020139850676059723,
+        "rss_kb": 459996.0,
+        "alloc_b": 43396,
+        "digest": "2618a65d32035540"
+      },
+      "port": {
+        "median_ms": 0.02095999661833048,
+        "mad_ms": 0.0011720112524926662,
+        "rss_kb": 459996.0,
+        "alloc_b": 784,
+        "digest": "2618a65d32035540"
+      },
+      "speedup_x": 9.318656446999361,
+      "verdict": "faster"
+    },
+    {
+      "label": "X1 per-crossing overhead (tiny highlight)",
+      "track": "overhead",
+      "size": "per-crossing",
+      "distribution": "fixed 6-byte snippet; per-call dispatch floor, not throughput",
+      "iters": 1,
+      "reps": 15,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native allocs invisible, favoring the ported side. rss_mb covers both sides.",
+      "baseline": {
+        "median_ms": 0.032401003409177065,
+        "mad_ms": 0.00022997846826910973,
+        "rss_kb": 459996.0,
+        "alloc_b": 2994,
+        "digest": "acec7875bd366a1d"
+      },
+      "port": {
+        "median_ms": 0.03289198502898216,
+        "mad_ms": 0.0002800370566546917,
+        "rss_kb": 459996.0,
+        "alloc_b": 2994,
+        "digest": "acec7875bd366a1d"
+      },
+      "speedup_x": 0.9850729100304382,
+      "verdict": "no-change"
+    }
+  ]
+}

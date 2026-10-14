@@ -19,3 +19,12 @@ One implementation, two distributions:
 - `release.toml` — release configuration (names, version, platforms, Python
   versions, publishing repo + workflow identity, license, upstream
   attribution). Read by `rustsmith release-prep`; see `docs/RELEASE.md`.
+
+## Bench (measured 2026-10-14; driver `bench/bench.py`, rows in `bench/results.json`)
+
+| Workload | Track | Baseline | Port | Speedup |
+|---|---|---|---|---|
+| R1 from_bytes 3 mixed docs | representative | 11.692ms | 4.489ms | 2.60x |
+| R2 from_bytes 121KB ascii logs | representative | 0.418ms | 1.268ms | 0.33x (slower: ascii fast path) |
+| S1 from_bytes 1MB latin bulk | showcase | 6.297ms | 11.117ms | 0.57x (slower) |
+| X1 per-crossing overhead (tiny ascii detect) | overhead | 0.194ms | 0.055ms | 3.54x |

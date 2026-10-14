@@ -1,0 +1,125 @@
+{
+  "package": "markdown-it-py",
+  "baseline": "markdown-it-py 4.2.0 (PyPI)",
+  "host": {
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "python": "3.12.3"
+  },
+  "command": [
+    "mirror/markdown-it-py/bench/bench.py",
+    "--base-python",
+    "/home/john/firstmate/data/rs-bench-backfill/work/venvs/markdown-it-py-base/bin/python",
+    "--port-python",
+    "/home/john/firstmate/data/rs-bench-backfill/work/venvs/markdown-it-py-port/bin/python",
+    "--reps",
+    "7"
+  ],
+  "measured_at": "2026-10-14T00:07:23Z",
+  "workloads": [
+    {
+      "label": "R1 render 16.7KB mixed doc (default preset)",
+      "track": "representative",
+      "size": "16712 bytes",
+      "distribution": "corpus_doc.md (sha e002a0efa0df): headings, lists, fenced code, links, table, quote",
+      "iters": 20,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 34.14494,
+        "mad_ms": 0.6582560000000015,
+        "rss_kb": 21508,
+        "alloc_b": 379175,
+        "digest": "e04868802ef16794"
+      },
+      "port": {
+        "median_ms": 14.439037,
+        "mad_ms": 0.14683699999999966,
+        "rss_kb": 21508,
+        "alloc_b": 129228,
+        "digest": "e04868802ef16794"
+      },
+      "speedup_x": 2.3647657388785692,
+      "verdict": "faster"
+    },
+    {
+      "label": "R2 render 16.7KB mixed doc (commonmark preset)",
+      "track": "representative",
+      "size": "16712 bytes",
+      "distribution": "corpus_doc.md; commonmark preset (stricter inline/block rules)",
+      "iters": 20,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 34.333485,
+        "mad_ms": 0.19025900000000462,
+        "rss_kb": 21924,
+        "alloc_b": 379175,
+        "digest": "e04868802ef16794"
+      },
+      "port": {
+        "median_ms": 14.421583,
+        "mad_ms": 0.10279399999999939,
+        "rss_kb": 21924,
+        "alloc_b": 130441,
+        "digest": "e04868802ef16794"
+      },
+      "speedup_x": 2.3807015498922692,
+      "verdict": "faster"
+    },
+    {
+      "label": "S1 render 280KB bulk doc (default preset)",
+      "track": "showcase",
+      "size": "279687 bytes",
+      "distribution": "corpus_large.md (sha 7fd3e1f4484e): 200 sections, same mix as R1",
+      "iters": 3,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 587.379473,
+        "mad_ms": 5.50789999999995,
+        "rss_kb": 36184,
+        "alloc_b": 5898850,
+        "digest": "c1c7d07534d8069c"
+      },
+      "port": {
+        "median_ms": 2972.431262,
+        "mad_ms": 4.7258059999999205,
+        "rss_kb": 36184,
+        "alloc_b": 1338881,
+        "digest": "c1c7d07534d8069c"
+      },
+      "speedup_x": 0.197609102188214,
+      "verdict": "slower"
+    },
+    {
+      "label": "X1 per-crossing overhead (tiny render)",
+      "track": "overhead",
+      "size": "4 bytes",
+      "distribution": "fixed '# hi'; measures per-call dispatch floor, not throughput",
+      "iters": 2000,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 0.096563,
+        "mad_ms": 0.0004009999999999986,
+        "rss_kb": 36184,
+        "alloc_b": 98126,
+        "digest": "b8e5d9387649b47d"
+      },
+      "port": {
+        "median_ms": 0.070423,
+        "mad_ms": 0.0002299999999999941,
+        "rss_kb": 36184,
+        "alloc_b": 102384,
+        "digest": "b8e5d9387649b47d"
+      },
+      "speedup_x": 1.3711855501753687,
+      "verdict": "faster"
+    }
+  ]
+}

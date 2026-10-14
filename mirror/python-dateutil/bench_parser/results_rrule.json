@@ -1,0 +1,127 @@
+{
+  "package": "python-dateutil (rrule queries)",
+  "baseline": "python-dateutil 2.9.0.post0 (PyPI)",
+  "host": {
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "python": "3.12.3"
+  },
+  "command": [
+    "mirror/python-dateutil/bench_parser/bench_rrule.py",
+    "--base-python",
+    "/home/john/firstmate/data/rs-bench-backfill/work/venvs/dateutil-base/bin/python",
+    "--port-python",
+    "/home/john/firstmate/data/rs-bench-backfill/work/venvs/dateutil-port/bin/python",
+    "--port-pythonpath",
+    "/home/john/firstmate/data/rs-bench-backfill/work/dateutil-port-overlay",
+    "--reps",
+    "7"
+  ],
+  "measured_at": "2026-10-14T00:05:45Z",
+  "workloads": [
+    {
+      "label": "R1 between monthly over 2-year daily set",
+      "track": "representative",
+      "size": "731 occurrences, 24 window queries",
+      "distribution": "DAILY rrule 2024-01-01 x731; between() per calendar month (ADR-021 batch path)",
+      "iters": 10,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column. rrule: alloc_b not measured (BENCH_NO_TRACEMALLOC=1); per-datetime tracing distorts query loops ~1000x (measured 0.2ms -> 236ms). RSS is the memory column here.",
+      "baseline": {
+        "median_ms": 12.221405,
+        "mad_ms": 0.270582000000001,
+        "rss_kb": 17216,
+        "alloc_b": null,
+        "digest": "8315f292b925190f"
+      },
+      "port": {
+        "median_ms": 2.277526,
+        "mad_ms": 0.013987000000000194,
+        "rss_kb": 17216,
+        "alloc_b": null,
+        "digest": "8315f292b925190f"
+      },
+      "speedup_x": 5.366088027096069,
+      "verdict": "faster"
+    },
+    {
+      "label": "R2 after/before 200 queries",
+      "track": "representative",
+      "size": "200 queries over 365-occurrence set",
+      "distribution": "DAILY rrule 2024 x365; alternating after()/before() probes across the year",
+      "iters": 10,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column. rrule: alloc_b not measured (BENCH_NO_TRACEMALLOC=1); per-datetime tracing distorts query loops ~1000x (measured 0.2ms -> 236ms). RSS is the memory column here.",
+      "baseline": {
+        "median_ms": 131.975668,
+        "mad_ms": 0.3956019999999967,
+        "rss_kb": 17216,
+        "alloc_b": null,
+        "digest": "499e480993e233ac"
+      },
+      "port": {
+        "median_ms": 22.940588,
+        "mad_ms": 0.24601500000000343,
+        "rss_kb": 17216,
+        "alloc_b": null,
+        "digest": "499e480993e233ac"
+      },
+      "speedup_x": 5.752933098314656,
+      "verdict": "faster"
+    },
+    {
+      "label": "S1 count 10-year hourly set (cold)",
+      "track": "showcase",
+      "size": "87600 occurrences",
+      "distribution": "HOURLY rrule 2020-01-01 x87600 rebuilt per iter; count() engine ceiling (ADR-021 ~4x claim). NOTE: repeat count() on one object favors upstream _len caching (port recomputes); cold counts compare engines fairly",
+      "iters": 3,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column. rrule: alloc_b not measured (BENCH_NO_TRACEMALLOC=1); per-datetime tracing distorts query loops ~1000x (measured 0.2ms -> 236ms). RSS is the memory column here.",
+      "baseline": {
+        "median_ms": 149.690364,
+        "mad_ms": 1.886384000000021,
+        "rss_kb": 17216,
+        "alloc_b": null,
+        "digest": "9fd4f206c1d821a4"
+      },
+      "port": {
+        "median_ms": 17.085197,
+        "mad_ms": 0.3992140000000006,
+        "rss_kb": 17216,
+        "alloc_b": null,
+        "digest": "9fd4f206c1d821a4"
+      },
+      "speedup_x": 8.761406965339644,
+      "verdict": "faster"
+    },
+    {
+      "label": "X1 per-crossing overhead (one after query)",
+      "track": "overhead",
+      "size": "1 query",
+      "distribution": "fixed probe; measures per-query dispatch floor, not throughput",
+      "iters": 500,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column. rrule: alloc_b not measured (BENCH_NO_TRACEMALLOC=1); per-datetime tracing distorts query loops ~1000x (measured 0.2ms -> 236ms). RSS is the memory column here.",
+      "baseline": {
+        "median_ms": 0.209766,
+        "mad_ms": 0.0010519999999999974,
+        "rss_kb": 17216,
+        "alloc_b": null,
+        "digest": "7801cf7b3a6b98e7"
+      },
+      "port": {
+        "median_ms": 0.044153,
+        "mad_ms": 0.0002899999999999986,
+        "rss_kb": 17216,
+        "alloc_b": null,
+        "digest": "7801cf7b3a6b98e7"
+      },
+      "speedup_x": 4.75088895431794,
+      "verdict": "faster"
+    }
+  ]
+}

@@ -1,0 +1,640 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-0
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8758
+      targetPort: 5700
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-1
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8864
+      targetPort: 5732
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-2
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8298
+      targetPort: 5561
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-3
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8814
+      targetPort: 5781
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-4
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8249
+      targetPort: 5923
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-5
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8266
+      targetPort: 5694
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-6
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8699
+      targetPort: 5048
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-7
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8896
+      targetPort: 5954
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-8
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8792
+      targetPort: 5158
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-9
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8515
+      targetPort: 5748
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-10
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8548
+      targetPort: 5198
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-11
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8402
+      targetPort: 5434
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-12
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8782
+      targetPort: 5876
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-13
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8276
+      targetPort: 5366
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-14
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8898
+      targetPort: 5971
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-15
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8683
+      targetPort: 5013
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-16
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8278
+      targetPort: 5801
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-17
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8617
+      targetPort: 5524
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-18
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8640
+      targetPort: 5717
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-19
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8615
+      targetPort: 5020
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-20
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8089
+      targetPort: 5277
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-21
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8298
+      targetPort: 5326
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-22
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8128
+      targetPort: 5972
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-23
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8438
+      targetPort: 5020
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-24
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8753
+      targetPort: 5402
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-25
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8145
+      targetPort: 5732
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-26
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8548
+      targetPort: 5258
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-27
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8670
+      targetPort: 5441
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-28
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8201
+      targetPort: 5608
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-29
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8275
+      targetPort: 5498
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-30
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8652
+      targetPort: 5174
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-31
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8854
+      targetPort: 5834
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-32
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8380
+      targetPort: 5223
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-33
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8567
+      targetPort: 5102
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-34
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8904
+      targetPort: 5059
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-35
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8960
+      targetPort: 5936
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-36
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8549
+      targetPort: 5004
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-37
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8614
+      targetPort: 5565
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-38
+  labels:
+    app: web
+    tier: backend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8788
+      targetPort: 5644
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-39
+  labels:
+    app: web
+    tier: frontend
+spec:
+  selector:
+    app: web
+  ports:
+    - protocol: TCP
+      port: 8840
+      targetPort: 5578
+  type: ClusterIP
+---

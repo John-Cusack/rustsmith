@@ -46,3 +46,12 @@ rustsmith release-prep --project mirror/crc --fork <fork> --opt <opt> \
 
 See `docs/RELEASE.md` (releasing converted projects) and the generated
 `TRUSTED_PUBLISHING_SETUP.md` in the output directory.
+
+## Bench (measured 2026-10-14; driver `bench/bench.py`, rows in `bench/results.json`)
+
+| Workload | Track | Baseline | Port | Speedup |
+|---|---|---|---|---|
+| R1 crc32 64KB chunk | representative | 1308.534ms | 0.640ms | 2044.84x |
+| R2 crc16 custom-config 4KB frames x16 | representative | 1206.032ms | 0.694ms | 1737.09x |
+| S1 crc64 1MB bulk throughput | showcase | 17941.326ms | 9.725ms | 1844.80x |
+| X1 per-crossing overhead (1-byte checksum) | overhead | 0.078ms | 0.033ms | 2.36x |

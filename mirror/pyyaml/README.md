@@ -44,3 +44,13 @@ python3 -m pytest tests/ -q
   fallback).
 - `yaml/_yaml.py` — `CParser`/`CEmitter` over the Rust cores plus
   `get_version`/`get_version_string`.
+
+## Bench (measured 2026-10-14; driver `bench/bench.py`, rows in `bench/results.json`)
+
+| Workload | Track | Baseline | Port | Speedup |
+|---|---|---|---|---|
+| R1 scan 8.7KB manifests | representative | 47.577ms | 15.648ms | 3.04x |
+| R2 safe_load single service | representative | 1.825ms | 0.599ms | 3.05x |
+| R3 dump nested object | representative | 0.820ms | 0.427ms | 1.92x |
+| S1 load_all 65KB 300-doc stream | showcase | 716.790ms | 166.902ms | 4.29x |
+| X1 per-crossing overhead (tiny scan) | overhead | 0.166ms | 0.135ms | 1.23x |
