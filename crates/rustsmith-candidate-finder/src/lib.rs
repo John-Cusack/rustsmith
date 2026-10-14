@@ -23,6 +23,7 @@
 
 const USER_AGENT: &str = "rustsmith-candidate-finder/0.1.0 (research tooling)";
 const KNOWN_TABLE: &str = include_str!("../data/known-alternatives.json");
+const FILTER_TABLE: &str = include_str!("../data/exclusion-filters.json");
 
 /// Default download-stats snapshot: hugovk top-pypi-packages, a daily pinned
 /// JSON dump of PyPI download counts (same BigQuery lineage the original
@@ -433,6 +434,53 @@ pub fn known_alternatives(project: &str) -> Vec<KnownAlt> {
 }
 
 // ---------------------------------------------------------------------------
+// Learned exclusion/demotion filters (ADR-043; curated, hence MEASURED)
+// ---------------------------------------------------------------------------
+
+/// A learned exclusion/demotion filter hit: `filter` is one of `io_bound` |
+/// `high_churn` | `aws_owned` | `mature_native` | `shared_engine` |
+/// `saturated`; `disposition` is `exclude` | `demote` | `upstream_only`.
+/// Data lives in `data/exclusion-filters.json` so the next run applies it
+/// automatically; each row carries its provenance (measured kill-table or
+/// captain-directed lesson) in the open.
+#[derive(Debug, Clone)]
+pub struct FilterHit {
+    pub filter: String,
+    pub disposition: String,
+    pub reason: String,
+    pub provenance: String,
+}
+
+impl FilterHit {
+    /// `slot` renders as `filter/disposition` for the report Filter column.
+    pub fn slot(&self) -> String {
+        format!("{}/{}", self.filter, self.disposition)
+    }
+}
+
+fn filter_table() -> serde_json::Value {
+    serde_json::from_str(FILTER_TABLE).expect("exclusion-filters.json parses")
+}
+
+/// Learned filters for `project` (PyPI name, exact match). Empty = no
+/// filter applies and the classification stands unflagged.
+pub fn exclusion_filters(project: &str) -> Vec<FilterHit> {
+    let t = filter_table();
+    match t["filters"][project].as_array() {
+        None => Vec::new(),
+        Some(arr) => arr
+            .iter()
+            .map(|a| FilterHit {
+                filter: a["filter"].as_str().unwrap_or("?").to_string(),
+                disposition: a["disposition"].as_str().unwrap_or("demote").to_string(),
+                reason: a["reason"].as_str().unwrap_or("").to_string(),
+                provenance: a["provenance"].as_str().unwrap_or("").to_string(),
+            })
+            .collect(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Classification
 // ---------------------------------------------------------------------------
 
@@ -522,6 +570,69 @@ pub struct Classification {
 }
 
 /// Classify `project` (download rank `rank`, `downloads`/mo) from `signals`
+/// plus the curated table and the learned filter table. Rules (see ADR-036;
+/// rule 6 is ADR-043):
+///
+/// 1-5. Table/layout rules — see `classify_inner` (unchanged).
+/// 6. Learned filters (curated 2026-10-14, MEASURED as data): `exclude`
+///    on a mirror flags it EXCLUDED — it renders with the non-mirror
+///    block, never nominated; `demote` on a mirror ranks it below clean
+///    mirrors; `upstream_only` on a mirror re-paths to (c) until measured
+///    CPU headroom says otherwise. Non-mirror rows keep their path; the
+///    filter rides along as evidence.
+pub fn classify(
+    rank: usize,
+    project: &str,
+    downloads: u64,
+    signals: &Signals,
+) -> Classification {
+    let filters = exclusion_filters(project);
+    let mut c = classify_inner(rank, project, downloads, signals);
+    apply_filters(&mut c, &filters);
+    c
+}
+
+/// Apply learned filters (ADR-043) to a finished classification. Mutation
+/// is confined to `why`/`alternative`/`path`/`payoff` plus evidence lines,
+/// so the inner rules stay untouched.
+fn apply_filters(c: &mut Classification, filters: &[FilterHit]) {
+    if filters.is_empty() {
+        return;
+    }
+    for extra in &filters[1..] {
+        c.evidence.push(format!(
+            "also filtered (curated 2026-10-14): {}/{} — {}",
+            extra.filter, extra.disposition, extra.reason
+        ));
+    }
+    let f = &filters[0];
+    c.evidence.push(format!(
+        "filter applied (curated 2026-10-14): {}/{} — {} [{}]",
+        f.filter, f.disposition, f.reason, f.provenance
+    ));
+    match f.disposition.as_str() {
+        "upstream_only" if c.path == Path::Mirror => {
+            c.path = Path::Upstream;
+            c.payoff = None;
+            c.alternative =
+                "no mirror alternative sought — mature native core exists upstream".into();
+            c.why = format!(
+                "{} Mirror requires measured CPU headroom, none recorded; upstream-probe only.",
+                f.reason
+            );
+        }
+        "exclude" if c.path == Path::Mirror => {
+            c.why
+                .push_str(&format!(" EXCLUDED from nomination ({}).", f.filter));
+        }
+        "demote" if c.path == Path::Mirror => {
+            c.why.push_str(&format!(" Demoted ({}).", f.filter));
+        }
+        _ => {}
+    }
+}
+
+/// Classify `project` (download rank `rank`, `downloads`/mo) from `signals`
 /// plus the curated table. Rules (see ADR-036):
 ///
 /// 1. Table `full`/`noop` → (a), measured.
@@ -533,7 +644,7 @@ pub struct Classification {
 ///    no native) → (a) noop, measured.
 /// 5. Otherwise → (b), payoff ESTIMATE = downloads × pure-Python fraction ×
 ///    (1 + keyword hits). Table `partial` rows become the documented gap.
-pub fn classify(
+fn classify_inner(
     rank: usize,
     project: &str,
     downloads: u64,
@@ -739,24 +850,53 @@ fn fmt_count(n: u64) -> String {
 // Report
 // ---------------------------------------------------------------------------
 
-/// Render the candidate list as Markdown. Mirror rows sort by payoff desc;
-/// adopt/upstream rows follow in rank order. Ranks shown are download ranks.
+/// Render the candidate list as Markdown. Clean mirror rows sort by payoff
+/// desc, then demoted mirrors (payoff desc), then adopt/upstream rows plus
+/// excluded mirrors in rank order. Ranks shown are download ranks.
 pub fn render_markdown(
     snapshot: &Snapshot,
     rows: &[Classification],
     _limit: usize,
     offline: bool,
 ) -> String {
-    let mut mirrors: Vec<&Classification> =
-        rows.iter().filter(|c| c.path == Path::Mirror).collect();
-    mirrors.sort_by(|a, b| {
+    // Learned-filter disposition per row (curated data; re-read here so the
+    // report sections stay correct even for hand-built classifications).
+    let disp = |c: &&Classification| {
+        exclusion_filters(&c.project)
+            .first()
+            .map(|f| f.disposition.clone())
+            .unwrap_or_default()
+    };
+    let slot = |c: &&Classification| {
+        exclusion_filters(&c.project)
+            .first()
+            .map(|f| f.slot())
+            .unwrap_or_else(|| "—".into())
+    };
+    let by_payoff = |a: &&Classification, b: &&Classification| {
         b.payoff
             .unwrap_or(0.0)
             .partial_cmp(&a.payoff.unwrap_or(0.0))
             .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let rest: Vec<&Classification> =
+    };
+    let mut clean: Vec<&Classification> = rows
+        .iter()
+        .filter(|c| c.path == Path::Mirror && disp(c) != "demote" && disp(c) != "exclude")
+        .collect();
+    let mut demoted: Vec<&Classification> = rows
+        .iter()
+        .filter(|c| c.path == Path::Mirror && disp(c) == "demote")
+        .collect();
+    let mut excluded: Vec<&Classification> = rows
+        .iter()
+        .filter(|c| c.path == Path::Mirror && disp(c) == "exclude")
+        .collect();
+    clean.sort_by(by_payoff);
+    demoted.sort_by(by_payoff);
+    excluded.sort_by(by_payoff);
+    let mut rest: Vec<&Classification> =
         rows.iter().filter(|c| c.path != Path::Mirror).collect();
+    rest.extend(excluded);
     let mut o = String::new();
     o.push_str("# Rewrite candidates\n\n");
     o.push_str(&format!(
@@ -769,16 +909,20 @@ pub fn render_markdown(
     ));
     o.push_str("Paths: **(a) adopt/wrap** — a Rust alternative exists, adopt it; \
         **(b) mirror** — no alternative, ranked by estimated payoff; \
-        **(c) upstream** — the win belongs inside the original package.\n\n");
+        **(c) upstream** — the win belongs inside the original package. \
+        Filters (ADR-043) demote or exclude flagged mirrors; see Filter column.\n\n");
     o.push_str("Evidence labels: bare claims are MEASURED (download counts, \
-        sdist file layout, curated-table verdicts dated 2026-10-13); anything \
+        sdist file layout, curated-table verdicts dated 2026-10-13, filter \
+        verdicts dated 2026-10-14); anything \
         marked ESTIMATE is a heuristic (keyword hotness, payoff score, \
         upstream-fit judgment, unjudged crates.io hits).\n\n");
-    o.push_str("| Dl-rank | Package | dl/mo | Dependents | Path | Alternative / gap | Why |\n");
-    o.push_str("|---|---|---|---|---|---|---|\n");
+    o.push_str("| Dl-rank | Package | dl/mo | Dependents | Path | Alternative / gap | Why | Filter |\n");
+    o.push_str("|---|---|---|---|---|---|---|---|\n");
     let mut pay_rank = 0;
-    for c in mirrors.iter().chain(rest.iter()) {
+    for c in clean.iter().chain(demoted.iter()).chain(rest.iter()) {
+        let excluded_row = c.path == Path::Mirror && disp(c) == "exclude";
         let pay = match c.path {
+            Path::Mirror if excluded_row => "excluded".into(),
             Path::Mirror => {
                 pay_rank += 1;
                 format!("payoff #{pay_rank} ({:.1})", c.payoff.unwrap_or(0.0))
@@ -786,7 +930,7 @@ pub fn render_markdown(
             _ => "—".into(),
         };
         o.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} {} | {} |\n",
             c.rank,
             c.project,
             fmt_count(c.downloads),
@@ -795,10 +939,11 @@ pub fn render_markdown(
             c.alternative.replace('|', "/"),
             c.why.replace('|', "/").replace('\n', " "),
             pay,
+            slot(c).replace('|', "/"),
         ));
     }
     o.push_str("\n## Evidence notes\n\n");
-    for c in mirrors.iter().chain(rest.iter()) {
+    for c in clean.iter().chain(demoted.iter()).chain(rest.iter()) {
         o.push_str(&format!("### {} (dl-rank #{})\n\n", c.project, c.rank));
         for e in &c.evidence {
             o.push_str(&format!("- {e}\n"));
@@ -943,4 +1088,96 @@ mod tests {
         let pb = md.find("| b |").unwrap();
         assert!(pa < pb, "higher payoff must render first");
     }
+    // ADR-043 learned filters (offline, deterministic).
+
+    #[test]
+    fn aws_owned_excludes_boto3_from_nomination() {
+        let c = classify(1, "boto3", 2_460_723_068, &Signals::default());
+        assert_eq!(c.path, Path::Mirror);
+        assert!(c.why.contains("EXCLUDED from nomination (aws_owned)"));
+        assert!(c.evidence.iter().any(|e| e.contains("filter applied")
+            && e.contains("aws_owned/exclude")));
+    }
+
+    #[test]
+    fn io_bound_demotes_urllib3_but_keeps_mirror() {
+        let c = classify(5, "urllib3", 100, &Signals::default());
+        assert_eq!(c.path, Path::Mirror);
+        assert!(c.why.contains("Demoted (io_bound)"));
+    }
+
+    #[test]
+    fn shared_engine_demotes_pygments() {
+        let c = classify(12, "pygments", 100, &Signals::default());
+        assert_eq!(c.path, Path::Mirror);
+        assert!(c.why.contains("Demoted (shared_engine)"));
+        assert!(c.evidence.iter().any(|e| e.contains("1.00x")));
+    }
+
+    #[test]
+    fn saturated_excludes_charset_normalizer() {
+        let c = classify(8, "charset-normalizer", 100, &Signals::default());
+        assert_eq!(c.path, Path::Mirror);
+        assert!(c.why.contains("EXCLUDED from nomination (saturated)"));
+    }
+
+    #[test]
+    fn mature_native_repaths_hypothesis_mirror_to_upstream() {
+        let c = classify(1, "hypothesis", 100, &Signals::default());
+        assert_eq!(c.path, Path::Upstream);
+        assert_eq!(c.payoff, None);
+        assert!(c.why.contains("upstream-probe only"));
+    }
+
+    #[test]
+    fn mature_native_repaths_pyyaml_partial_to_upstream() {
+        // pyyaml's curated rows are partial (no full verdict), so without
+        // the filter it would mirror; the filter re-paths to upstream.
+        let c = classify(13, "pyyaml", 100, &Signals::default());
+        assert_eq!(c.path, Path::Upstream);
+        assert!(c.why.contains("upstream-probe only"));
+    }
+
+    #[test]
+    fn upstream_only_leaves_adopt_rows_alone() {
+        // tomli has a full verdict (adopt); no filter entry either, but
+        // the rule must hold for any adopt row carrying a filter note.
+        let c = classify(1, "tomli", 100, &Signals::default());
+        assert_eq!(c.path, Path::Adopt);
+        assert!(c.alternative.contains("toml"));
+    }
+
+    #[test]
+    fn idna_full_verdict_means_adopt() {
+        let c = classify(4, "idna", 100, &Signals::default());
+        assert_eq!(c.path, Path::Adopt);
+        assert!(c.alternative.contains("crates.io/crates/idna"));
+    }
+
+    #[test]
+    fn demoted_mirrors_render_after_clean_ones() {
+        let snap = parse_snapshot(FIXTURE).unwrap();
+        let clean = classify(2, "packaging", 9, &Signals::default());
+        assert!(!clean.why.contains("Demoted"));
+        let demoted = classify(5, "urllib3", 5_000, &Signals::default());
+        assert!(demoted.why.contains("Demoted"));
+        let md = render_markdown(&snap, &[demoted, clean], 2, true);
+        let pc = md.find("| packaging |").unwrap();
+        let pd = md.find("| urllib3 |").unwrap();
+        assert!(pc < pd, "clean mirror must precede demoted mirror");
+    }
+
+    #[test]
+    fn excluded_mirrors_render_with_non_mirrors_unranked() {
+        let snap = parse_snapshot(FIXTURE).unwrap();
+        let clean = classify(2, "packaging", 9, &Signals::default());
+        let excluded = classify(1, "boto3", 5_000, &Signals::default());
+        let md = render_markdown(&snap, &[excluded, clean], 2, true);
+        let pc = md.find("| packaging |").unwrap();
+        let pe = md.find("| boto3 |").unwrap();
+        assert!(pc < pe, "excluded mirror must not take a nomination slot");
+        assert!(md.contains("aws_owned/exclude"), "Filter column must carry the slot");
+        assert!(md.contains("excluded"), "excluded row must not show a payoff rank");
+    }
+
 }
