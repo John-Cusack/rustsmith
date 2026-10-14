@@ -35,5 +35,14 @@ python3 -m pytest tests/ -q
 - `python_multipart-core/` — reusable Rust core (`multipart-rust-core` on crates.io).
 - `src/lib.rs` — PyO3 binding (`python_multipart._python_multipart`).
 - `python_multipart/` — Python package (hot paths delegate to the core).
-- `multipart/` — legacy alias (upstream-verbatim).
+- `multipart/` — legacy alias loader (resolves `multipart.py` from `sys.path`, else re-exports `python_multipart`).
 - `tests/` — upstream suite (frozen oracle; do not weaken).
+
+## Bench (measured 2026-10-14; driver `bench/bench.py`, rows in `bench/results.json`)
+
+| Workload | Track | Baseline | Port | Speedup |
+|---|---|---|---|---|
+| R1 multipart parse 1.7MB upload | representative | 8.646ms | 4.645ms | 1.86x |
+| R2 parse_options_header 3000 | representative | 50.078ms | 18.413ms | 2.72x |
+| S1 multipart parse 17.7MB bulk | showcase | 80.541ms | 45.704ms | 1.76x |
+| X1 per-crossing overhead (one header parse) | overhead | 0.046ms | 0.038ms | 1.20x |

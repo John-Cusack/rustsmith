@@ -39,3 +39,12 @@ python3 -m pytest tests/ -q
 - `pyparsing/core.py` — upstream 3.3.3 plus two delegating `parseImpl`
   methods (diff against upstream shows only the delegation).
 - `tests/` — upstream suite (frozen oracle; do not weaken).
+
+## Bench (measured 2026-10-14; driver `bench/bench.py`, rows in `bench/results.json`)
+
+| Workload | Track | Baseline | Port | Speedup |
+|---|---|---|---|---|
+| R1 word-list 500 lines | representative | 83.936ms | 85.543ms | 0.98x (no-change) |
+| R2 config-lines 500 | representative | 155.166ms | 159.000ms | 0.98x (no-change) |
+| S1 charsnotin 1MB scan | showcase | 429.416ms | 2.131ms | 201.50x |
+| X1 per-crossing overhead (tiny word parse) | overhead | 0.118ms | 0.119ms | 0.99x (no-change) |

@@ -40,19 +40,20 @@ extension blocked (pure-Python fallback): **5175 passed / 16 skipped /
 into one dir (the suite resolves examplefiles via the package path)
 and run `pytest tests/`.
 
-## Bench (measured 2026-10-13, CPython 3.12, Linux x86_64)
+## Bench (measured 2026-10-14, CPython 3.12, Linux x86_64; driver `bench/highlight.py`, rows in `bench/results.json`)
 
-Driver: `bench/highlight.py` (interleaved medians, 15 reps). Same tree,
+Driver: `bench/highlight.py` (rep-interleaved medians, 15 reps, parity digests agree every row). Same tree,
 extension live vs seam-blocked; import cost identical both arms.
 
-| Workload | Rust | Fallback | Speedup | Notes |
-|---|---|---|---|---|
-| W1 highlight 110KB Python → HTML | 109.4ms | 114.8ms | 1.05x | full pipeline |
-| W2 lex-only 110KB Python | 95.8ms | 96.0ms | 1.00x | `re` engine dominates (ADR-038) |
-| W3 highlight 70KB escape-heavy JS → HTML | 28.2ms | 28.0ms | 0.99x | wash; `_translate_parts` cache amortizes escaping |
-| W4 `regex_opt` C-keyword list | 0.019ms | 0.188ms | 9.8x | import-time builder path |
-| Peak RSS (W1) | 463.0MB | 463.0MB | — | process-level, unchanged |
-| Python-alloc peak, tracemalloc (W1) | 1.06MB | 1.05MB | — | Rust-side allocs invisible to tracemalloc; no material change |
+| Workload | Track | Rust | Fallback | Speedup | Notes |
+|---|---|---|---|---|---|
+| R1 highlight 110KB Python → HTML | representative | 113.469ms | 116.476ms | 1.03x | full pipeline, no-change (< 3% floor) |
+| R2 lex-only 110KB Python | representative | 91.236ms | 91.005ms | 1.00x | `re` engine dominates (ADR-038) |
+| R3 highlight 70KB escape-heavy JS → HTML | representative | 27.924ms | 27.978ms | 1.00x | wash; `_translate_parts` cache amortizes escaping |
+| S1 `regex_opt` C-keyword list | showcase | 0.021ms | 0.195ms | 9.32x | import-time builder path |
+| X1 per-crossing overhead (tiny highlight) | overhead | 0.033ms | 0.032ms | 0.99x | per-call dispatch floor |
+| Peak RSS (all rows) | — | 449.2MB | 449.2MB | — | process-level, unchanged |
+| Python-alloc peak, tracemalloc (R1) | — | 1.05MB | 1.05MB | — | Rust-side allocs invisible to tracemalloc; no material change |
 
 Unmeasured (explicit, never guessed): all-formatter sweep, `guess_lexer`
 on file corpora, Windows/macOS, PyPy, import-time delta.

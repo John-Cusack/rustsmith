@@ -48,3 +48,12 @@ rustsmith release-prep --project mirror/strsimpy --fork <fork> --opt <opt> \
 
 See `docs/RELEASE.md` (releasing converted projects) and the generated
 `TRUSTED_PUBLISHING_SETUP.md` in the output directory.
+
+## Bench (measured 2026-10-14; driver `bench/bench.py`, rows in `bench/results.json`)
+
+| Workload | Track | Baseline | Port | Speedup |
+|---|---|---|---|---|
+| R1 levenshtein 200 short pairs | representative | 9.698ms | 0.149ms | 65.15x |
+| R2 cosine-2 100 doc pairs | representative | 115.915ms | 12.647ms | 9.17x |
+| S1 metric-lcs 2KB x 2KB | showcase | 11384.140ms | 24.156ms | 471.27x |
+| X1 per-crossing overhead (one short distance) | overhead | 0.080ms | 0.039ms | 2.07x |

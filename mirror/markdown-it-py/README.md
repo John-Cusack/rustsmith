@@ -49,3 +49,12 @@ pip install markdown-it-py-rust
 from markdown_it import MarkdownIt
 MarkdownIt().render("# hi")
 ```
+
+## Bench (measured 2026-10-14; driver `bench/bench.py`, rows in `bench/results.json`)
+
+| Workload | Track | Baseline | Port | Speedup |
+|---|---|---|---|---|
+| R1 render 16.7KB mixed doc (default) | representative | 34.145ms | 14.439ms | 2.36x |
+| R2 render 16.7KB mixed doc (commonmark) | representative | 34.333ms | 14.422ms | 2.38x |
+| S1 render 280KB bulk doc (default) | showcase | 587.379ms | 2972.431ms | 0.20x (slower: per-token crossings) |
+| X1 per-crossing overhead (tiny render) | overhead | 0.097ms | 0.070ms | 1.37x |

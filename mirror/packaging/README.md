@@ -33,3 +33,12 @@ No redesign: same parsing, same ordering, same error messages.
 pip install packaging-rust
 python -c "from packaging.version import Version; print(Version('1.0'))"
 ```
+
+## Bench (measured 2026-10-14; driver `bench/bench.py`, rows in `bench/results.json`)
+
+| Workload | Track | Baseline | Port | Speedup |
+|---|---|---|---|---|
+| R1 version.parse 2000 mixed | representative | 16.760ms | 4.115ms | 4.07x |
+| R2 marker.evaluate 2000 | representative | 21.774ms | 15.407ms | 1.41x |
+| S1 resolver filter 15k versions | showcase | 75.781ms | 34.249ms | 2.21x |
+| X1 per-crossing overhead (one parse + one marker) | overhead | 0.067ms | 0.058ms | 1.16x |

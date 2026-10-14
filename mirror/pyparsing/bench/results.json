@@ -1,0 +1,123 @@
+{
+  "package": "pyparsing",
+  "baseline": "same tree, extension blocked (pure-Python fallback)",
+  "host": {
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "python": "3.12.3"
+  },
+  "command": [
+    "mirror/pyparsing/bench/bench.py",
+    "--port-python",
+    "/home/john/firstmate/data/rs-bench-backfill/work/venvs/pyparsing/bin/python",
+    "--reps",
+    "7"
+  ],
+  "measured_at": "2026-10-14T00:06:23Z",
+  "workloads": [
+    {
+      "label": "R1 word-list 500 lines",
+      "track": "representative",
+      "size": "500 lines x ~60 chars",
+      "distribution": "seeded (seed 331): comma-separated identifier lists; delimitedList(Word) grammar",
+      "iters": 10,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 83.935878,
+        "mad_ms": 0.6683919999999972,
+        "rss_kb": 24480,
+        "alloc_b": 350769,
+        "digest": "fb2b99977b7f74a6"
+      },
+      "port": {
+        "median_ms": 85.543173,
+        "mad_ms": 0.8081059999999951,
+        "rss_kb": 24480,
+        "alloc_b": 350769,
+        "digest": "fb2b99977b7f74a6"
+      },
+      "speedup_x": 0.9812107156698525,
+      "verdict": "no-change"
+    },
+    {
+      "label": "R2 config-lines 500",
+      "track": "representative",
+      "size": "500 lines x ~80 chars",
+      "distribution": "seeded (seed 332): key=value; lists; CharsNotIn value-remainder path",
+      "iters": 10,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 155.166425,
+        "mad_ms": 1.31836899999999,
+        "rss_kb": 25508,
+        "alloc_b": 747009,
+        "digest": "d4ec7cac07d97f4c"
+      },
+      "port": {
+        "median_ms": 158.999973,
+        "mad_ms": 1.7186289999999929,
+        "rss_kb": 25508,
+        "alloc_b": 747009,
+        "digest": "d4ec7cac07d97f4c"
+      },
+      "speedup_x": 0.9758896311259122,
+      "verdict": "no-change"
+    },
+    {
+      "label": "S1 charsnotin 1MB scan",
+      "track": "showcase",
+      "size": "1048576 chars",
+      "distribution": "seeded alphanumerics (seed 333) + ';' terminator; remainder-scan ceiling",
+      "iters": 3,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 429.415919,
+        "mad_ms": 2.4587149999999838,
+        "rss_kb": 29572,
+        "alloc_b": 1058647,
+        "digest": "40129b6989acb0fc"
+      },
+      "port": {
+        "median_ms": 2.131118,
+        "mad_ms": 0.019097000000000364,
+        "rss_kb": 29572,
+        "alloc_b": 1058643,
+        "digest": "40129b6989acb0fc"
+      },
+      "speedup_x": 201.49795506396174,
+      "verdict": "faster"
+    },
+    {
+      "label": "X1 per-crossing overhead (tiny word parse)",
+      "track": "overhead",
+      "size": "1 token",
+      "distribution": "fixed 'hello'; measures per-call dispatch floor, not throughput",
+      "iters": 2000,
+      "reps": 7,
+      "noise_pct": 3.0,
+      "mem_note": "tracemalloc sees Python-level allocs only; native (Rust-side) allocs are invisible to it, favoring the ported side on allocation deltas. rss_kb (child-process peak RSS) covers both sides and is the honest cross-side column.",
+      "baseline": {
+        "median_ms": 0.118163,
+        "mad_ms": 0.0008719999999999978,
+        "rss_kb": 29572,
+        "alloc_b": 97602,
+        "digest": "ef7a0ae2ad7210d1"
+      },
+      "port": {
+        "median_ms": 0.118985,
+        "mad_ms": 0.0015530000000000127,
+        "rss_kb": 29572,
+        "alloc_b": 97602,
+        "digest": "ef7a0ae2ad7210d1"
+      },
+      "speedup_x": 0.9930915661638022,
+      "verdict": "no-change"
+    }
+  ]
+}
