@@ -1176,8 +1176,7 @@ mod tests {
 
     #[test]
     fn unobserved_layout_still_mirrors_with_downloads_payoff() {
-        let mut s = Signals::default();
-        s.sdist_error = Some("layout unobserved".into());
+        let s = Signals { sdist_error: Some("layout unobserved".into()), ..Default::default() };
         let c = classify(4, "unknownpkg", 20_000_000, &s);
         assert_eq!(c.path, Path::Mirror);
         assert_eq!(c.payoff, Some(20.0));
