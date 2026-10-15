@@ -115,3 +115,46 @@ link-line surgery, no `CMakeLists.txt` edit.
   old refusal) and zeroed-dtype descriptor (fails fast); one COMMON unit
   pinning the `check_substitutable` refusal message. Gate relaxation only
   after all four are observed, on the grade image's gfortran.
+
+## Status (T014, 2026-10-15): first relaxation landed — assumed-shape REAL(8)
+
+`check_substitutable` (`crates/rustsmith-adapters/src/lib.rs`) admits
+exactly one phase-1 shape: a unit whose every non-`BIND(C)` export is a
+real-`MODULE` procedure (`__<scope>_MOD_<proc>`) whose dummies are all
+scalar intrinsics (by reference, kind-agnostic on the wire) or
+assumed-shape `REAL(8)`-family (`REAL(8)`, `REAL(KIND=dp|8)`, `REAL*8`,
+`DOUBLE PRECISION`) of rank 1-2, in a `COMMON`/`BLOCK DATA`-free file.
+The gate parses the unit source (new `parse_gate_file`, mirroring
+`parse_fortran_file`'s scope split) because linkage names alone cannot
+prove dummy shapes. Everything else refuses with the unchanged pinned
+message: explicit-shape/assumed-size (T017 shapes), non-REAL(8)
+assumed-shape, rank 3+, `optional`/`allocatable`/`pointer`/`value`/
+procedure/character/derived dummies, complex function results, F77
+globals, submodule/program procedures, unreadable source (fail closed).
+
+Proven end-to-end on the real fem-b unit
+`fortran:fem/src/modules/HarmonicSignals.F90#harmutils` (module
+`HarmUtils`: `SinSum`/`CosSum`, scalars + assumed-shape rank-2
+`REAL(KIND=dp)`): 9-case equivalence corpus (whole arrays, offset,
+negative-stride, strided and single-row sections, `t = phase = 0` edge)
+grades divergence 0 at 17-significant-figure round-trip print;
+strong-symbol gate holds (port defines both unit symbols as `T`, claims
+no sibling symbol, zero strong dups beyond the two replaced); sibling
+unit `#source` (derived-type dummies) still refuses. Proof:
+`tests/fem_b_shape_proof.sh`; machine rows in the grading store
+(`gate_results`: admit, corpus, strong-symbol, negative-controls).
+Graded-run walls: orig build+ref 1 s, port build+grade 1 s (32-core
+host, gfortran 13.3.0; Elmer fork `c0b4bc6`, file md5
+`dd26ac5dd5fd96ed7809666bc1da2ce9`).
+
+Two honest limitations, recorded for the lanes (T015/T016), not fixed here:
+
+- Admission is per recon unit (scope), but the splice replaces the whole
+  `.o`: a file whose sibling scopes stay refused (here `source_`, which
+  needs the Elmer world) cannot splice transparently in a full build —
+  the final link fails fast on the missing sibling, never silently.
+  Whole-file portability (every scope admitted) remains the splice bar.
+- The Rust staticlib carries toolchain `T` symbols (`__*_di2`-class
+  compiler-builtins, `rust_eh_personality`) plus weak libm names — the
+  same class as T003, resolved by the runbook's one-provider/
+  byte-identity rule at merge time, not asserted away here.
