@@ -91,7 +91,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 
 **Goal**: scale beyond the C leaves without ever relaxing the gate on unproven shapes.
 
-- [ ] T014 [US4] Gate relaxation PR #1 (one unit shape: COMMON-free, file-granularity, descriptor kinds pinned) in `crates/rustsmith-adapters` (`check_substitutable` allowlist) with graded-run numbers. Non-goal: any second shape in the same PR.
+- [ ] T014 [US4] [claimed fm/rs-elmer-t014] Gate relaxation PR #1 (one unit shape: COMMON-free, file-granularity, descriptor kinds pinned) in `crates/rustsmith-adapters` (`check_substitutable` allowlist) with graded-run numbers. Non-goal: any second shape in the same PR.
 - [ ] T015 [P] [US4] `fem/` core lane A (sub-subsystem split, disjoint files): shim ports graded through the unchanged chain; near-full affected sets expected (~480 s/unit). Non-goal: `COMMON` units (refused, recorded).
 - [ ] T016 [P] [US4] `fem/` core lane B (disjoint split from T015): same acceptance.
 - [ ] T017 [US4] Per-shape relaxation PRs for each further proven shape (one PR per shape, each with graded-run numbers). Non-goal: `COMMON` strategy (follow-up design).
