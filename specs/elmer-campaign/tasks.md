@@ -120,3 +120,44 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 - MVP: T001 → T002 → T005 → T006 → T007 (pilot replay, the S3-proven path with scoped grading).
 - Incremental: add one leaf lane at a time (each independently green + evidenced), then core lanes behind per-shape relaxations.
 - Parallel team: ≤3 lanes max; one worktree + branch per lane; same-file edits never merge — split by subsystem.
+
+---
+
+## T008 round-1 triage closeout (2026-10-15, fixforward)
+
+Ruling: T008 triage (`data/rs-elmer-t008-triage/ruling.md` in firstmate-data).
+All six fix-and-resubmit lanes landed mergeable; per-PR fix evidence in PR
+comments (PR descriptions uneditable via `gh-axi pr edit` — GraphQL
+`projectCards` deprecation — so evidence went as comments):
+
+- elmer-rust#3 grid-io (https://github.com/John-Cusack/elmer-rust/pull/3):
+  root-workspace seizure fixed (members += gui-a/gui-b) + `fempre`
+  `#[export_name = "main"]` gated `cfg_attr(not(test))`; corpus 27/27 +
+  `ctest -R ElmerGrid` 10/10 re-proved on pinned nightly.
+- elmer-rust#4 gui-c (https://github.com/John-Cusack/elmer-rust/pull/4):
+  21 unit rows `passed` → `link-closure-only` (differential probes honestly
+  halted, gate rows stay `passed=0`); correction in `decisions`.
+- elmer-rust#5 fem-a (https://github.com/John-Cusack/elmer-rust/pull/5):
+  14 `portable-pending` → `deferred-round2` (chartered to fem-a round-2 per
+  ruling); 14 `parked` store rows added (168/168 reconciled); toolchain
+  float fixed (dated channel would install the wrong compiler — hash guard
+  wired into grade driver instead).
+- rustsmith#86 fem-b audit (https://github.com/John-Cusack/rustsmith/pull/86):
+  `lane-fem-b-store.db` (184 `skipped` + 184 `check_substitutable=0` rows)
+  + paired skip-ledger PR https://github.com/John-Cusack/elmer-rust/pull/7
+  (branch `elmer/lane-fem-b-r1-skip`; round-2 on `elmer/lane-fem-b`/PR #6
+  untouched).
+- rustsmith#89 leaf (https://github.com/John-Cusack/rustsmith/pull/89):
+  `lane-leaf-store.db` (60 skips); ADR `046` → `048` (046 = merged
+  merge-gate ADR; 047 claimed by open PR93; PR91's `046-lane-fem-a-findings`
+  still collides — flagged, not this lane); rebased on `main` (PR88+PR92);
+  T014 cited as admitting nothing (C++-only surface).
+- rustsmith#90 ice (https://github.com/John-Cusack/rustsmith/pull/90):
+  CLOSED (port code in wrong repo); 5 ports re-landed as
+  https://github.com/John-Cusack/elmer-rust/pull/8 (branch `elmer/lane-ice`,
+  + generated 184-unit `LEDGER.md`; workspace tests/clippy re-verified).
+
+Merge-ordering note for all elmer-rust lane PRs: after elmer-rust#3 merges
+(root `[workspace]`), each remaining lane PR needs its member path appended
+to root `members` (one line each: `crates/elmer-gui-c`, fem-a ports paths,
+`crates/elmer-ice`), or merge them first. Either order is trivial.
