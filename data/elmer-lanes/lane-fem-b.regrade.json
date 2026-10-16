@@ -1,0 +1,3436 @@
+[
+  {
+    "detail": [
+      "adios2outputsolver_init:f77-global-or-unparsable-linkage",
+      "__adios2outputsolver_init_MOD_adios2outputsolver_init:scope-not-found-in-gate-parse",
+      "__adios2outputsolver_init_MOD_adios2outputsolver:scope-not-found-in-gate-parse",
+      "__adios2outputsolver_init_MOD_copypermmaybe:scope-not-found-in-gate-parse",
+      "__adios2outputsolver_init_MOD_localsavemesh:scope-not-found-in-gate-parse",
+      "__adios2outputsolver_init_MOD_adios2outputsolver_finalize:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ADIOS2OutputSolver.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/ADIOS2OutputSolver.F90#adios2outputsolver_init",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__adiosoutputsolverutils_MOD_getadiosholder:solver:derived-type dummy (needs whole-program layout)",
+      "__adiosoutputsolverutils_MOD_getadiosholder:holder:derived-type dummy (needs whole-program layout)",
+      "__adiosoutputsolverutils_MOD_makefidesjson:variables:derived-type dummy (needs whole-program layout)",
+      "__adiosoutputsolverutils_MOD_makefidesjson:params:derived-type dummy (needs whole-program layout)",
+      "__adiosoutputsolverutils_MOD_makefidesjson:holder:derived-type dummy (needs whole-program layout)",
+      "__adiosoutputsolverutils_MOD_makefidesjson:fname:character dummy (hidden length param)",
+      "__adiosoutputsolverutils_MOD_make_field:fieldname:character dummy (hidden length param)",
+      "__adiosoutputsolverutils_MOD_make_field:nl:character dummy (hidden length param)",
+      "__adiosoutputsolverutils_MOD_make_field:result:character dummy (hidden length param)"
+    ],
+    "file": "fem/src/modules/ADIOS2OutputSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/ADIOS2OutputSolver.F90#adiosoutputsolverutils",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "acousticssolver_init:f77-global-or-unparsable-linkage",
+      "__acousticssolver_init_MOD_acousticssolver_init:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_acousticssolver:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_optimalscaling:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_optimalmatrixscaling:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_gcrouteriteration:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_bicgstabouteriteration:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_bicgstablouteriteration:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_innerouteriteration:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_inneriteration:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_preconditioningiteration:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_stoppingcriterion:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_conditionestimate:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexmatrixvectorproduct:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexinfinitynorm:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexnorm:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexdotproduct:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexbicgstabl:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexbicgstab:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_crs_complexlusolve2:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexlusolve:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexmatrixvectorproduct2:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_velocitysolve:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_complexmatrixvelocityvectorproduct:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_diagonalvelocitypreconditioning:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_coupledvelocitymatrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_pressurelaplacematrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_pressuremassmatrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_schurcomplementmatrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_velocityimpedancematrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_schurcomplementimpedancematrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_velocityslipmatrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_schurcomplementslipmatrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_lcondensatebubbles:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_lcondensate:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_localinterfacematrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_slipmatrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_updateglobalpreconditioner:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_setboundaryconditions:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_computeacousticimpedance:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_computeaveragevelocity:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_explicitstabilisationmatrix:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_surfaceforceintegration:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_surfaceimpedanceintegration:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_discontindexes:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_setdirichletpoints:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_acousticshellinterface:scope-not-found-in-gate-parse",
+      "__acousticssolver_init_MOD_fsiintegration:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Acoustics.F90",
+    "n_bad": 50,
+    "scope_unit": "fortran:fem/src/modules/Acoustics.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "advectiondiffusionsolver_init:f77-global-or-unparsable-linkage",
+      "__advectiondiffusionsolver_init_MOD_advectiondiffusionsolver_init:scope-not-found-in-gate-parse",
+      "__advectiondiffusionsolver_init_MOD_advectiondiffusionsolver:scope-not-found-in-gate-parse",
+      "__advectiondiffusionsolver_init_MOD_diffuseconvectivecompose:scope-not-found-in-gate-parse",
+      "__advectiondiffusionsolver_init_MOD_diffuseconvectivebboundary:scope-not-found-in-gate-parse",
+      "__advectiondiffusionsolver_init_MOD_diffuseconvectiveboundary:scope-not-found-in-gate-parse",
+      "__advectiondiffusionsolver_init_MOD_diffuseconvectivegencompose:scope-not-found-in-gate-parse",
+      "__advectiondiffusionsolver_init_MOD_diffuseconvectivegenbboundary:scope-not-found-in-gate-parse",
+      "__advectiondiffusionsolver_init_MOD_diffuseconvectivegenboundary:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/AdvectionDiffusion.F90",
+    "n_bad": 9,
+    "scope_unit": "fortran:fem/src/modules/AdvectionDiffusion.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "advectionreactionsolver_init:f77-global-or-unparsable-linkage",
+      "__advectionreactionsolver_init_MOD_advectionreactionsolver_init:scope-not-found-in-gate-parse",
+      "__advectionreactionsolver_init_MOD_advectionreactionsolver:scope-not-found-in-gate-parse",
+      "__advectionreactionsolver_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__advectionreactionsolver_init_MOD_localjumps:scope-not-found-in-gate-parse",
+      "__advectionreactionsolver_init_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__advectionreactionsolver_init_MOD_getlocalalevelocity:scope-not-found-in-gate-parse",
+      "__advectionreactionsolver_init_MOD_advectionreactionsolver_post:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/AdvectionReaction.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/AdvectionReaction.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "allocatesolver_init:f77-global-or-unparsable-linkage",
+      "__allocatesolver_init_MOD_allocatesolver_init:scope-not-found-in-gate-parse",
+      "__allocatesolver_init_MOD_allocatesolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/AllocateSolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/AllocateSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "amsvectorsolver_init:f77-global-or-unparsable-linkage",
+      "__amsvectorsolver_init_MOD_amsvectorsolver_init:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_parallelprojtransposemultiply:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_amsvectorsolver:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_parallelprojtransposemultiply:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_rotatentvector:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_settestrhs:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_amsscalarsolver_init:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_amsscalarsolver:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_parallelprojtransposemultiply:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_amsvsolver_init:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_amsvsolver:scope-not-found-in-gate-parse",
+      "__amsvectorsolver_init_MOD_picknodalsubmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/AmsPrecSolver.F90",
+    "n_bad": 13,
+    "scope_unit": "fortran:fem/src/modules/AmsPrecSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "outletcompute_init:f77-global-or-unparsable-linkage",
+      "__outletcompute_init_MOD_outletcompute_init:scope-not-found-in-gate-parse",
+      "__outletcompute_init_MOD_outletcompute:scope-not-found-in-gate-parse",
+      "__outletcompute_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__outletcompute_init_MOD_surfacecenterpoints:scope-not-found-in-gate-parse",
+      "__outletcompute_init_MOD_lumpedfluidicforce:scope-not-found-in-gate-parse",
+      "__outletcompute_init_MOD_outletinit:scope-not-found-in-gate-parse",
+      "__outletcompute_init_MOD_outletdx:scope-not-found-in-gate-parse",
+      "__outletcompute_init_MOD_outletdy:scope-not-found-in-gate-parse",
+      "__outletcompute_init_MOD_outletpres:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ArteryOutlet.F90",
+    "n_bad": 10,
+    "scope_unit": "fortran:fem/src/modules/ArteryOutlet.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "compressibilityscale:f77-global-or-unparsable-linkage",
+      "__compressibilityscale_MOD_compressibilityscale:scope-not-found-in-gate-parse",
+      "__compressibilityscale_MOD_pressureintegrate:scope-not-found-in-gate-parse",
+      "__compressibilityscale_MOD_compressibilityintegrate:scope-not-found-in-gate-parse",
+      "__compressibilityscale_MOD_compressibilityscale_init:scope-not-found-in-gate-parse",
+      "__compressibilityscale_MOD_compressibilitysolver:scope-not-found-in-gate-parse",
+      "__compressibilityscale_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ArtificialCompressibility.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/ArtificialCompressibility.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "batterypost:f77-global-or-unparsable-linkage",
+      "__batterypost_MOD_batterypost:scope-not-found-in-gate-parse",
+      "__batterypost_MOD_integrateelectrolyte:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/BatterySolver/BatteryPost.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/BatterySolver/BatteryPost.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__batterymodule_MOD_variablerange:var:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_variablerange:aweight:optional dummy (hidden presence arg)",
+      "__batterymodule_MOD_extremeleftnode:mesh:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_extremeleftnode:result:undeclared",
+      "__batterymodule_MOD_extremerightnode:mesh:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_extremerightnode:result:undeclared",
+      "__batterymodule_MOD_uneg:result:undeclared",
+      "__batterymodule_MOD_upos:result:undeclared",
+      "__batterymodule_MOD_butlervolmer:material:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_butlervolmer:djdphis:optional dummy (hidden presence arg)",
+      "__batterymodule_MOD_butlervolmer:djdphie:optional dummy (hidden presence arg)",
+      "__batterymodule_MOD_butlervolmer:djdcs:optional dummy (hidden presence arg)",
+      "__batterymodule_MOD_butlervolmer:djdce:optional dummy (hidden presence arg)",
+      "__batterymodule_MOD_butlervolmer:result:undeclared",
+      "__batterymodule_MOD_solidfluxscaling:material:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_solidfluxscaling:result:undeclared",
+      "__batterymodule_MOD_interfacesurfacearea:material:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_interfacesurfacearea:result:undeclared",
+      "__batterymodule_MOD_electrolytefluxscaling:material:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_electrolytefluxscaling:result:undeclared",
+      "__batterymodule_MOD_effionconductivity:material:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_effionconductivity:result:undeclared",
+      "__batterymodule_MOD_effdiffconductivity:material:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_effdiffconductivity:result:undeclared",
+      "__batterymodule_MOD_butlervolmerupdate:solver:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_cellvoltage:solver:derived-type dummy (needs whole-program layout)",
+      "__batterymodule_MOD_cellvoltage:result:undeclared"
+    ],
+    "file": "fem/src/modules/BatterySolver/BatteryUtils.F90",
+    "n_bad": 18,
+    "scope_unit": "fortran:fem/src/modules/BatterySolver/BatteryUtils.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "electrolytecons_init:f77-global-or-unparsable-linkage",
+      "__electrolytecons_init_MOD_electrolytecons_init:scope-not-found-in-gate-parse",
+      "__electrolytecons_init_MOD_electrolytecons:scope-not-found-in-gate-parse",
+      "__electrolytecons_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__electrolytecons_init_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/BatterySolver/ElectrolyteCons.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/BatterySolver/ElectrolyteCons.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "electrolytepot_init:f77-global-or-unparsable-linkage",
+      "__electrolytepot_init_MOD_electrolytepot_init:scope-not-found-in-gate-parse",
+      "__electrolytepot_init_MOD_electrolytepot:scope-not-found-in-gate-parse",
+      "__electrolytepot_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__electrolytepot_init_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/BatterySolver/ElectrolytePot.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/BatterySolver/ElectrolytePot.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "solidphasecons_init:f77-global-or-unparsable-linkage",
+      "__solidphasecons_init_MOD_solidphasecons_init:scope-not-found-in-gate-parse",
+      "__solidphasecons_init_MOD_solidphasecons:scope-not-found-in-gate-parse",
+      "__solidphasecons_init_MOD_localassembly1d:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/BatterySolver/SolidPhaseCons.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/BatterySolver/SolidPhaseCons.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "solidphasepot_init:f77-global-or-unparsable-linkage",
+      "__solidphasepot_init_MOD_solidphasepot_init:scope-not-found-in-gate-parse",
+      "__solidphasepot_init_MOD_solidphasepot:scope-not-found-in-gate-parse",
+      "__solidphasepot_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__solidphasepot_init_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/BatterySolver/SolidPhasePot.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/BatterySolver/SolidPhasePot.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "timoshenkosolver_init0:f77-global-or-unparsable-linkage",
+      "__timoshenkosolver_init0_MOD_timoshenkosolver_init0:scope-not-found-in-gate-parse",
+      "__timoshenkosolver_init0_MOD_timoshenkosolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/BeamSolver3D.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/BeamSolver3D.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "cahnhilliardsolver:f77-global-or-unparsable-linkage",
+      "__cahnhilliardsolver_MOD_cahnhilliardsolver:scope-not-found-in-gate-parse",
+      "__cahnhilliardsolver_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__cahnhilliardsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__cahnhilliardsolver_MOD_boundaryassembly:scope-not-found-in-gate-parse",
+      "__cahnhilliardsolver_MOD_boundarylocalmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/CahnHilliard.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/CahnHilliard.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "circuitsanddynamics_init:f77-global-or-unparsable-linkage",
+      "__circuitsanddynamics_init_MOD_circuitsanddynamics_init:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuitsanddynamics:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_addbasiccircuitequations:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_addcomponentequationsandcouplings:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_add_stranded:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_add_massive:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_add_foil_winding:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_setdynamicangle:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuitsanddynamicsharmonic_init:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuitsanddynamicsharmonic:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_addbasiccircuitequations:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_addcomponentequationsandcouplings:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_addcomponentelementcontributions:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_add_stranded:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_add_massive:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_add_foil_winding:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_addmatrixentry:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuitsoutput_init:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuitsoutput:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_simlistaddandoutputconstreal:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/CircuitsAndDynamics.F90",
+    "n_bad": 21,
+    "scope_unit": "fortran:fem/src/modules/CircuitsAndDynamics.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "coilsolver_init:f77-global-or-unparsable-linkage",
+      "__coilsolver_init_MOD_coilsolver_init:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_coilsolver:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_cutinterfaceconnections:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_markcoilnodes:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_definecoilcenter:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_definecoilparameters:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_choosefixedbulknodesnarrow:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_choosecoilcut:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_choosefixedendnodes:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_countfixingnodes:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_localpotmatrix:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_localfixmatrix:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_localfluxmatrix:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_localcorrmatrix:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_localcorrcurrent:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_scalepotential:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_normalizecurrentdensity:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_coilpotential:scope-not-found-in-gate-parse",
+      "__coilsolver_init_MOD_coilpotentialnormalized:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/CoilSolver.F90",
+    "n_bad": 20,
+    "scope_unit": "fortran:fem/src/modules/CoilSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "compressiblens:f77-global-or-unparsable-linkage",
+      "__compressiblens_MOD_compressiblens:scope-not-found-in-gate-parse",
+      "__compressiblens_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/CompressibleNS.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/CompressibleNS.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "compressibilitysolver:f77-global-or-unparsable-linkage",
+      "__compressibilitysolver_MOD_compressibilitysolver:scope-not-found-in-gate-parse",
+      "__compressibilitysolver_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ConsistentSplitting/CompressibilitySolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/ConsistentSplitting/CompressibilitySolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "optimalsolutionupdate:f77-global-or-unparsable-linkage",
+      "__optimalsolutionupdate_MOD_optimalsolutionupdate:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_gcrupdate:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_orthogonalize:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_lcondensatestabilizationbubble:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_mydot:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_mymv:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_mynorm:scope-not-found-in-gate-parse",
+      "__optimalsolutionupdate_MOD_setboundaryconditions:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ConsistentSplitting/OptimalSolutionUpdate.F90",
+    "n_bad": 11,
+    "scope_unit": "fortran:fem/src/modules/ConsistentSplitting/OptimalSolutionUpdate.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "pressuresolver:f77-global-or-unparsable-linkage",
+      "__pressuresolver_MOD_pressuresolver:scope-not-found-in-gate-parse",
+      "__pressuresolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__pressuresolver_MOD_surfaceforceintegration:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ConsistentSplitting/PressureSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/ConsistentSplitting/PressureSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "velocitysolver:f77-global-or-unparsable-linkage",
+      "__velocitysolver_MOD_velocitysolver:scope-not-found-in-gate-parse",
+      "__velocitysolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__velocitysolver_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__velocitysolver_MOD_setboundaryconditions:scope-not-found-in-gate-parse",
+      "__velocitysolver_MOD_pnorm:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ConsistentSplitting/VelocitySolver.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/ConsistentSplitting/VelocitySolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "rotmsolver_init:f77-global-or-unparsable-linkage",
+      "__rotmsolver_init_MOD_rotmsolver_init:scope-not-found-in-gate-parse",
+      "__rotmsolver_init_MOD_rotmsolver:scope-not-found-in-gate-parse",
+      "__rotmsolver_init_MOD_computerotm:scope-not-found-in-gate-parse",
+      "__rotmsolver_init_MOD_polardecomposition:scope-not-found-in-gate-parse",
+      "__rotmsolver_init_MOD_getelementrotm:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/CoordinateTransform.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/CoordinateTransform.F90#rotmsolver_init",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__vecutils_MOD_norm2:a:explicit-shape dummy (later shape)",
+      "__vecutils_MOD_normalized:a:explicit-shape dummy (later shape)",
+      "__vecutils_MOD_jac:oldcoord:explicit-shape dummy (later shape)",
+      "__vecutils_MOD_jac:newcoord:explicit-shape dummy (later shape)",
+      "__vecutils_MOD_transform2rank:a:explicit-shape dummy (later shape)",
+      "__vecutils_MOD_transform2rank:jac:explicit-shape dummy (later shape)"
+    ],
+    "file": "fem/src/modules/CoordinateTransform.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/CoordinateTransform.F90#vecutils",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "craigbamptonsolver_init:f77-global-or-unparsable-linkage",
+      "__craigbamptonsolver_init_MOD_craigbamptonsolver_init:scope-not-found-in-gate-parse",
+      "__craigbamptonsolver_init_MOD_craigbamptonsolver:scope-not-found-in-gate-parse",
+      "__craigbamptonsolver_init_MOD_frobeniusnorm:scope-not-found-in-gate-parse",
+      "__craigbamptonsolver_init_MOD_savereductiondofs:scope-not-found-in-gate-parse",
+      "__craigbamptonsolver_init_MOD_savereductionbasis:scope-not-found-in-gate-parse",
+      "__craigbamptonsolver_init_MOD_savereductionmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/CraigBamptonSolver.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/CraigBamptonSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "cyclicconvergence_init:f77-global-or-unparsable-linkage",
+      "__cyclicconvergence_init_MOD_cyclicconvergence_init:scope-not-found-in-gate-parse",
+      "__cyclicconvergence_init_MOD_cyclicconvergence:scope-not-found-in-gate-parse",
+      "__cyclicconvergence_init_MOD_writeconvergencedata:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/CyclicConvergence.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/CyclicConvergence.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "dcrcomplexsolver:f77-global-or-unparsable-linkage",
+      "__dcrcomplexsolver_MOD_dcrcomplexsolver:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_dcrcomplexsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_dcrcomplexsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_dcrcomplexsolver_inside_residual:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_inputtensor:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_inputvector:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_dcrcomplexsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_inputvector:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_dcrcomplexsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_inputtensor:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_inputvector:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_dcrcomplexsolver_inside_residual:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_inputtensor:scope-not-found-in-gate-parse",
+      "__dcrcomplexsolver_MOD_inputvector:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/DCRComplexSolve.F90",
+    "n_bad": 17,
+    "scope_unit": "fortran:fem/src/modules/DCRComplexSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "chargedensitysolver:f77-global-or-unparsable-linkage",
+      "__chargedensitysolver_MOD_chargedensitysolver:scope-not-found-in-gate-parse",
+      "__chargedensitysolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__chargedensitysolver_MOD_wavefunctionsolver:scope-not-found-in-gate-parse",
+      "__chargedensitysolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__chargedensitysolver_MOD_poissonsolver:scope-not-found-in-gate-parse",
+      "__chargedensitysolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__chargedensitysolver_MOD_grpulay3:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/DFTSolver.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/DFTSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "datatofieldsolver:f77-global-or-unparsable-linkage",
+      "__datatofieldsolver_MOD_datatofieldsolver:scope-not-found-in-gate-parse",
+      "__datatofieldsolver_MOD_asciipointstomesh:scope-not-found-in-gate-parse",
+      "__datatofieldsolver_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__datatofieldsolver_MOD_boundaryassembly:scope-not-found-in-gate-parse",
+      "__datatofieldsolver_MOD_boundarylocalmatrix:scope-not-found-in-gate-parse",
+      "__datatofieldsolver_MOD_datatofieldsolver_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/DataToFieldSolver.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/DataToFieldSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "directionsolver_init0:f77-global-or-unparsable-linkage",
+      "__directionsolver_init0_MOD_directionsolver_init0:scope-not-found-in-gate-parse",
+      "__directionsolver_init0_MOD_directionsolver_dummy:scope-not-found-in-gate-parse",
+      "__directionsolver_init0_MOD_directionsolver:scope-not-found-in-gate-parse",
+      "__directionsolver_init0_MOD_savesolutionwithbodymethod:scope-not-found-in-gate-parse",
+      "__directionsolver_init0_MOD_saveelementsolution:scope-not-found-in-gate-parse",
+      "__directionsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__directionsolver_init0_MOD_boundarycondition:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/DirectionSolver.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/DirectionSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "distancesolver:f77-global-or-unparsable-linkage",
+      "__distancesolver_MOD_distancesolver:scope-not-found-in-gate-parse",
+      "__distancesolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__distancesolver_MOD_distancesolver_init:scope-not-found-in-gate-parse",
+      "__distancesolver_MOD_distancesolver1:scope-not-found-in-gate-parse",
+      "__distancesolver_MOD_distcomp0:scope-not-found-in-gate-parse",
+      "__distancesolver_MOD_distcomp:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/DistanceSolve.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/DistanceSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "distributesource:f77-global-or-unparsable-linkage",
+      "__distributesource_MOD_distributesource:scope-not-found-in-gate-parse",
+      "__distributesource_MOD_interpolateandintegratesource:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/DistributeSource.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/DistributeSource.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "divprojection:f77-global-or-unparsable-linkage",
+      "__divprojection_MOD_divprojection:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/DivProjection.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/DivProjection.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "divergencesolver:f77-global-or-unparsable-linkage",
+      "__divergencesolver_MOD_divergencesolver:scope-not-found-in-gate-parse",
+      "__divergencesolver_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__divergencesolver_MOD_divergencesolver_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/DivergenceSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/DivergenceSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "emportsolver_init0:f77-global-or-unparsable-linkage",
+      "__emportsolver_init0_MOD_emportsolver_init0:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_emportsolver:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_parallelactivesubset:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_initstuff:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_localmatrix_with_potentials:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_calculateportpower:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_emportpost:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_emportpotential_init:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_emportpotential:scope-not-found-in-gate-parse",
+      "__emportsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/EMPort.F90",
+    "n_bad": 12,
+    "scope_unit": "fortran:fem/src/modules/EMPort.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "emwavesolver_init0:f77-global-or-unparsable-linkage",
+      "__emwavesolver_init0_MOD_emwavesolver_init0:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_emwavesolver:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_dobulkassembly:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_doboundaryassembly:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_emwavecalcfields_init0:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_emwavecalcfields_init:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_emwavecalcfields:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_localassembly:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_globalsol:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_localsol:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_addlocalfaceterms:scope-not-found-in-gate-parse",
+      "__emwavesolver_init0_MOD_localjumps:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/EMWaveSolver.F90",
+    "n_bad": 15,
+    "scope_unit": "fortran:fem/src/modules/EMWaveSolver.F90#emwavesolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vacuous:scope-exports-all-bind-c-or-bookkeeping"
+    ],
+    "file": "fem/src/modules/EMWaveSolver.F90",
+    "n_bad": 0,
+    "scope_unit": "fortran:fem/src/modules/EMWaveSolver.F90#emwavesolverutils",
+    "verdict": "admit"
+  },
+  {
+    "detail": [
+      "bestapproximationsolver_init0:f77-global-or-unparsable-linkage",
+      "__bestapproximationsolver_init0_MOD_bestapproximationsolver_init0:scope-not-found-in-gate-parse",
+      "__bestapproximationsolver_init0_MOD_bestapproximationsolver:scope-not-found-in-gate-parse",
+      "__bestapproximationsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__bestapproximationsolver_init0_MOD_computeapproximationerror:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/EdgeFEInterpolationTest.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/EdgeFEInterpolationTest.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "elasticsolver_init0:f77-global-or-unparsable-linkage",
+      "__elasticsolver_init0_MOD_elasticsolver_init0:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticsolver_init:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticsolver:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticsolver_inside_residual:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticgausspoints:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_probethiselement:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_boundaryassembly:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_postprocess:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_addreferencedisplacement:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_refusestresssolvekeywords:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_getvoigtload:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_localmatrixwithumat:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_strainenergydensity:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_neohookeanlocalmatrix:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_localboundarymatrix:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_generatestrainvariable:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_generatestressvariable:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_computestressandstrain:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticstrainatip:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticumatstressatip:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__elasticsolver_init0_MOD_elasticsolver_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ElasticSolve.F90",
+    "n_bad": 28,
+    "scope_unit": "fortran:fem/src/modules/ElasticSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statelecforce:f77-global-or-unparsable-linkage",
+      "__statelecforce_MOD_statelecforce:scope-not-found-in-gate-parse",
+      "__statelecforce_MOD_maxwellstresstensorintegrate:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ElectricForce.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/ElectricForce.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "helmholtz_smoluchowski1:f77-global-or-unparsable-linkage",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski1:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski_comp:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski2:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski_comp:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski3:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski_comp:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski_comp:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_helmholtz_smoluchowski_comp:scope-not-found-in-gate-parse",
+      "__helmholtz_smoluchowski1_MOD_getjouleheat:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Electrokinetics.F90",
+    "n_bad": 11,
+    "scope_unit": "fortran:fem/src/modules/Electrokinetics.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "elementsizesolver:f77-global-or-unparsable-linkage",
+      "__elementsizesolver_MOD_elementsizesolver:scope-not-found-in-gate-parse",
+      "__elementsizesolver_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ElementSizeSolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/ElementSizeSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "elementstats:f77-global-or-unparsable-linkage",
+      "__elementstats_MOD_elementstats:scope-not-found-in-gate-parse",
+      "__elementstats_MOD_elementsizestudy:scope-not-found-in-gate-parse",
+      "__elementstats_MOD_elementratiostudy:scope-not-found-in-gate-parse",
+      "__elementstats_MOD_elementskewstudy:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ElementStats.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/ElementStats.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "eliminatedirichlet:f77-global-or-unparsable-linkage",
+      "__eliminatedirichlet_MOD_eliminatedirichlet:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/EliminateDirichlet.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/EliminateDirichlet.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "eliminateperiodic:f77-global-or-unparsable-linkage",
+      "__eliminateperiodic_MOD_eliminateperiodic:scope-not-found-in-gate-parse",
+      "__eliminateperiodic_MOD_eliminatedirichlet:scope-not-found-in-gate-parse",
+      "__eliminateperiodic_MOD_periodiccnstr:scope-not-found-in-gate-parse",
+      "__eliminateperiodic_MOD_crs_sortmatrixvalues:scope-not-found-in-gate-parse",
+      "__eliminateperiodic_MOD_crs_transposelocal:scope-not-found-in-gate-parse",
+      "__eliminateperiodic_MOD_crs_matrixmatrixmultiply:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/EliminatePeriodic.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/EliminatePeriodic.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "elmer2openfoamwrite:f77-global-or-unparsable-linkage",
+      "__elmer2openfoamwrite_MOD_elmer2openfoamwrite:scope-not-found-in-gate-parse",
+      "__elmer2openfoamwrite_MOD_openfoamblocks:scope-not-found-in-gate-parse",
+      "__elmer2openfoamwrite_MOD_writemeshcenters:scope-not-found-in-gate-parse",
+      "__elmer2openfoamwrite_MOD_createfoammesh:scope-not-found-in-gate-parse",
+      "__elmer2openfoamwrite_MOD_writeoffield:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Elmer2OpenFoamIO.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/Elmer2OpenFoamIO.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "releaseratesolver:f77-global-or-unparsable-linkage",
+      "__releaseratesolver_MOD_releaseratesolver:scope-not-found-in-gate-parse",
+      "__releaseratesolver_MOD_localreleaserate:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/EnergyRelease.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/EnergyRelease.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "fourierdiffusionsolver:f77-global-or-unparsable-linkage",
+      "__fourierdiffusionsolver_MOD_fourierdiffusionsolver:scope-not-found-in-gate-parse",
+      "__fourierdiffusionsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__fourierdiffusionsolver_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__fourierdiffusionsolver_MOD_lorentzforceave:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FDiffusion.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/FDiffusion.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "fourierdiffusion3dsolver:f77-global-or-unparsable-linkage",
+      "__fourierdiffusion3dsolver_MOD_fourierdiffusion3dsolver:scope-not-found-in-gate-parse",
+      "__fourierdiffusion3dsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__fourierdiffusion3dsolver_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__fourierdiffusion3dsolver_MOD_lorentzforceave:scope-not-found-in-gate-parse",
+      "__fourierdiffusion3dsolver_MOD_computelorentz:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FDiffusion3D.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/FDiffusion3D.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "shellsolver_init0:f77-global-or-unparsable-linkage",
+      "__shellsolver_init0_MOD_shellsolver_init0:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_shellsolver:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_solvenonlinear:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_bcassembly:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_concentratedloads:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_setdirichletbcs:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_calculatestresses:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_stressboundary:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_localstress:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_averagingweights3:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_averagingweights4:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_switchtolocal:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_localbasis:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_isotropicinplaneelasticity:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_addinnerproducts:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_covariantinterpolation:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FacetShellSolve.F90",
+    "n_bad": 19,
+    "scope_unit": "fortran:fem/src/modules/FacetShellSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "filmcompressibility_init:f77-global-or-unparsable-linkage",
+      "__filmcompressibility_init_MOD_filmcompressibility_init:scope-not-found-in-gate-parse",
+      "__filmcompressibility_init_MOD_filmcompressibility:scope-not-found-in-gate-parse",
+      "__filmcompressibility_init_MOD_localmaxima:scope-not-found-in-gate-parse",
+      "__filmcompressibility_init_MOD_localls:scope-not-found-in-gate-parse",
+      "__filmcompressibility_init_MOD_setacinit:scope-not-found-in-gate-parse",
+      "__filmcompressibility_init_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FilmCompressibility.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/FilmCompressibility.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "filmflowsolver_init0:f77-global-or-unparsable-linkage",
+      "__filmflowsolver_init0_MOD_filmflowsolver_init0:scope-not-found-in-gate-parse",
+      "__filmflowsolver_init0_MOD_filmflowsolver_init:scope-not-found-in-gate-parse",
+      "__filmflowsolver_init0_MOD_filmflowsolver:scope-not-found-in-gate-parse",
+      "__filmflowsolver_init0_MOD_frictionlawpraks:scope-not-found-in-gate-parse",
+      "__filmflowsolver_init0_MOD_localbulkmatrix:scope-not-found-in-gate-parse",
+      "__filmflowsolver_init0_MOD_localboundarymatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FilmFlowSolver.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/FilmFlowSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "filtertimeseries:f77-global-or-unparsable-linkage",
+      "__filtertimeseries_MOD_filtertimeseries:scope-not-found-in-gate-parse",
+      "__filtertimeseries_MOD_parametername:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FilterTimeSeries.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/FilterTimeSeries.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "findoptimum:f77-global-or-unparsable-linkage",
+      "__findoptimum_MOD_findoptimum:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_name:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_or:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_target:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_absolute:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_maximize:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_rnd:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_idx:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_geneticoptimize:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_randomparameter:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_scanparameter:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_bisectoptimize:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_secantsearch:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_simplexoptimize:scope-not-found-in-gate-parse",
+      "__findoptimum_MOD_guessoptimum:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FindOptimum.F90",
+    "n_bad": 16,
+    "scope_unit": "fortran:fem/src/modules/FindOptimum.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "fixtangentvelo_init:f77-global-or-unparsable-linkage",
+      "__fixtangentvelo_init_MOD_fixtangentvelo_init:scope-not-found-in-gate-parse",
+      "__fixtangentvelo_init_MOD_fixtangentvelo:scope-not-found-in-gate-parse",
+      "__fixtangentvelo_init_MOD_applytangentfix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FixTangentVelo.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/FixTangentVelo.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "flowsolver_init:f77-global-or-unparsable-linkage",
+      "__flowsolver_init_MOD_flowsolver_init:scope-not-found-in-gate-parse",
+      "__flowsolver_init_MOD_flowsolver:scope-not-found-in-gate-parse",
+      "__flowsolver_init_MOD_flowsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__flowsolver_init_MOD_flowsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__flowsolver_init_MOD_flowsolver_inside_residual:scope-not-found-in-gate-parse",
+      "__flowsolver_init_MOD_checkcircleboundary:scope-not-found-in-gate-parse",
+      "__flowsolver_init_MOD_flowsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__flowsolver_init_MOD_flowsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__flowsolver_init_MOD_flowsolver_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FlowSolve.F90",
+    "n_bad": 10,
+    "scope_unit": "fortran:fem/src/modules/FlowSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "forcecompute:f77-global-or-unparsable-linkage",
+      "__forcecompute_MOD_forcecompute:scope-not-found-in-gate-parse",
+      "__forcecompute_MOD_forceintegrate:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FluidicForce.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/FluidicForce.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "fluxsolver:f77-global-or-unparsable-linkage",
+      "__fluxsolver_MOD_fluxsolver:scope-not-found-in-gate-parse",
+      "__fluxsolver_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__fluxsolver_MOD_addlocalfaceterms:scope-not-found-in-gate-parse",
+      "__fluxsolver_MOD_localjumps:scope-not-found-in-gate-parse",
+      "__fluxsolver_MOD_gettensorrank:scope-not-found-in-gate-parse",
+      "__fluxsolver_MOD_fluxsolver_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FluxSolver.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/FluxSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "fourierlosssolver_init:f77-global-or-unparsable-linkage",
+      "__fourierlosssolver_init_MOD_fourierlosssolver_init:scope-not-found-in-gate-parse",
+      "__fourierlosssolver_init_MOD_fourierlosssolver:scope-not-found-in-gate-parse",
+      "__fourierlosssolver_init_MOD_localfouriertransform:scope-not-found-in-gate-parse",
+      "__fourierlosssolver_init_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__fourierlosssolver_init_MOD_communicatelosess:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FourierLoss.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/FourierLoss.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "freesurfacereduced:f77-global-or-unparsable-linkage",
+      "__freesurfacereduced_MOD_freesurfacereduced:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FreeSurfaceReduced.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/FreeSurfaceReduced.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "freesurfacesolver_rotinit:f77-global-or-unparsable-linkage",
+      "__freesurfacesolver_rotinit_MOD_freesurfacesolver_rotinit:scope-not-found-in-gate-parse",
+      "__freesurfacesolver_rotinit_MOD_freesurfacetomeshupdate1:scope-not-found-in-gate-parse",
+      "__freesurfacesolver_rotinit_MOD_freesurfacetomeshupdate2:scope-not-found-in-gate-parse",
+      "__freesurfacesolver_rotinit_MOD_freesurfacetomeshupdate3:scope-not-found-in-gate-parse",
+      "__freesurfacesolver_rotinit_MOD_freesurfacetomeshupdate:scope-not-found-in-gate-parse",
+      "__freesurfacesolver_rotinit_MOD_freesurfacesolver:scope-not-found-in-gate-parse",
+      "__freesurfacesolver_rotinit_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/FreeSurfaceSolver.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/FreeSurfaceSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "gmshoutputreader:f77-global-or-unparsable-linkage",
+      "__gmshoutputreader_MOD_gmshoutputreader:scope-not-found-in-gate-parse",
+      "__gmshoutputreader_MOD_interpolatemeshtomeshq:scope-not-found-in-gate-parse",
+      "__gmshoutputreader_MOD_readsinglegmshfile:scope-not-found-in-gate-parse",
+      "__gmshoutputreader_MOD_interpolatefromgmshfile:scope-not-found-in-gate-parse",
+      "__gmshoutputreader_MOD_gmshoutputreader_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/GmshOutputReader.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/GmshOutputReader.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [],
+    "file": "fem/src/modules/HarmonicSignals.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/HarmonicSignals.F90#harmutils",
+    "verdict": "admit"
+  },
+  {
+    "detail": [
+      "source:f77-global-or-unparsable-linkage",
+      "__source_MOD_source:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HarmonicSignals.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/HarmonicSignals.F90#source",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__heatsolvefront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__heatsolvefront_MOD_legacyassembly:result:undeclared",
+      "__heatsolvefront_MOD_delegatetoheatlegacy:entry:character dummy (hidden length param)",
+      "__heatsolvefront_MOD_delegatetoheatlegacy:model:derived-type dummy (needs whole-program layout)",
+      "__heatsolvefront_MOD_delegatetoheatlegacy:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/HeatSolve.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/HeatSolve.F90#heatsolvefront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "heatsolver_init0:f77-global-or-unparsable-linkage",
+      "__heatsolver_init0_MOD_heatsolver_init0:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver_init:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver_inside_residual:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_checklatentheatvec:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_debugdumpcondensate:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_localnitschebc:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_localmatrixvec:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_phasechangeelementsetup:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_phasechangeaddvec:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_phasechangecl:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_calculateplatetangent:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_bcassemblyfraction:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_tabulateboundaryaverages:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_localmatrixdiffusegray:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_localjumps:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_swapparentsonflag:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_localjumpsdiscontbc:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_calculateradiosityfields:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HeatSolve.F90",
+    "n_bad": 27,
+    "scope_unit": "fortran:fem/src/modules/HeatSolve.F90#heatsolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "heatsolverlegacy_init:f77-global-or-unparsable-linkage",
+      "__heatsolverlegacy_init_MOD_heatsolverlegacy_init:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_heatsolverlegacy:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_heatsolverlegacy_boundary_residual:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_heatsolverlegacy_edge_residual:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_heatsolverlegacy_inside_residual:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_tabulateboundaryaverages:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_addheatfluxbc:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_addglobaltime:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_diffusegrayradiation:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_radiosityradiation:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_effectiveheatcapacity:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_checklatentheat:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_getbase:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_integovera:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_findgapindexes:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_addheatgap:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_heatsolverlegacy_boundary_residual:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_heatsolverlegacy_edge_residual:scope-not-found-in-gate-parse",
+      "__heatsolverlegacy_init_MOD_heatsolverlegacy_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HeatSolveLegacy.F90",
+    "n_bad": 20,
+    "scope_unit": "fortran:fem/src/modules/HeatSolveLegacy.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "heatsolver_init0:f77-global-or-unparsable-linkage",
+      "__heatsolver_init0_MOD_heatsolver_init0:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver_init:scope-not-found-in-gate-parse",
+      "__heatsolver_init0_MOD_heatsolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HeatSolveVec.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/HeatSolveVec.F90#heatsolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__heatsolvevecfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__heatsolvevecfront_MOD_legacyassembly:result:undeclared",
+      "__heatsolvevecfront_MOD_delegateto:targetfile:character dummy (hidden length param)",
+      "__heatsolvevecfront_MOD_delegateto:entry:character dummy (hidden length param)",
+      "__heatsolvevecfront_MOD_delegateto:model:derived-type dummy (needs whole-program layout)",
+      "__heatsolvevecfront_MOD_delegateto:solver:derived-type dummy (needs whole-program layout)",
+      "__heatsolvevecfront_MOD_delegate:entry:character dummy (hidden length param)",
+      "__heatsolvevecfront_MOD_delegate:model:derived-type dummy (needs whole-program layout)",
+      "__heatsolvevecfront_MOD_delegate:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/HeatSolveVec.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/HeatSolveVec.F90#heatsolvevecfront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vacuous:scope-exports-all-bind-c-or-bookkeeping"
+    ],
+    "file": "fem/src/modules/HelmholtzBEM.F90",
+    "n_bad": 0,
+    "scope_unit": "fortran:fem/src/modules/HelmholtzBEM.F90#globmatc",
+    "verdict": "admit"
+  },
+  {
+    "detail": [
+      "helmholtzbemsolver:f77-global-or-unparsable-linkage",
+      "__helmholtzbemsolver_MOD_helmholtzbemsolver:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_integratematrix:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_green:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_bessel:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_computepotential:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_solvefull:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_solvelapack_cmplx:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_fullitersolver:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_precond:scope-not-found-in-gate-parse",
+      "__helmholtzbemsolver_MOD_matvec:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HelmholtzBEM.F90",
+    "n_bad": 11,
+    "scope_unit": "fortran:fem/src/modules/HelmholtzBEM.F90#helmholtzbemsolver",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "helmholtzprojector_init:f77-global-or-unparsable-linkage",
+      "__helmholtzprojector_init_MOD_helmholtzprojector_init:scope-not-found-in-gate-parse",
+      "__helmholtzprojector_init_MOD_helmholtzprojector:scope-not-found-in-gate-parse",
+      "__helmholtzprojector_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__helmholtzprojector_init_MOD_removekernelcomponent_init0:scope-not-found-in-gate-parse",
+      "__helmholtzprojector_init_MOD_removekernelcomponent:scope-not-found-in-gate-parse",
+      "__helmholtzprojector_init_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HelmholtzProjection.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/HelmholtzProjection.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "helmholtzsolver_init:f77-global-or-unparsable-linkage",
+      "__helmholtzsolver_init_MOD_helmholtzsolver_init:scope-not-found-in-gate-parse",
+      "__helmholtzsolver_init_MOD_helmholtzsolver:scope-not-found-in-gate-parse",
+      "__helmholtzsolver_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__helmholtzsolver_init_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__helmholtzsolver_init_MOD_localinterfacematrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HelmholtzSolve.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/HelmholtzSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "hydrostaticnssolver_init0:f77-global-or-unparsable-linkage",
+      "__hydrostaticnssolver_init0_MOD_hydrostaticnssolver_init0:scope-not-found-in-gate-parse",
+      "__hydrostaticnssolver_init0_MOD_hydrostaticnssolver_init:scope-not-found-in-gate-parse",
+      "__hydrostaticnssolver_init0_MOD_hydrostaticnssolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HydrostaticNS.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/HydrostaticNS.F90#hydrostaticnssolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__hydrostaticnsutils_MOD_effectiveviscosityvec:dbasisdxvec:assumed-shape rank > 2",
+      "__hydrostaticnsutils_MOD_effectiveviscosityvec:element:derived-type dummy (needs whole-program layout)",
+      "__hydrostaticnsutils_MOD_effectiveviscosityvec:viscnewton:optional dummy (hidden presence arg)",
+      "__hydrostaticnsutils_MOD_effectiveviscosityvec:viscdervec:optional dummy (hidden presence arg)",
+      "__hydrostaticnsutils_MOD_effectiveviscosityvec:detjvec:optional dummy (hidden presence arg)",
+      "__hydrostaticnsutils_MOD_effectiveviscosityvec:viscwork:allocatable dummy (libgfortran realloc contract)",
+      "__hydrostaticnsutils_MOD_effectiveviscosityvec:result:undeclared",
+      "__hydrostaticnsutils_MOD_api:result:undeclared",
+      "__hydrostaticnsutils_MOD_localbulkmatrix:element:derived-type dummy (needs whole-program layout)",
+      "__hydrostaticnsutils_MOD_localboundarymatrix:element:derived-type dummy (needs whole-program layout)",
+      "__hydrostaticnsutils_MOD_localduz:element:derived-type dummy (needs whole-program layout)",
+      "__hydrostaticnsutils_MOD_localduz:duz:pointer dummy (libgfortran realloc contract)",
+      "__hydrostaticnsutils_MOD_localduz:wuz:pointer dummy (libgfortran realloc contract)",
+      "__hydrostaticnsutils_MOD_localduz:ub:pointer dummy (libgfortran realloc contract)",
+      "__hydrostaticnsutils_MOD_localduz:dpr:optional dummy (hidden presence arg)"
+    ],
+    "file": "fem/src/modules/HydrostaticNS.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/HydrostaticNS.F90#hydrostaticnsutils",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "hydrostaticnssolver_init0:f77-global-or-unparsable-linkage",
+      "__hydrostaticnssolver_init0_MOD_hydrostaticnssolver_init0:scope-not-found-in-gate-parse",
+      "__hydrostaticnssolver_init0_MOD_hydrostaticnssolver_init:scope-not-found-in-gate-parse",
+      "__hydrostaticnssolver_init0_MOD_hydrostaticnssolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/HydrostaticNSVec.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/HydrostaticNSVec.F90#hydrostaticnssolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__hydrostaticnsvecfront_MOD_delegateto:entry:character dummy (hidden length param)",
+      "__hydrostaticnsvecfront_MOD_delegateto:model:derived-type dummy (needs whole-program layout)",
+      "__hydrostaticnsvecfront_MOD_delegateto:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/HydrostaticNSVec.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/HydrostaticNSVec.F90#hydrostaticnsvecfront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__incompressiblelocalforms_MOD_localbulkmatrix:element:derived-type dummy (needs whole-program layout)",
+      "__incompressiblelocalforms_MOD_localbulkmatrix:schursolver:derived-type dummy (needs whole-program layout)",
+      "__incompressiblelocalforms_MOD_effectiveviscosityvec:dbasisdxvec:assumed-shape rank > 2",
+      "__incompressiblelocalforms_MOD_effectiveviscosityvec:element:derived-type dummy (needs whole-program layout)",
+      "__incompressiblelocalforms_MOD_effectiveviscosityvec:viscdervec:allocatable dummy (libgfortran realloc contract)",
+      "__incompressiblelocalforms_MOD_effectiveviscosityvec:detjvec:allocatable dummy (libgfortran realloc contract)",
+      "__incompressiblelocalforms_MOD_effectiveviscosityvec:viscwork:allocatable dummy (libgfortran realloc contract)",
+      "__incompressiblelocalforms_MOD_effectiveviscosityvec:result:undeclared",
+      "__incompressiblelocalforms_MOD_api:result:undeclared",
+      "__incompressiblelocalforms_MOD_lcondensate:xprev:optional dummy (hidden presence arg)",
+      "__incompressiblelocalforms_MOD_lcondensate:x:optional dummy (hidden presence arg)",
+      "__incompressiblelocalforms_MOD_lcondensate:element_id:optional dummy (hidden presence arg)",
+      "__incompressiblelocalforms_MOD_localboundarymatrix:element:derived-type dummy (needs whole-program layout)",
+      "__incompressiblelocalforms_MOD_solve_ufric:proc-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/IncompressibleNS.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/IncompressibleNS.F90#incompressiblelocalforms",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "incompressiblenssolver_init0:f77-global-or-unparsable-linkage",
+      "__incompressiblenssolver_init0_MOD_incompressiblenssolver_init0:scope-not-found-in-gate-parse",
+      "__incompressiblenssolver_init0_MOD_incompressiblenssolver_init:scope-not-found-in-gate-parse",
+      "__incompressiblenssolver_init0_MOD_incompressiblenssolver:scope-not-found-in-gate-parse",
+      "__incompressiblenssolver_init0_MOD_probethiselement:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/IncompressibleNS.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/IncompressibleNS.F90#incompressiblenssolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "incompressiblenssolver_init0:f77-global-or-unparsable-linkage",
+      "__incompressiblenssolver_init0_MOD_incompressiblenssolver_init0:scope-not-found-in-gate-parse",
+      "__incompressiblenssolver_init0_MOD_incompressiblenssolver_init:scope-not-found-in-gate-parse",
+      "__incompressiblenssolver_init0_MOD_incompressiblenssolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/IncompressibleNSVec.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/IncompressibleNSVec.F90#incompressiblenssolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__incompressiblensvecfront_MOD_delegateto:entry:character dummy (hidden length param)",
+      "__incompressiblensvecfront_MOD_delegateto:model:derived-type dummy (needs whole-program layout)",
+      "__incompressiblensvecfront_MOD_delegateto:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/IncompressibleNSVec.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/IncompressibleNSVec.F90#incompressiblensvecfront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "isosurfacesolver_init:f77-global-or-unparsable-linkage",
+      "__isosurfacesolver_init_MOD_isosurfacesolver_init:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_isosurfacesolver:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_isoedgeowners:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_buildisoparallelinfo:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_countowned:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_releaseisomesh:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_getinterpolants:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_getisointerpolants:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_releasetempmesh:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_createnodes:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_remap:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_createsurfaces:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_orientisotriangle:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_createsurfacefromtetra:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_createlinefromtriangle:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_gathergeolines:scope-not-found-in-gate-parse",
+      "__isosurfacesolver_init_MOD_savegmshgeo2d:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Isosurface.F90",
+    "n_bad": 18,
+    "scope_unit": "fortran:fem/src/modules/Isosurface.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "levelsetcurvature:f77-global-or-unparsable-linkage",
+      "__levelsetcurvature_MOD_levelsetcurvature:scope-not-found-in-gate-parse",
+      "__levelsetcurvature_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__levelsetcurvature_MOD_localboundary:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/LevelSet/LevelSetCurvature.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/LevelSet/LevelSetCurvature.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "levelsetdistance:f77-global-or-unparsable-linkage",
+      "__levelsetdistance_MOD_levelsetdistance:scope-not-found-in-gate-parse",
+      "__levelsetdistance_MOD_extractzerolevel:scope-not-found-in-gate-parse",
+      "__levelsetdistance_MOD_triangleisolineweights:scope-not-found-in-gate-parse",
+      "__levelsetdistance_MOD_computedistance:scope-not-found-in-gate-parse",
+      "__levelsetdistance_MOD_computedistancewithdirection:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/LevelSet/LevelSetDistance.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/LevelSet/LevelSetDistance.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "levelsetintegrate:f77-global-or-unparsable-linkage",
+      "__levelsetintegrate_MOD_levelsetintegrate:scope-not-found-in-gate-parse",
+      "__levelsetintegrate_MOD_heavisideintegrate:scope-not-found-in-gate-parse",
+      "__levelsetintegrate_MOD_levelsetintegrate_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/LevelSet/LevelSetIntegrate.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/LevelSet/LevelSetIntegrate.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "levelsetsolver:f77-global-or-unparsable-linkage",
+      "__levelsetsolver_MOD_levelsetsolver:scope-not-found-in-gate-parse",
+      "__levelsetsolver_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/LevelSet/LevelSetSolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/LevelSet/LevelSetSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "levelsettimestep:f77-global-or-unparsable-linkage",
+      "__levelsettimestep_MOD_levelsettimestep:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/LevelSet/LevelSetTimestep.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/LevelSet/LevelSetTimestep.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "magneticsolver:f77-global-or-unparsable-linkage",
+      "__magneticsolver_MOD_magneticsolver:scope-not-found-in-gate-parse",
+      "__magneticsolver_MOD_computenodalfield:scope-not-found-in-gate-parse",
+      "__magneticsolver_MOD_lorentzforcenodal:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MagneticSolve/MagneticSolve.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/MagneticSolve/MagneticSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__maxwell_MOD_maxwellcompose:element:derived-type dummy (needs whole-program layout)",
+      "__maxwell_MOD_maxwellcompose:nodes:derived-type dummy (needs whole-program layout)",
+      "__maxwell_MOD_maxwellboundary:element:derived-type dummy (needs whole-program layout)",
+      "__maxwell_MOD_maxwellboundary:nodes:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/MagneticSolve/Maxwell.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/MagneticSolve/Maxwell.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__maxwellaxis_MOD_maxwellaxiscompose:element:derived-type dummy (needs whole-program layout)",
+      "__maxwellaxis_MOD_maxwellaxiscompose:nodes:derived-type dummy (needs whole-program layout)",
+      "__maxwellaxis_MOD_maxwellaxisboundary:element:derived-type dummy (needs whole-program layout)",
+      "__maxwellaxis_MOD_maxwellaxisboundary:nodes:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/MagneticSolve/MaxwellAxiS.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/MagneticSolve/MaxwellAxiS.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__maxwellgeneral_MOD_maxwellgeneralcompose:element:derived-type dummy (needs whole-program layout)",
+      "__maxwellgeneral_MOD_maxwellgeneralcompose:nodes:derived-type dummy (needs whole-program layout)",
+      "__maxwellgeneral_MOD_maxwellgeneralboundary:element:derived-type dummy (needs whole-program layout)",
+      "__maxwellgeneral_MOD_maxwellgeneralboundary:nodes:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/MagneticSolve/MaxwellGeneral.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/MagneticSolve/MaxwellGeneral.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "magnetodynamicscalcfields_init0:f77-global-or-unparsable-linkage",
+      "__magnetodynamicscalcfields_init0_MOD_magnetodynamicscalcfields_init0:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_magnetodynamicscalcfields_init:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_magnetodynamicscalcfields:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_not:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_as:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_sumelementalvariable:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_calcboundarymodels:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_nodaltorque:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_globalsol:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_localsol:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_localcopy:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_addlocalfaceterms:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_localjumps:scope-not-found-in-gate-parse",
+      "__magnetodynamicscalcfields_init0_MOD_calcaverageflux:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MagnetoDynamics/CalcFields.F90",
+    "n_bad": 15,
+    "scope_unit": "fortran:fem/src/modules/MagnetoDynamics/CalcFields.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "jfixpotentialsolver:f77-global-or-unparsable-linkage",
+      "__jfixpotentialsolver_MOD_jfixpotentialsolver:scope-not-found-in-gate-parse",
+      "__jfixpotentialsolver_MOD_jfixbulkassembly:scope-not-found-in-gate-parse",
+      "__jfixpotentialsolver_MOD_jfixbcs:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MagnetoDynamics/JfixPotentialSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/MagnetoDynamics/JfixPotentialSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "platiseferromodel:f77-global-or-unparsable-linkage",
+      "__platiseferromodel_MOD_platiseferromodel:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MagnetoDynamics/PlatiseFerroModel.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/MagnetoDynamics/PlatiseFerroModel.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__magnetodynamicsutils_MOD_addconstraintfrombulk:a:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_addconstraintfrombulk:m0:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_addconstraintfrombulk:result:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_setdoftovaluer:solver:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_setdoftovaluec:solver:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_getreluctivityr:material:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_getreluctivityc:material:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_getreluctivityc:acoef:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_getreluctivitytensorr:material:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_getreluctivitytensorr:acoef:pointer dummy (libgfortran realloc contract)",
+      "__magnetodynamicsutils_MOD_getreluctivitytensorc:material:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_getreluctivitytensorc:acoef:pointer dummy (libgfortran realloc contract)",
+      "__magnetodynamicsutils_MOD_packedgerows:cm:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_packedgerows:model:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_packedgerows:coloffset:optional dummy (hidden presence arg)",
+      "__magnetodynamicsutils_MOD_communicatecondreg:solver:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_communicatecondreg:mesh:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_communicatecondreg:condreg:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_recvdonenodesandedges:solver:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_recvdonenodesandedges:mesh:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_recvdonenodesandedges:done:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_recvdonenodesandedges:treeedges:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_senddonenodesandedges:solver:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_senddonenodesandedges:mesh:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_senddonenodesandedges:done:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_senddonenodesandedges:treeedges:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_markouternodes:mesh:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_markouternodes:perm:pointer dummy (libgfortran realloc contract)",
+      "__magnetodynamicsutils_MOD_markouternodes:surfaceperm:pointer dummy (libgfortran realloc contract)",
+      "__magnetodynamicsutils_MOD_gaugetree:solver:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_gaugetree:mesh:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_gaugetree:treeedges:allocatable dummy (libgfortran realloc contract)",
+      "__magnetodynamicsutils_MOD_gaugetree:fluxmap:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_depthfirstsearch:alist:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_depthfirstsearch:done:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_gaugetreefluxbc:solver:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_gaugetreefluxbc:mesh:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_gaugetreefluxbc:treeedges:allocatable dummy (libgfortran realloc contract)",
+      "__magnetodynamicsutils_MOD_gaugetreefluxbc:basiccycles:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_gaugetreefluxbc:fluxmap:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_breadthfirstsearch:alist:derived-type dummy (needs whole-program layout)",
+      "__magnetodynamicsutils_MOD_breadthfirstsearch:done:non-REAL(8) assumed-shape dtype",
+      "__magnetodynamicsutils_MOD_breadthfirstsearch:nodelist:non-REAL(8) assumed-shape dtype"
+    ],
+    "file": "fem/src/modules/MagnetoDynamics/Utils.F90",
+    "n_bad": 18,
+    "scope_unit": "fortran:fem/src/modules/MagnetoDynamics/Utils.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "whitneyavharmonicsolver_init0:f77-global-or-unparsable-linkage",
+      "__whitneyavharmonicsolver_init0_MOD_whitneyavharmonicsolver_init0:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_whitneyavharmonicsolver_init:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_whitneyavharmonicsolver:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_dosolve:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_constrainunused:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_calculatelumped:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_inertialmoment:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_torque:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_axialforce:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_axialforcesurf:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_potential:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localfixmatrixc:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localmatrixairgapbc:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localmatrixthinsheet:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localmatrixskinbc:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localfluxbc:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_dirichletafromb:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_floodfill:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_helmholtzprojector_init0:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_helmholtzprojector_init:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_helmholtzprojector:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_removekernelcomponent_init0:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_removekernelcomponent:scope-not-found-in-gate-parse",
+      "__whitneyavharmonicsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MagnetoDynamics/WhitneyAVHarmonicSolver.F90",
+    "n_bad": 28,
+    "scope_unit": "fortran:fem/src/modules/MagnetoDynamics/WhitneyAVHarmonicSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "whitneyavsolver_init0:f77-global-or-unparsable-linkage",
+      "__whitneyavsolver_init0_MOD_whitneyavsolver_init0:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_whitneyavsolver_init:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_whitneyavsolver:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_getauxsolverinfo:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_dosolve:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_constrainunused:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_calculatelumpedsurface:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_calculatelumpedparameters:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_axialforcesurf:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localconstraintmatrix:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_as:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_constraintmatrix:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localfixmatrix:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localfluxbc:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localmatrixairgapbc:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localmatrixthinline:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_dirichletafromb:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_floodfill:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_addlocalbnorm:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_helmholtzprojectort_init0:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_helmholtzprojectort_init:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_helmholtzprojectort:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_removekernelcomponentt_init0:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_removekernelcomponentt:scope-not-found-in-gate-parse",
+      "__whitneyavsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90",
+    "n_bad": 29,
+    "scope_unit": "fortran:fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "magnetodynamics2d_init:f77-global-or-unparsable-linkage",
+      "__magnetodynamics2d_init_MOD_magnetodynamics2d_init:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_magnetodynamics2d:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_tabulatebasisfunctions:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_calculatelumpedtransient:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localmatrixhandles:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_as:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_getzirkahbatip:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localmatrixinfinitybc:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_setmagneticfluxdensitybc:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_getreluctivity:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_magnetodynamics2dharmonic_init0:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_magnetodynamics2dharmonic_init:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_magnetodynamics2dharmonic:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_calculatelumpedharmonic:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localmatrixinfinitybc:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localmatrixskinbc:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_setmagneticfluxdensitybc:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_getreluctivity:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_bsolver_init:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_bsolver:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_computehomogenizationparams:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_addlocalfaceterms:scope-not-found-in-gate-parse",
+      "__magnetodynamics2d_init_MOD_localjumps:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MagnetoDynamics2D.F90",
+    "n_bad": 29,
+    "scope_unit": "fortran:fem/src/modules/MagnetoDynamics2D.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "marchingodesolver_init:f77-global-or-unparsable-linkage",
+      "__marchingodesolver_init_MOD_marchingodesolver_init:scope-not-found-in-gate-parse",
+      "__marchingodesolver_init_MOD_marchingodesolver:scope-not-found-in-gate-parse",
+      "__marchingodesolver_init_MOD_firstextrudedmaterial:scope-not-found-in-gate-parse",
+      "__marchingodesolver_init_MOD_setlayervalues:scope-not-found-in-gate-parse",
+      "__marchingodesolver_init_MOD_getlayervalues:scope-not-found-in-gate-parse",
+      "__marchingodesolver_init_MOD_getcoefficients:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MarchingODESolver.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/MarchingODESolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "mesh2meshsolver_init0:f77-global-or-unparsable-linkage",
+      "__mesh2meshsolver_init0_MOD_mesh2meshsolver_init0:scope-not-found-in-gate-parse",
+      "__mesh2meshsolver_init0_MOD_mesh2meshsolver:scope-not-found-in-gate-parse",
+      "__mesh2meshsolver_init0_MOD_interpolatemeshtomesh:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Mesh2MeshSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/Mesh2MeshSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "meshchecksum_init:f77-global-or-unparsable-linkage",
+      "__meshchecksum_init_MOD_meshchecksum_init:scope-not-found-in-gate-parse",
+      "__meshchecksum_init_MOD_meshchecksum:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MeshChecksum.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/MeshChecksum.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "meshsolver_init:f77-global-or-unparsable-linkage",
+      "__meshsolver_init_MOD_meshsolver_init:scope-not-found-in-gate-parse",
+      "__meshsolver_init_MOD_meshsolver:scope-not-found-in-gate-parse",
+      "__meshsolver_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__meshsolver_init_MOD_meshboundary:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/MeshSolve.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/MeshSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "mixedpoisson_init0:f77-global-or-unparsable-linkage",
+      "__mixedpoisson_init0_MOD_mixedpoisson_init0:scope-not-found-in-gate-parse",
+      "__mixedpoisson_init0_MOD_mixedpoisson:scope-not-found-in-gate-parse",
+      "__mixedpoisson_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__mixedpoisson_init0_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__mixedpoisson_init0_MOD_mixedpoisson_post:scope-not-found-in-gate-parse",
+      "__mixedpoisson_init0_MOD_getflux:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ModelMixedPoisson.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/ModelMixedPoisson.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "advdiffsolver:f77-global-or-unparsable-linkage",
+      "__advdiffsolver_MOD_advdiffsolver:scope-not-found-in-gate-parse",
+      "__advdiffsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__advdiffsolver_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ModelPDE.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/ModelPDE.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "advdiffsolver_init:f77-global-or-unparsable-linkage",
+      "__advdiffsolver_init_MOD_advdiffsolver_init:scope-not-found-in-gate-parse",
+      "__advdiffsolver_init_MOD_advdiffsolver:scope-not-found-in-gate-parse",
+      "__advdiffsolver_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__advdiffsolver_init_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ModelPDECutFEM.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/ModelPDECutFEM.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "advdiffsolver:f77-global-or-unparsable-linkage",
+      "__advdiffsolver_MOD_advdiffsolver:scope-not-found-in-gate-parse",
+      "__advdiffsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__advdiffsolver_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ModelPDEhandle.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/ModelPDEhandle.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "extrudedrestart_init0:f77-global-or-unparsable-linkage",
+      "__extrudedrestart_init0_MOD_extrudedrestart_init0:scope-not-found-in-gate-parse",
+      "__extrudedrestart_init0_MOD_extrudedrestart:scope-not-found-in-gate-parse",
+      "__extrudedrestart_init0_MOD_nodetoedgefield_init0:scope-not-found-in-gate-parse",
+      "__extrudedrestart_init0_MOD_nodetoedgefield:scope-not-found-in-gate-parse",
+      "__extrudedrestart_init0_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/NodeToEdgeSolver.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/NodeToEdgeSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "meshsolver:f77-global-or-unparsable-linkage",
+      "__meshsolver_MOD_meshsolver:scope-not-found-in-gate-parse",
+      "__meshsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__meshsolver_MOD_meshboundary:scope-not-found-in-gate-parse",
+      "__meshsolver_MOD_nodaldisplacementpenalty:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/NonphysicalMeshSolve.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/NonphysicalMeshSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "normalsolver:f77-global-or-unparsable-linkage",
+      "__normalsolver_MOD_normalsolver:scope-not-found-in-gate-parse",
+      "__normalsolver_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__normalsolver_MOD_enforcesymmetry:scope-not-found-in-gate-parse",
+      "__normalsolver_MOD_normalsolver_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/NormalSolver.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/NormalSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "odesolver_init:f77-global-or-unparsable-linkage",
+      "__odesolver_init_MOD_odesolver_init:scope-not-found-in-gate-parse",
+      "__odesolver_init_MOD_odesolver:scope-not-found-in-gate-parse",
+      "__odesolver_init_MOD_odematrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/OdeSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/OdeSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "openfoam2elmerfit:f77-global-or-unparsable-linkage",
+      "__openfoam2elmerfit_MOD_openfoam2elmerfit:scope-not-found-in-gate-parse",
+      "__openfoam2elmerfit_MOD_openfoamblocks:scope-not-found-in-gate-parse",
+      "__openfoam2elmerfit_MOD_createfoammesh:scope-not-found-in-gate-parse",
+      "__openfoam2elmerfit_MOD_readfoamfield:scope-not-found-in-gate-parse",
+      "__openfoam2elmerfit_MOD_dataassembly:scope-not-found-in-gate-parse",
+      "__openfoam2elmerfit_MOD_diffusionassembly:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/OpenFoam2ElmerIO.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/OpenFoam2ElmerIO.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__anisotropicmaterialmodels_MOD_anisotropiceffectiveviscosity:element:derived-type dummy (needs whole-program layout)",
+      "__anisotropicmaterialmodels_MOD_anisotropiceffectiveviscosity:nodes:derived-type dummy (needs whole-program layout)",
+      "__anisotropicmaterialmodels_MOD_anisotropiceffectiveviscosity:muder:optional dummy (hidden presence arg)",
+      "__anisotropicmaterialmodels_MOD_anisotropiceffectiveviscosity:localip:optional dummy (hidden presence arg)"
+    ],
+    "file": "fem/src/modules/ParStokes.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/ParStokes.F90#anisotropicmaterialmodels",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "stokessolver_init0:f77-global-or-unparsable-linkage",
+      "__stokessolver_init0_MOD_stokessolver_init0:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_stokessolver:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_gcrupdate:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_staticcondensation:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_mydot:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_mymv:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_mynorm:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_setboundaryconditions:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_navierstokesboundary:scope-not-found-in-gate-parse",
+      "__stokessolver_init0_MOD_computevarloads:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ParStokes.F90",
+    "n_bad": 12,
+    "scope_unit": "fortran:fem/src/modules/ParStokes.F90#stokessolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "parallelremesh:f77-global-or-unparsable-linkage",
+      "__parallelremesh_MOD_parallelremesh:scope-not-found-in-gate-parse",
+      "__parallelremesh_MOD_getremeshedgenodes:scope-not-found-in-gate-parse",
+      "__parallelremesh_MOD_doubleedgearraysize:scope-not-found-in-gate-parse",
+      "__parallelremesh_MOD_doublebdryarraysize:scope-not-found-in-gate-parse",
+      "__parallelremesh_MOD_meshmetricaniso:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ParallelRemesh.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/ParallelRemesh.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "particleadvector:f77-global-or-unparsable-linkage",
+      "__particleadvector_MOD_particleadvector:scope-not-found-in-gate-parse",
+      "__particleadvector_MOD_setfixedparticles:scope-not-found-in-gate-parse",
+      "__particleadvector_MOD_setretiredparticles:scope-not-found-in-gate-parse",
+      "__particleadvector_MOD_applytangentfix:scope-not-found-in-gate-parse",
+      "__particleadvector_MOD_setparticlevelocities:scope-not-found-in-gate-parse",
+      "__particleadvector_MOD_setadvectedfield:scope-not-found-in-gate-parse",
+      "__particleadvector_MOD_particleadvector_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ParticleAdvector.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/ParticleAdvector.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "particledynamics:f77-global-or-unparsable-linkage",
+      "__particledynamics_MOD_particledynamics:scope-not-found-in-gate-parse",
+      "__particledynamics_MOD_pseudonorm:scope-not-found-in-gate-parse",
+      "__particledynamics_MOD_particlescattering:scope-not-found-in-gate-parse",
+      "__particledynamics_MOD_particlefieldinteraction:scope-not-found-in-gate-parse",
+      "__particledynamics_MOD_particlewallcontact:scope-not-found-in-gate-parse",
+      "__particledynamics_MOD_particledynamics_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ParticleDynamics.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/ParticleDynamics.F90#particledynamics",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__particledynamicsstuff_MOD_particleparticlecontact:coord:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecontact:coord2:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecontact:velo:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecontact:velo2:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecontact:force:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecontact:force2:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecollision:coord:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecollision:coord2:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecollision:velo:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecollision:velo2:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecollision:force:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particleparticlecollision:force2:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particlewallproc:rinit:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particlewallproc:rfin:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particlewallproc:vinit:explicit-shape dummy (later shape)",
+      "__particledynamicsstuff_MOD_particlewallproc:vfin:explicit-shape dummy (later shape)"
+    ],
+    "file": "fem/src/modules/ParticleDynamics.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/ParticleDynamics.F90#particledynamicsstuff",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "partitionmeshsolver:f77-global-or-unparsable-linkage",
+      "__partitionmeshsolver_MOD_partitionmeshsolver:scope-not-found-in-gate-parse",
+      "__partitionmeshsolver_MOD_setpartitionvariable:scope-not-found-in-gate-parse",
+      "__partitionmeshsolver_MOD_createneighbourlist:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/PartitionMesh.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/PartitionMesh.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "phasechangesolve_init:f77-global-or-unparsable-linkage",
+      "__phasechangesolve_init_MOD_phasechangesolve_init:scope-not-found-in-gate-parse",
+      "__phasechangesolve_init_MOD_phasechangesolve:scope-not-found-in-gate-parse",
+      "__phasechangesolve_init_MOD_velocitylocalmatrix:scope-not-found-in-gate-parse",
+      "__phasechangesolve_init_MOD_surfacelocalmatrix:scope-not-found-in-gate-parse",
+      "__phasechangesolve_init_MOD_findpullboundary:scope-not-found-in-gate-parse",
+      "__phasechangesolve_init_MOD_meltingheat:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/PhaseChangeSolve.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/PhaseChangeSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "poissonsolver:f77-global-or-unparsable-linkage",
+      "__poissonsolver_MOD_poissonsolver:scope-not-found-in-gate-parse",
+      "__poissonsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__poissonsolver_MOD_boundarycondition:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Poisson.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/Poisson.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vacuous:scope-exports-all-bind-c-or-bookkeeping"
+    ],
+    "file": "fem/src/modules/PoissonBEM.F90",
+    "n_bad": 0,
+    "scope_unit": "fortran:fem/src/modules/PoissonBEM.F90#globmat",
+    "verdict": "admit"
+  },
+  {
+    "detail": [
+      "poissonbemsolver:f77-global-or-unparsable-linkage",
+      "__poissonbemsolver_MOD_poissonbemsolver:scope-not-found-in-gate-parse",
+      "__poissonbemsolver_MOD_integratesource:scope-not-found-in-gate-parse",
+      "__poissonbemsolver_MOD_integratematrix:scope-not-found-in-gate-parse",
+      "__poissonbemsolver_MOD_computepotential:scope-not-found-in-gate-parse",
+      "__poissonbemsolver_MOD_solvefull:scope-not-found-in-gate-parse",
+      "__poissonbemsolver_MOD_solvelapack:scope-not-found-in-gate-parse",
+      "__poissonbemsolver_MOD_fullitersolver:scope-not-found-in-gate-parse",
+      "__poissonbemsolver_MOD_precond:scope-not-found-in-gate-parse",
+      "__poissonbemsolver_MOD_matvec:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/PoissonBEM.F90",
+    "n_bad": 10,
+    "scope_unit": "fortran:fem/src/modules/PoissonBEM.F90#poissonbemsolver",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "poissonboltzmannsolve:f77-global-or-unparsable-linkage",
+      "__poissonboltzmannsolve_MOD_poissonboltzmannsolve:scope-not-found-in-gate-parse",
+      "__poissonboltzmannsolve_MOD_electrolytematerialparameters:scope-not-found-in-gate-parse",
+      "__poissonboltzmannsolve_MOD_poissonboltzmanncompose:scope-not-found-in-gate-parse",
+      "__poissonboltzmannsolve_MOD_statelecboundary:scope-not-found-in-gate-parse",
+      "__poissonboltzmannsolve_MOD_generalelectricflux:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/PoissonBoltzmannSolve.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/PoissonBoltzmannSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "poissonsolver:f77-global-or-unparsable-linkage",
+      "__poissonsolver_MOD_poissonsolver:scope-not-found-in-gate-parse",
+      "__poissonsolver_MOD_localjumps:scope-not-found-in-gate-parse",
+      "__poissonsolver_MOD_localjumpsdiscontbc:scope-not-found-in-gate-parse",
+      "__poissonsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__poissonsolver_MOD_localmatrixboundary:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/PoissonDG.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/PoissonDG.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "pressureprecond_init0:f77-global-or-unparsable-linkage",
+      "__pressureprecond_init0_MOD_pressureprecond_init0:scope-not-found-in-gate-parse",
+      "__pressureprecond_init0_MOD_pressureprecond:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/PressurePrecond.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/PressurePrecond.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "volumeprobe:f77-global-or-unparsable-linkage",
+      "__volumeprobe_MOD_volumeprobe:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Probes.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/Probes.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "projecttoplane:f77-global-or-unparsable-linkage",
+      "__projecttoplane_MOD_projecttoplane:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_allocatemorespace:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_getlineartrianglefaces:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_linefaceintersect:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_parallelprojecttoplane_init:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_parallelprojecttoplane:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_sendpoints:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_receivepoints:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_computeintegrals:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_computemissingintegrals:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_gatherresults:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_allocatemorespace:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_getlineartrianglefaces:scope-not-found-in-gate-parse",
+      "__projecttoplane_MOD_linefaceintersect:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ProjectToPlane.F90",
+    "n_bad": 15,
+    "scope_unit": "fortran:fem/src/modules/ProjectToPlane.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "rateofchangesolver:f77-global-or-unparsable-linkage",
+      "__rateofchangesolver_MOD_rateofchangesolver:scope-not-found-in-gate-parse",
+      "__rateofchangesolver_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/RateOfChange.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/RateOfChange.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "reloadsolution:f77-global-or-unparsable-linkage",
+      "__reloadsolution_MOD_reloadsolution:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ReloadData.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/ReloadData.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "reloadinput:f77-global-or-unparsable-linkage",
+      "__reloadinput_MOD_reloadinput:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ReloadInput.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/ReloadInput.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__dxfile_MOD_writedxfiles:prefix:character dummy (hidden length param)",
+      "__dxfile_MOD_writedxfiles:model:derived-type dummy (needs whole-program layout)",
+      "__dxfile_MOD_writevariable:varname:character dummy (hidden length param)",
+      "__dxfile_MOD_writevariable:var:derived-type dummy (needs whole-program layout)",
+      "__dxfile_MOD_writevariable:prefix:character dummy (hidden length param)",
+      "__dxfile_MOD_writedisplacement:var:derived-type dummy (needs whole-program layout)",
+      "__dxfile_MOD_writedisplacement:model:derived-type dummy (needs whole-program layout)",
+      "__dxfile_MOD_writedisplacement:prefix:character dummy (hidden length param)",
+      "__dxfile_MOD_writegrid:prefix:character dummy (hidden length param)",
+      "__dxfile_MOD_writegrid:model:derived-type dummy (needs whole-program layout)",
+      "__dxfile_MOD_getnelem:model:derived-type dummy (needs whole-program layout)",
+      "__dxfile_MOD_translateelem:elem:derived-type dummy (needs whole-program layout)",
+      "__dxfile_MOD_translateelem:nodeindex:explicit-shape dummy (later shape)"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/DXOutputSolver.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/DXOutputSolver.F90#dxfile",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "dxoutputsolver:f77-global-or-unparsable-linkage",
+      "__dxoutputsolver_MOD_dxoutputsolver:scope-not-found-in-gate-parse",
+      "__dxoutputsolver_MOD_writedata:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/DXOutputSolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/DXOutputSolver.F90#dxoutputsolver",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "elmerpostoutputsolver:f77-global-or-unparsable-linkage",
+      "__elmerpostoutputsolver_MOD_elmerpostoutputsolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/ElmerPostOutputSolver.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/ElmerPostOutputSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "gidoutputsolver:f77-global-or-unparsable-linkage",
+      "__gidoutputsolver_MOD_gidoutputsolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/GidOutputSolver.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/GidOutputSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "resultoutputsolver:f77-global-or-unparsable-linkage",
+      "__resultoutputsolver_MOD_resultoutputsolver:scope-not-found-in-gate-parse",
+      "__resultoutputsolver_MOD_elmerpostoutputsolver:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/ResultOutputSolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/ResultOutputSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__vtklegacyfile_MOD_writevtklegacyfile:vtkfile:character dummy (hidden length param)",
+      "__vtklegacyfile_MOD_writevtklegacyfile:model:derived-type dummy (needs whole-program layout)",
+      "__vtklegacyfile_MOD_writevector:varname:character dummy (hidden length param)",
+      "__vtklegacyfile_MOD_writevector:var:derived-type dummy (needs whole-program layout)",
+      "__vtklegacyfile_MOD_freesurface:model:derived-type dummy (needs whole-program layout)",
+      "__vtklegacyfile_MOD_freesurface:result:undeclared",
+      "__vtklegacyfile_MOD_writegrid:model:derived-type dummy (needs whole-program layout)",
+      "__vtklegacyfile_MOD_getnvtkcells:model:derived-type dummy (needs whole-program layout)",
+      "__vtklegacyfile_MOD_elements2cells:elem:derived-type dummy (needs whole-program layout)",
+      "__vtklegacyfile_MOD_elements2cells:vtkcells:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90#vtklegacyfile",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vtkoutputsolver:f77-global-or-unparsable-linkage",
+      "__vtkoutputsolver_MOD_vtkoutputsolver:scope-not-found-in-gate-parse",
+      "__vtkoutputsolver_MOD_writedata:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90#vtkoutputsolver",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vtuoutputsolver:f77-global-or-unparsable-linkage",
+      "__vtuoutputsolver_MOD_vtuoutputsolver:scope-not-found-in-gate-parse",
+      "__vtuoutputsolver_MOD_pickcomplex:scope-not-found-in-gate-parse",
+      "__vtuoutputsolver_MOD_writevtufile:scope-not-found-in-gate-parse",
+      "__vtuoutputsolver_MOD_writepvdfile:scope-not-found-in-gate-parse",
+      "__vtuoutputsolver_MOD_writepvtufile:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90#vtuoutputsolver",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__vtuxmlfile_MOD_checkanydgfield:model:derived-type dummy (needs whole-program layout)",
+      "__vtuxmlfile_MOD_checkanydgfield:params:derived-type dummy (needs whole-program layout)",
+      "__vtuxmlfile_MOD_checkanydgfield:result:undeclared",
+      "__vtuxmlfile_MOD_averagebodyfields:mesh:derived-type dummy (needs whole-program layout)",
+      "__vtuxmlfile_MOD_vtufilenaming:basefile:character dummy (hidden length param)",
+      "__vtuxmlfile_MOD_vtufilenaming:vtufile:character dummy (hidden length param)",
+      "__vtuxmlfile_MOD_vtufilenaming:suffix:character dummy (hidden length param)",
+      "__vtuxmlfile_MOD_vtufilenaming:part:optional dummy (hidden presence arg)",
+      "__vtuxmlfile_MOD_vtufilenaming:nopath:optional dummy (hidden presence arg)",
+      "__vtuxmlfile_MOD_vtufilenaming:parallelbase:optional dummy (hidden presence arg)"
+    ],
+    "file": "fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90#vtuxmlfile",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "reynoldssolver:f77-global-or-unparsable-linkage",
+      "__reynoldssolver_MOD_reynoldssolver:scope-not-found-in-gate-parse",
+      "__reynoldssolver_MOD_globalbulkassembly:scope-not-found-in-gate-parse",
+      "__reynoldssolver_MOD_localbulkmatrix:scope-not-found-in-gate-parse",
+      "__reynoldssolver_MOD_globalboundaryassemby:scope-not-found-in-gate-parse",
+      "__reynoldssolver_MOD_localboundarymatrix:scope-not-found-in-gate-parse",
+      "__reynoldssolver_MOD_reynoldssolver_init:scope-not-found-in-gate-parse",
+      "__reynoldssolver_MOD_reynoldspostprocess:scope-not-found-in-gate-parse",
+      "__reynoldssolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__reynoldssolver_MOD_reynoldspostprocess_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ReynoldsSolver.F90",
+    "n_bad": 10,
+    "scope_unit": "fortran:fem/src/modules/ReynoldsSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__porousmaterials_MOD_hydraulicconductivity:element:derived-type dummy (needs whole-program layout)",
+      "__porousmaterials_MOD_hydraulicconductivity:material:derived-type dummy (needs whole-program layout)",
+      "__porousmaterials_MOD_hydraulicconductivity:result:undeclared",
+      "__porousmaterials_MOD_watercontent:element:derived-type dummy (needs whole-program layout)",
+      "__porousmaterials_MOD_watercontent:material:derived-type dummy (needs whole-program layout)",
+      "__porousmaterials_MOD_watercontent:result:undeclared"
+    ],
+    "file": "fem/src/modules/RichardsSolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/RichardsSolver.F90#porousmaterials",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "richardssolver_init:f77-global-or-unparsable-linkage",
+      "__richardssolver_init_MOD_richardssolver_init:scope-not-found-in-gate-parse",
+      "__richardssolver_init_MOD_richardssolver:scope-not-found-in-gate-parse",
+      "__richardssolver_init_MOD_watercontentderivative:scope-not-found-in-gate-parse",
+      "__richardssolver_init_MOD_localbulkmatrix:scope-not-found-in-gate-parse",
+      "__richardssolver_init_MOD_localboundarymatrix:scope-not-found-in-gate-parse",
+      "__richardssolver_init_MOD_richardspostprocess_init:scope-not-found-in-gate-parse",
+      "__richardssolver_init_MOD_richardspostprocess:scope-not-found-in-gate-parse",
+      "__richardssolver_init_MOD_bulkassembly:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/RichardsSolver.F90",
+    "n_bad": 9,
+    "scope_unit": "fortran:fem/src/modules/RichardsSolver.F90#richardssolver_init",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "rigidbody:f77-global-or-unparsable-linkage",
+      "__rigidbody_MOD_rigidbody:scope-not-found-in-gate-parse",
+      "__rigidbody_MOD_computemasscenter:scope-not-found-in-gate-parse",
+      "__rigidbody_MOD_crs_sortmatrixvalues:scope-not-found-in-gate-parse",
+      "__rigidbody_MOD_crs_transposelocal:scope-not-found-in-gate-parse",
+      "__rigidbody_MOD_crs_matrixmatrixmultiply:scope-not-found-in-gate-parse",
+      "__rigidbody_MOD_localfreematrix:scope-not-found-in-gate-parse",
+      "__rigidbody_MOD_matrixbandwidthoptimize:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/RigidBodyReduction.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/RigidBodyReduction.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "rigidmeshmapper:f77-global-or-unparsable-linkage",
+      "__rigidmeshmapper_MOD_rigidmeshmapper:scope-not-found-in-gate-parse",
+      "__rigidmeshmapper_MOD_localmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/RigidMeshMapper.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/RigidMeshMapper.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "saveboundaryvalues:f77-global-or-unparsable-linkage",
+      "__saveboundaryvalues_MOD_saveboundaryvalues:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SaveData/SaveBoundaryValues.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/SaveData/SaveBoundaryValues.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "savedependence_init:f77-global-or-unparsable-linkage",
+      "__savedependence_init_MOD_savedependence_init:scope-not-found-in-gate-parse",
+      "__savedependence_init_MOD_savedependence:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SaveData/SaveDependence.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/SaveData/SaveDependence.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "saveline_init:f77-global-or-unparsable-linkage",
+      "__saveline_init_MOD_saveline_init:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_saveline:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_variablegetn:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_globaltolocalcoords:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_globaltolocalcoordsreduced:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_openlinefile:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_closelinefile:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_writefieldsatelement:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_boundaryflux:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_saveexistinglines:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_savepolylines:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_savecirclelines:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_saveisocurves:scope-not-found-in-gate-parse",
+      "__saveline_init_MOD_savevariablenames:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SaveData/SaveLine.F90",
+    "n_bad": 15,
+    "scope_unit": "fortran:fem/src/modules/SaveData/SaveLine.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "savematerials:f77-global-or-unparsable-linkage",
+      "__savematerials_MOD_savematerials:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SaveData/SaveMaterials.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/SaveData/SaveMaterials.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "saveprojection_init:f77-global-or-unparsable-linkage",
+      "__saveprojection_init_MOD_saveprojection_init:scope-not-found-in-gate-parse",
+      "__saveprojection_init_MOD_saveprojection:scope-not-found-in-gate-parse",
+      "__saveprojection_init_MOD_projecttovariable:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SaveData/SaveProjection.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/SaveData/SaveProjection.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "savescalars_init:f77-global-or-unparsable-linkage",
+      "__savescalars_init_MOD_savescalars_init:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_savescalars:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_index:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_opertoparopermap:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_addtosavelist:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_createnodemask:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_vectorstatistics:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_vectormeandeviation:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_bulkintegrals:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_boundaryintegrals:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_boundarystatistics:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_polylineintegrals:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_lineintersectioncoords:scope-not-found-in-gate-parse",
+      "__savescalars_init_MOD_setpseudonorm:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SaveData/SaveScalars.F90",
+    "n_bad": 15,
+    "scope_unit": "fortran:fem/src/modules/SaveData/SaveScalars.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "particleoutputsolver:f77-global-or-unparsable-linkage",
+      "__particleoutputsolver_MOD_particleoutputsolver:scope-not-found-in-gate-parse",
+      "__particleoutputsolver_MOD_savegriddata:scope-not-found-in-gate-parse",
+      "__particleoutputsolver_MOD_particleoutputnetcdf:scope-not-found-in-gate-parse",
+      "__particleoutputsolver_MOD_allocategridparticles:scope-not-found-in-gate-parse",
+      "__particleoutputsolver_MOD_addgridparticle:scope-not-found-in-gate-parse",
+      "__particleoutputsolver_MOD_creategridparticles:scope-not-found-in-gate-parse",
+      "__particleoutputsolver_MOD_particleoutputnetcdf:scope-not-found-in-gate-parse",
+      "__particleoutputsolver_MOD_writenetcdffile:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SaveGridData.F90",
+    "n_bad": 9,
+    "scope_unit": "fortran:fem/src/modules/SaveGridData.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "savemesh:f77-global-or-unparsable-linkage",
+      "__savemesh_MOD_savemesh:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SaveMesh.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/SaveMesh.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "scalarpotentialsolver_init:f77-global-or-unparsable-linkage",
+      "__scalarpotentialsolver_init_MOD_scalarpotentialsolver_init:scope-not-found-in-gate-parse",
+      "__scalarpotentialsolver_init_MOD_scalarpotentialsolver:scope-not-found-in-gate-parse",
+      "__scalarpotentialsolver_init_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__scalarpotentialsolver_init_MOD_gettensorrank:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ScalarPotentialSolver.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/ScalarPotentialSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "scannedfieldsolver_init:f77-global-or-unparsable-linkage",
+      "__scannedfieldsolver_init_MOD_scannedfieldsolver_init:scope-not-found-in-gate-parse",
+      "__scannedfieldsolver_init_MOD_scannedfieldsolver:scope-not-found-in-gate-parse",
+      "__scannedfieldsolver_init_MOD_makevarsimilartomodelvar:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ScannedFieldSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/ScannedFieldSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "shallowwaternssolver:f77-global-or-unparsable-linkage",
+      "__shallowwaternssolver_MOD_shallowwaternssolver:scope-not-found-in-gate-parse",
+      "__shallowwaternssolver_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__shallowwaternssolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__shallowwaternssolver_MOD_boundaryassembly:scope-not-found-in-gate-parse",
+      "__shallowwaternssolver_MOD_boundarylocalmatrix:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ShallowWaterNS.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/ShallowWaterNS.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "shearratesolver_init:f77-global-or-unparsable-linkage",
+      "__shearratesolver_init_MOD_shearratesolver_init:scope-not-found-in-gate-parse",
+      "__shearratesolver_init_MOD_shearratesolver:scope-not-found-in-gate-parse",
+      "__shearratesolver_init_MOD_bulkassembly:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ShearrateSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/ShearrateSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "shellsolver_init0:f77-global-or-unparsable-linkage",
+      "__shellsolver_init0_MOD_shellsolver_init0:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_shellsolver:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_readsurfacedirector:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_getelementaldirector:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_checksurfaceorientation:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_createcurvededges:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_edgeframe:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_hermiteform:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_blendingsurfaceinfo:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_hermitebasis:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_linesofcurvatureframe:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_linesofcurvaturepatch:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_surfacebasisvectors:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_shelllocalmatrix:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_shellboundarymatrix:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_setsolidcouplingbcs:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_retrievelocalframe:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_setstrainreductionparameters:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_createlagrangeelementstructures:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_writeelementnodesvariables:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_elasticitymatrix:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_reductionoperatorinfo:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_reductionoperatordofs:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_reductionoperatorbubbledofs:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_averagedirector:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_mappedbgmesharea:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_computesurfacearea:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_edgemidnode:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_materiallaw3d:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_surfacebasis:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_shelllocalmatrixcartesian:scope-not-found-in-gate-parse",
+      "__shellsolver_init0_MOD_solvenodesvariables:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ShellSolver.F90",
+    "n_bad": 33,
+    "scope_unit": "fortran:fem/src/modules/ShellSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "circuitsanddynamics_init:f77-global-or-unparsable-linkage",
+      "__circuitsanddynamics_init_MOD_circuitsanddynamics_init:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuitsanddynamics:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuits_init:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_comparea:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuits_matrixinit:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_countandcreate_vemf:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuits_apply:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_add_vemf:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuitsanddynamicsharmonic_init:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuitsanddynamicsharmonic:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuits_init:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_comparea:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuits_matrixinit:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_countandcreate_vemf:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_circuits_apply:scope-not-found-in-gate-parse",
+      "__circuitsanddynamics_init_MOD_add_vemf:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SimpleCircuits.F90",
+    "n_bad": 17,
+    "scope_unit": "fortran:fem/src/modules/SimpleCircuits.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "smitcsolver_init0:f77-global-or-unparsable-linkage",
+      "__smitcsolver_init0_MOD_smitcsolver_init0:scope-not-found-in-gate-parse",
+      "__smitcsolver_init0_MOD_smitcsolver:scope-not-found-in-gate-parse",
+      "__smitcsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__smitcsolver_init0_MOD_perforatedelasticity:scope-not-found-in-gate-parse",
+      "__smitcsolver_init0_MOD_covariantinterpolation:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Smitc.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/Smitc.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "springassembler:f77-global-or-unparsable-linkage",
+      "__springassembler_MOD_springassembler:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SpringAssembly.F90",
+    "n_bad": 2,
+    "scope_unit": "fortran:fem/src/modules/SpringAssembly.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__statcurrentsolvefront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__statcurrentsolvefront_MOD_legacyassembly:result:undeclared",
+      "__statcurrentsolvefront_MOD_delegatetostatcurrentlegacy:entry:character dummy (hidden length param)",
+      "__statcurrentsolvefront_MOD_delegatetostatcurrentlegacy:model:derived-type dummy (needs whole-program layout)",
+      "__statcurrentsolvefront_MOD_delegatetostatcurrentlegacy:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/StatCurrentSolve.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/StatCurrentSolve.F90#statcurrentsolvefront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statcurrentsolver_init:f77-global-or-unparsable-linkage",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_init:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_inside_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_localmatrixvec:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_post:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_localpostassembly:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_localpostsolve:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_globalpostscale:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StatCurrentSolve.F90",
+    "n_bad": 16,
+    "scope_unit": "fortran:fem/src/modules/StatCurrentSolve.F90#statcurrentsolver_init",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statcurrentsolverlegacy_init:f77-global-or-unparsable-linkage",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_init:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_boundary_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_edge_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_inside_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_generalcurrent:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentcompose:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentboundary:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_boundary_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_edge_residual:scope-not-found-in-gate-parse",
+      "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StatCurrentSolveLegacy.F90",
+    "n_bad": 12,
+    "scope_unit": "fortran:fem/src/modules/StatCurrentSolveLegacy.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statcurrentsolver_init:f77-global-or-unparsable-linkage",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_init:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver:scope-not-found-in-gate-parse",
+      "__statcurrentsolver_init_MOD_statcurrentsolver_post:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StatCurrentSolveVec.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/StatCurrentSolveVec.F90#statcurrentsolver_init",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__statcurrentsolvevecfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__statcurrentsolvevecfront_MOD_legacyassembly:result:undeclared",
+      "__statcurrentsolvevecfront_MOD_delegateto:targetfile:character dummy (hidden length param)",
+      "__statcurrentsolvevecfront_MOD_delegateto:entry:character dummy (hidden length param)",
+      "__statcurrentsolvevecfront_MOD_delegateto:model:derived-type dummy (needs whole-program layout)",
+      "__statcurrentsolvevecfront_MOD_delegateto:solver:derived-type dummy (needs whole-program layout)",
+      "__statcurrentsolvevecfront_MOD_delegate:entry:character dummy (hidden length param)",
+      "__statcurrentsolvevecfront_MOD_delegate:model:derived-type dummy (needs whole-program layout)",
+      "__statcurrentsolvevecfront_MOD_delegate:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/StatCurrentSolveVec.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/StatCurrentSolveVec.F90#statcurrentsolvevecfront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statelecboundaryenergy:f77-global-or-unparsable-linkage",
+      "__statelecboundaryenergy_MOD_statelecboundaryenergy:scope-not-found-in-gate-parse",
+      "__statelecboundaryenergy_MOD_statelecboundaryforce:scope-not-found-in-gate-parse",
+      "__statelecboundaryenergy_MOD_statelecboundarycharge:scope-not-found-in-gate-parse",
+      "__statelecboundaryenergy_MOD_statelecboundaryspring:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StatElecBoundary.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/StatElecBoundary.F90#statelecboundaryenergy",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__statelecboundaryutils_MOD_statelecboundarygeneric:model:derived-type dummy (needs whole-program layout)",
+      "__statelecboundaryutils_MOD_statelecboundarygeneric:result:undeclared",
+      "__statelecboundaryutils_MOD_electrostaticholecorrection:holemodel:character dummy (hidden length param)"
+    ],
+    "file": "fem/src/modules/StatElecBoundary.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/StatElecBoundary.F90#statelecboundaryutils",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__statelecsolvefront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__statelecsolvefront_MOD_legacyassembly:result:undeclared",
+      "__statelecsolvefront_MOD_delegatetostateleclegacy:entry:character dummy (hidden length param)",
+      "__statelecsolvefront_MOD_delegatetostateleclegacy:model:derived-type dummy (needs whole-program layout)",
+      "__statelecsolvefront_MOD_delegatetostateleclegacy:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/StatElecSolve.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/StatElecSolve.F90#statelecsolvefront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statelecsolver_init0:f77-global-or-unparsable-linkage",
+      "__statelecsolver_init0_MOD_statelecsolver_init0:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_init:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_inside_residual:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_getpiezoelementdata:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_addpiezoforce:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_localmatrixvec:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_post:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_localpostassembly:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_localpostsolve:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_globalpostscale:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_globalpostave:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_edge_residual:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StatElecSolve.F90",
+    "n_bad": 20,
+    "scope_unit": "fortran:fem/src/modules/StatElecSolve.F90#statelecsolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statelecsolverlegacy_init:f77-global-or-unparsable-linkage",
+      "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_init:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_statelecsolverlegacy:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_boundary_residual:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_edge_residual:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_inside_residual:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_boundaryassembly:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_localboundarymatrix:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_generalelectricflux:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_stateleccompose:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_setpermutationboundaries:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_statelecboundary:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_boundary_residual:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_edge_residual:scope-not-found-in-gate-parse",
+      "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StatElecSolveLegacy.F90",
+    "n_bad": 17,
+    "scope_unit": "fortran:fem/src/modules/StatElecSolveLegacy.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statelecsolver_init0:f77-global-or-unparsable-linkage",
+      "__statelecsolver_init0_MOD_statelecsolver_init0:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_init:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver:scope-not-found-in-gate-parse",
+      "__statelecsolver_init0_MOD_statelecsolver_post:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StatElecSolveVec.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/StatElecSolveVec.F90#statelecsolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__statelecsolvevecfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__statelecsolvevecfront_MOD_legacyassembly:result:undeclared",
+      "__statelecsolvevecfront_MOD_injectphysicaleps0:model:derived-type dummy (needs whole-program layout)",
+      "__statelecsolvevecfront_MOD_delegateto:targetfile:character dummy (hidden length param)",
+      "__statelecsolvevecfront_MOD_delegateto:entry:character dummy (hidden length param)",
+      "__statelecsolvevecfront_MOD_delegateto:model:derived-type dummy (needs whole-program layout)",
+      "__statelecsolvevecfront_MOD_delegateto:solver:derived-type dummy (needs whole-program layout)",
+      "__statelecsolvevecfront_MOD_delegate:entry:character dummy (hidden length param)",
+      "__statelecsolvevecfront_MOD_delegate:model:derived-type dummy (needs whole-program layout)",
+      "__statelecsolvevecfront_MOD_delegate:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/StatElecSolveVec.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/StatElecSolveVec.F90#statelecsolvevecfront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "statmagsolver:f77-global-or-unparsable-linkage",
+      "__statmagsolver_MOD_statmagsolver:scope-not-found-in-gate-parse",
+      "__statmagsolver_MOD_statmagaxiscompose:scope-not-found-in-gate-parse",
+      "__statmagsolver_MOD_harmmagaxiscompose:scope-not-found-in-gate-parse",
+      "__statmagsolver_MOD_jouleintegrate:scope-not-found-in-gate-parse",
+      "__statmagsolver_MOD_statmagcartesiancompose:scope-not-found-in-gate-parse",
+      "__statmagsolver_MOD_statmagsolver_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StatMagSolve.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/StatMagSolve.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "steadyphasechange:f77-global-or-unparsable-linkage",
+      "__steadyphasechange_MOD_steadyphasechange:scope-not-found-in-gate-parse",
+      "__steadyphasechange_MOD_createisotherm:scope-not-found-in-gate-parse",
+      "__steadyphasechange_MOD_boxmovemesh:scope-not-found-in-gate-parse",
+      "__steadyphasechange_MOD_meltingheat:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SteadyPhaseChange.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/SteadyPhaseChange.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "stokessolver:f77-global-or-unparsable-linkage",
+      "__stokessolver_MOD_stokessolver:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_computepressureerror:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_computevelocityerror:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_lcondensatestabilizationbubble:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_gcrouteriteration:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_preconditioningiteration:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_schurcomplementmatrix:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_crs_matrixdivmultiply:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_bicgstab:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_pmv:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_pnorm:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_pdot:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_updateglobalpreconditioner:scope-not-found-in-gate-parse",
+      "__stokessolver_MOD_setboundaryconditions:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/Stokes.F90",
+    "n_bad": 17,
+    "scope_unit": "fortran:fem/src/modules/Stokes.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "streamsolver:f77-global-or-unparsable-linkage",
+      "__streamsolver_MOD_streamsolver:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_velocity:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_velocity:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_first:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_first:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_first:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_first:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_first:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_first:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_shifting:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_shifting:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_scaling:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_scaling:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_penalty:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_in:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_in:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__streamsolver_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StreamSolver.F90",
+    "n_bad": 19,
+    "scope_unit": "fortran:fem/src/modules/StreamSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__stresssolvefront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__stresssolvefront_MOD_legacyassembly:result:undeclared",
+      "__stresssolvefront_MOD_delegatetoelasticsolve:entry:character dummy (hidden length param)",
+      "__stresssolvefront_MOD_delegatetoelasticsolve:model:derived-type dummy (needs whole-program layout)",
+      "__stresssolvefront_MOD_delegatetoelasticsolve:solver:derived-type dummy (needs whole-program layout)",
+      "__stresssolvefront_MOD_mapstresssolvekeywords:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/StressSolve.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/StressSolve.F90#stresssolvefront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "stresssolver_init0:f77-global-or-unparsable-linkage",
+      "__stresssolver_init0_MOD_stresssolver_init0:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolverlegacy_init0:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolver_init:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolverlegacy_init:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolver:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolverlegacy:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolverlegacy_init0:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolverlegacy_init:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolverlegacy:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolver_edge_residual:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolver_inside_residual:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_bcassembly:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_addglobaltime:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_computenormaldisplacement:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_computedisplacementvelocity:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_computestress:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolver_boundary_residual:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolver_edge_residual:scope-not-found-in-gate-parse",
+      "__stresssolver_init0_MOD_stresssolver_inside_residual:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StressSolve.F90",
+    "n_bad": 22,
+    "scope_unit": "fortran:fem/src/modules/StressSolve.F90#stresssolver_init0",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "structuredflowline:f77-global-or-unparsable-linkage",
+      "__structuredflowline_MOD_structuredflowline:scope-not-found-in-gate-parse",
+      "__structuredflowline_MOD_computeveloatpoint:scope-not-found-in-gate-parse",
+      "__structuredflowline_MOD_structuredflowline_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StructuredFlowLine.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/StructuredFlowLine.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "structuredmeshmapper_init:f77-global-or-unparsable-linkage",
+      "__structuredmeshmapper_init_MOD_structuredmeshmapper_init:scope-not-found-in-gate-parse",
+      "__structuredmeshmapper_init_MOD_structuredmeshmapper:scope-not-found-in-gate-parse",
+      "__structuredmeshmapper_init_MOD_binarylayermapper:scope-not-found-in-gate-parse",
+      "__structuredmeshmapper_init_MOD_to:scope-not-found-in-gate-parse",
+      "__structuredmeshmapper_init_MOD_multilayermapper:scope-not-found-in-gate-parse",
+      "__structuredmeshmapper_init_MOD_basevardisplace:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StructuredMeshMapper.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/StructuredMeshMapper.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "structuredprojecttoplane_init:f77-global-or-unparsable-linkage",
+      "__structuredprojecttoplane_init_MOD_structuredprojecttoplane_init:scope-not-found-in-gate-parse",
+      "__structuredprojecttoplane_init_MOD_structuredprojecttoplane:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/StructuredProjectToPlane.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/StructuredProjectToPlane.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "sunanglesolver_init:f77-global-or-unparsable-linkage",
+      "__sunanglesolver_init_MOD_sunanglesolver_init:scope-not-found-in-gate-parse",
+      "__sunanglesolver_init_MOD_sunanglesolver:scope-not-found-in-gate-parse",
+      "__sunanglesolver_init_MOD_solve2x2:scope-not-found-in-gate-parse",
+      "__sunanglesolver_init_MOD_settestheight:scope-not-found-in-gate-parse",
+      "__sunanglesolver_init_MOD_setshadingangle:scope-not-found-in-gate-parse",
+      "__sunanglesolver_init_MOD_populateridge:scope-not-found-in-gate-parse",
+      "__sunanglesolver_init_MOD_releaseridge:scope-not-found-in-gate-parse",
+      "__sunanglesolver_init_MOD_setshadingangleparallel:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/SunAngle.F90",
+    "n_bad": 9,
+    "scope_unit": "fortran:fem/src/modules/SunAngle.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "thermoelectricsolver_init:f77-global-or-unparsable-linkage",
+      "__thermoelectricsolver_init_MOD_thermoelectricsolver_init:scope-not-found-in-gate-parse",
+      "__thermoelectricsolver_init_MOD_thermoelectricsolver:scope-not-found-in-gate-parse",
+      "__thermoelectricsolver_init_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__thermoelectricsolver_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__thermoelectricsolver_init_MOD_boundaryassembly:scope-not-found-in-gate-parse",
+      "__thermoelectricsolver_init_MOD_boundarylocalmatrix:scope-not-found-in-gate-parse",
+      "__thermoelectricsolver_init_MOD_inputtensor:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/ThermoElectricSolver.F90",
+    "n_bad": 8,
+    "scope_unit": "fortran:fem/src/modules/ThermoElectricSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "topoopt_init0:f77-global-or-unparsable-linkage",
+      "__topoopt_init0_MOD_topoopt_init0:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_topoopt_init:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_topoopt:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_getcyclemode:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_objectivegradients:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_updatedensities:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_applyfilter:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_applytopologyfilter:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_normalizefilter:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_createsimplefilter:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_createdistancefilter:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_definetopologybw:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_definetopologyzerolevel:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_applypdefilter:scope-not-found-in-gate-parse",
+      "__topoopt_init0_MOD_solveadjointproblem:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TopoOpt.F90",
+    "n_bad": 17,
+    "scope_unit": "fortran:fem/src/modules/TopoOpt.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "transientcost_init:f77-global-or-unparsable-linkage",
+      "__transientcost_init_MOD_transientcost_init:scope-not-found-in-gate-parse",
+      "__transientcost_init_MOD_transientcost:scope-not-found-in-gate-parse",
+      "__transientcost_init_MOD_for:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TransientCost.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TransientCost.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "transientphasechange:f77-global-or-unparsable-linkage",
+      "__transientphasechange_MOD_transientphasechange:scope-not-found-in-gate-parse",
+      "__transientphasechange_MOD_velocitylocalmatrix:scope-not-found-in-gate-parse",
+      "__transientphasechange_MOD_surfacelocalmatrix:scope-not-found-in-gate-parse",
+      "__transientphasechange_MOD_findpullboundary:scope-not-found-in-gate-parse",
+      "__transientphasechange_MOD_transientphasechange_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TransientPhaseChange.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/TransientPhaseChange.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "transportequationsolver:f77-global-or-unparsable-linkage",
+      "__transportequationsolver_MOD_transportequationsolver:scope-not-found-in-gate-parse",
+      "__transportequationsolver_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__transportequationsolver_MOD_localmatrixboundary:scope-not-found-in-gate-parse",
+      "__transportequationsolver_MOD_modifyboundaryvalues:scope-not-found-in-gate-parse",
+      "__transportequationsolver_MOD_add2ndordertime2:scope-not-found-in-gate-parse",
+      "__transportequationsolver_MOD_averageaccelerationmethod:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TransportEquation.F90",
+    "n_bad": 7,
+    "scope_unit": "fortran:fem/src/modules/TransportEquation.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "kesolver:f77-global-or-unparsable-linkage",
+      "__kesolver_MOD_kesolver:scope-not-found-in-gate-parse",
+      "__kesolver_MOD_recordnodalmatprops:scope-not-found-in-gate-parse",
+      "__kesolver_MOD_getcmu:scope-not-found-in-gate-parse",
+      "__kesolver_MOD_kesolver_init0:scope-not-found-in-gate-parse",
+      "__kesolver_MOD_kesolver_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/KESolver.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolver",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__kesolverfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__kesolverfront_MOD_legacyassembly:result:undeclared",
+      "__kesolverfront_MOD_delegatetokesolverlegacy:entry:character dummy (hidden length param)",
+      "__kesolverfront_MOD_delegatetokesolverlegacy:model:derived-type dummy (needs whole-program layout)",
+      "__kesolverfront_MOD_delegatetokesolverlegacy:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/KESolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolverfront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__kesolverlocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+      "__kesolverlocalforms_MOD_localmatrixscalar:element:derived-type dummy (needs whole-program layout)",
+      "__kesolverlocalforms_MOD_elementkernel:element:derived-type dummy (needs whole-program layout)",
+      "__kesolverlocalforms_MOD_elementkernel:nodes:derived-type dummy (needs whole-program layout)",
+      "__kesolverlocalforms_MOD_epsilonwall:element:derived-type dummy (needs whole-program layout)",
+      "__kesolverlocalforms_MOD_epsilonwall:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/KESolver.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolverlocalforms",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "kesolverlegacy:f77-global-or-unparsable-linkage",
+      "__kesolverlegacy_MOD_kesolverlegacy:scope-not-found-in-gate-parse",
+      "__kesolverlegacy_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__kesolverlegacy_MOD_epsilonwall:scope-not-found-in-gate-parse",
+      "__kesolverlegacy_MOD_kesolverlegacy_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/KESolverLegacy.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/KESolverLegacy.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "komega:f77-global-or-unparsable-linkage",
+      "__komega_MOD_komega:scope-not-found-in-gate-parse",
+      "__komega_MOD_komega_init0:scope-not-found-in-gate-parse",
+      "__komega_MOD_komega_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/Komega.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komega",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__komegafront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__komegafront_MOD_legacyassembly:result:undeclared",
+      "__komegafront_MOD_delegatetokomegalegacy:entry:character dummy (hidden length param)",
+      "__komegafront_MOD_delegatetokomegalegacy:model:derived-type dummy (needs whole-program layout)",
+      "__komegafront_MOD_delegatetokomegalegacy:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/Komega.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komegafront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__komegalocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+      "__komegalocalforms_MOD_localmatrixscalar:element:derived-type dummy (needs whole-program layout)",
+      "__komegalocalforms_MOD_elementkernel:element:derived-type dummy (needs whole-program layout)",
+      "__komegalocalforms_MOD_elementkernel:nodes:derived-type dummy (needs whole-program layout)",
+      "__komegalocalforms_MOD_omegawall:element:derived-type dummy (needs whole-program layout)",
+      "__komegalocalforms_MOD_omegawall:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/Komega.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komegalocalforms",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "komegalegacy:f77-global-or-unparsable-linkage",
+      "__komegalegacy_MOD_komegalegacy:scope-not-found-in-gate-parse",
+      "__komegalegacy_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__komegalegacy_MOD_omegawall:scope-not-found-in-gate-parse",
+      "__komegalegacy_MOD_komegalegacy_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/KomegaLegacy.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/KomegaLegacy.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "sstkomega:f77-global-or-unparsable-linkage",
+      "__sstkomega_MOD_sstkomega:scope-not-found-in-gate-parse",
+      "__sstkomega_MOD_sstkomega_init0:scope-not-found-in-gate-parse",
+      "__sstkomega_MOD_sstkomega_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/SSTKomega.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomega",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__sstkomegafront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__sstkomegafront_MOD_legacyassembly:result:undeclared",
+      "__sstkomegafront_MOD_delegatetosstkomegalegacy:entry:character dummy (hidden length param)",
+      "__sstkomegafront_MOD_delegatetosstkomegalegacy:model:derived-type dummy (needs whole-program layout)",
+      "__sstkomegafront_MOD_delegatetosstkomegalegacy:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/SSTKomega.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomegafront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__sstkomegalocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+      "__sstkomegalocalforms_MOD_localmatrixscalar:element:derived-type dummy (needs whole-program layout)",
+      "__sstkomegalocalforms_MOD_elementkernel:element:derived-type dummy (needs whole-program layout)",
+      "__sstkomegalocalforms_MOD_elementkernel:nodes:derived-type dummy (needs whole-program layout)",
+      "__sstkomegalocalforms_MOD_omegawall:element:derived-type dummy (needs whole-program layout)",
+      "__sstkomegalocalforms_MOD_omegawall:solver:derived-type dummy (needs whole-program layout)",
+      "__sstkomegalocalforms_MOD_komegawalllaw:element:derived-type dummy (needs whole-program layout)",
+      "__sstkomegalocalforms_MOD_komegawalllaw:bc:derived-type dummy (needs whole-program layout)",
+      "__sstkomegalocalforms_MOD_komegawalllaw:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/SSTKomega.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomegalocalforms",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "sstkomegalegacy:f77-global-or-unparsable-linkage",
+      "__sstkomegalegacy_MOD_sstkomegalegacy:scope-not-found-in-gate-parse",
+      "__sstkomegalegacy_MOD_komegawalllaw:scope-not-found-in-gate-parse",
+      "__sstkomegalegacy_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__sstkomegalegacy_MOD_omegawall:scope-not-found-in-gate-parse",
+      "__sstkomegalegacy_MOD_sstkomegalegacy_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/SSTKomegaLegacy.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/SSTKomegaLegacy.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "spalartallmaras:f77-global-or-unparsable-linkage",
+      "__spalartallmaras_MOD_spalartallmaras:scope-not-found-in-gate-parse",
+      "__spalartallmaras_MOD_spalartallmaras_init0:scope-not-found-in-gate-parse",
+      "__spalartallmaras_MOD_spalartallmaras_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmaras",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__spalartallmarasfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__spalartallmarasfront_MOD_legacyassembly:result:undeclared",
+      "__spalartallmarasfront_MOD_delegatetospalartallmaraslegacy:entry:character dummy (hidden length param)",
+      "__spalartallmarasfront_MOD_delegatetospalartallmaraslegacy:model:derived-type dummy (needs whole-program layout)",
+      "__spalartallmarasfront_MOD_delegatetospalartallmaraslegacy:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmarasfront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__spalartallmaraslocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+      "__spalartallmaraslocalforms_MOD_localmatrixscalar:element:derived-type dummy (needs whole-program layout)",
+      "__spalartallmaraslocalforms_MOD_elementkernel:element:derived-type dummy (needs whole-program layout)",
+      "__spalartallmaraslocalforms_MOD_elementkernel:nodes:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmaraslocalforms",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "spalartallmaraslegacy:f77-global-or-unparsable-linkage",
+      "__spalartallmaraslegacy_MOD_spalartallmaraslegacy:scope-not-found-in-gate-parse",
+      "__spalartallmaraslegacy_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__spalartallmaraslegacy_MOD_spalartallmaraslegacy_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/Spalart-AllmarasLegacy.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/Spalart-AllmarasLegacy.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "v2f_ldm:f77-global-or-unparsable-linkage",
+      "__v2f_ldm_MOD_v2f_ldm:scope-not-found-in-gate-parse",
+      "__v2f_ldm_MOD_v2f_ldm_init0:scope-not-found-in-gate-parse",
+      "__v2f_ldm_MOD_v2f_ldm_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/V2FSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2f_ldm",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__v2fsolverfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+      "__v2fsolverfront_MOD_legacyassembly:result:undeclared",
+      "__v2fsolverfront_MOD_delegatetov2fsolverlegacy:entry:character dummy (hidden length param)",
+      "__v2fsolverfront_MOD_delegatetov2fsolverlegacy:model:derived-type dummy (needs whole-program layout)",
+      "__v2fsolverfront_MOD_delegatetov2fsolverlegacy:solver:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/V2FSolver.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2fsolverfront",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "__v2fsolverlocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+      "__v2fsolverlocalforms_MOD_localmatrixscalar:element:derived-type dummy (needs whole-program layout)",
+      "__v2fsolverlocalforms_MOD_elementkernel:element:derived-type dummy (needs whole-program layout)",
+      "__v2fsolverlocalforms_MOD_elementkernel:nodes:derived-type dummy (needs whole-program layout)"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/V2FSolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2fsolverlocalforms",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "v2f_ldm_legacy:f77-global-or-unparsable-linkage",
+      "__v2f_ldm_legacy_MOD_v2f_ldm_legacy:scope-not-found-in-gate-parse",
+      "__v2f_ldm_legacy_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__v2f_ldm_legacy_MOD_v2f_ldm_legacy_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/TurbulenceModels/V2FSolverLegacy.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/TurbulenceModels/V2FSolverLegacy.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "umat_template:f77-global-or-unparsable-linkage",
+      "__umat_template_MOD_umat_template:scope-not-found-in-gate-parse",
+      "__umat_template_MOD_linear_isotropic:scope-not-found-in-gate-parse",
+      "__umat_template_MOD_stvenant_kirchhoff:scope-not-found-in-gate-parse",
+      "__umat_template_MOD_hencky_stvenant_kirchhoff:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/UMATLib.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/UMATLib.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vectorhelmholtzsolver_init0:f77-global-or-unparsable-linkage",
+      "__vectorhelmholtzsolver_init0_MOD_vectorhelmholtzsolver_init0:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_vectorhelmholtzsolver_init:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_vectorhelmholtzsolver:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_getauxsolverinfo:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_dosolve:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_singledipoleload:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_localmatrixbc:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_vectorhelmholtz_dummy:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_vectorhelmholtzcalcfields_init0:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_vectorhelmholtzcalcfields_init:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_vectorhelmholtzcalcfields:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_calcfieldslocalassembly:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_elpotlocalassembly:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_globalsol:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_localsol:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_addlocalfaceterms:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzsolver_init0_MOD_localjumps:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/VectorHelmholtz.F90",
+    "n_bad": 19,
+    "scope_unit": "fortran:fem/src/modules/VectorHelmholtz.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vectorhelmholtzlumping:f77-global-or-unparsable-linkage",
+      "__vectorhelmholtzlumping_MOD_vectorhelmholtzlumping:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzlumping_MOD_localintegbc:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzlumping_MOD_centerportloc:scope-not-found-in-gate-parse",
+      "__vectorhelmholtzlumping_MOD_edgevoltageintegral:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/VectorHelmholtzLumping.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/VectorHelmholtzLumping.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vectorhelmholtznodal_init:f77-global-or-unparsable-linkage",
+      "__vectorhelmholtznodal_init_MOD_vectorhelmholtznodal_init:scope-not-found-in-gate-parse",
+      "__vectorhelmholtznodal_init_MOD_vectorhelmholtznodal:scope-not-found-in-gate-parse",
+      "__vectorhelmholtznodal_init_MOD_initstuff:scope-not-found-in-gate-parse",
+      "__vectorhelmholtznodal_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__vectorhelmholtznodal_init_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/VectorHelmholtzNodal.F90",
+    "n_bad": 6,
+    "scope_unit": "fortran:fem/src/modules/VectorHelmholtzNodal.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "velocityprecond_init0:f77-global-or-unparsable-linkage",
+      "__velocityprecond_init0_MOD_velocityprecond_init0:scope-not-found-in-gate-parse",
+      "__velocityprecond_init0_MOD_velocityprecond:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/VelocityPrecond.F90",
+    "n_bad": 3,
+    "scope_unit": "fortran:fem/src/modules/VelocityPrecond.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "vorticitysolver:f77-global-or-unparsable-linkage",
+      "__vorticitysolver_MOD_vorticitysolver:scope-not-found-in-gate-parse",
+      "__vorticitysolver_MOD_bulkassembly:scope-not-found-in-gate-parse",
+      "__vorticitysolver_MOD_vorticitysolver_init:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/VorticitySolver.F90",
+    "n_bad": 4,
+    "scope_unit": "fortran:fem/src/modules/VorticitySolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "wsolve_init0:f77-global-or-unparsable-linkage",
+      "__wsolve_init0_MOD_wsolve_init0:scope-not-found-in-gate-parse",
+      "__wsolve_init0_MOD_wsolve_dummy:scope-not-found-in-gate-parse",
+      "__wsolve_init0_MOD_wsolve:scope-not-found-in-gate-parse",
+      "__wsolve_init0_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__wsolve_init0_MOD_boundarycondition:scope-not-found-in-gate-parse",
+      "__wsolve_init0_MOD_saveelementwsolution:scope-not-found-in-gate-parse",
+      "__wsolve_init0_MOD_getwnormsforbodies:scope-not-found-in-gate-parse",
+      "__wsolve_init0_MOD_addelementwnormandvolume:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/WPotentialSolver.F90",
+    "n_bad": 9,
+    "scope_unit": "fortran:fem/src/modules/WPotentialSolver.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "wvectorfix_init:f77-global-or-unparsable-linkage",
+      "__wvectorfix_init_MOD_wvectorfix_init:scope-not-found-in-gate-parse",
+      "__wvectorfix_init_MOD_wvectorfix:scope-not-found-in-gate-parse",
+      "__wvectorfix_init_MOD_localcorrmatrix:scope-not-found-in-gate-parse",
+      "__wvectorfix_init_MOD_localcorrcurrent:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/WVectorFix.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/WVectorFix.F90",
+    "verdict": "refuse"
+  },
+  {
+    "detail": [
+      "wavesolver_init:f77-global-or-unparsable-linkage",
+      "__wavesolver_init_MOD_wavesolver_init:scope-not-found-in-gate-parse",
+      "__wavesolver_init_MOD_wavesolver:scope-not-found-in-gate-parse",
+      "__wavesolver_init_MOD_localmatrix:scope-not-found-in-gate-parse",
+      "__wavesolver_init_MOD_localmatrixbc:scope-not-found-in-gate-parse"
+    ],
+    "file": "fem/src/modules/WaveSolver.F90",
+    "n_bad": 5,
+    "scope_unit": "fortran:fem/src/modules/WaveSolver.F90",
+    "verdict": "refuse"
+  }
+]
