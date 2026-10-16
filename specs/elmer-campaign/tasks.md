@@ -70,7 +70,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 **Goal**: leaf subsystems green in parallel lanes.
 
 - [ ] T008 [P] [US2] [claimed fm/rs-elmer-lane2] Lane `elmergrid` (131 units): mirror slice green, combined-splice corpus green where a binary exists, costs reported. Files: slice ports under `rust/<crate>/` only. Non-goal: `fem/` core.
-- [ ] T009 [P] [US2] Lane `meshgen2d` (60 units): same acceptance as T008. Files: slice ports only (disjoint from T008).
+- [ ] T009 [P] [US2] [claimed fm/rs-elmer-lane-leaf] Lane `meshgen2d` (60 units): scoped FIRST per runbook §1 — C-linkable surface EMPTY (25 cxx TUs 100% `_Z`-mangled, 0 `extern "C"`, 14 emit vtables; 35 headers decl-only), so 0 graded / 25 skip-cpp-only / 35 skip-helper with per-unit reasons in `data/elmer-lanes/lane-leaf.scope.json` + ADR-048; FIRST PROOF (panel correction 2) green via 22-unit minimal batch on `libmatc.so`+exe (`SPLICE_MIN_GREEN` 20/20, NC1/NC2 fail as required). No port files (nothing portable); honest halt, never forced. Machine rows in `lane-leaf-store.db` (run `lane-leaf`); T014 relaxed gate admits nothing here (C++-only surface, ADR-048 §T014).
 - [ ] T010 [P] [US2] Lane `fhutiter` porting-rules coverage (17 units, whole-file non-`BIND(C)` per ADR-027 sequencing only where shape-proven; else refused): ports build + substitute where allowed, honest `no differential probes` halt kept. Files: slice ports only. Non-goal: inventing probe paths.
 - [ ] T011 [P] [US2] Per-lane scoped-grading equivalence (fault protocol) for T008–T010 slices. Non-goal: changing selection code to accommodate weak ports.
 
