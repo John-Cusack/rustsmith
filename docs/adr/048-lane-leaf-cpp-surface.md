@@ -1,4 +1,4 @@
-# ADR-046: lane-leaf scopes to zero ports — meshgen2d has no C-linkable surface
+# ADR-048: lane-leaf scopes to zero ports — meshgen2d has no C-linkable surface
 
 Date: 2026-10-14. Lane: `lane-leaf` (60 `meshgen2d/` units). This records a
 spec deviation per repo rule (all deviations get an ADR): the lane grades
@@ -54,3 +54,11 @@ skipped with a recorded reason") holds for lane-leaf via these 60 skip
 records. A future C++-substitution design (e.g. `#[export_name]`-mangled
 providers — rejected: STL/vtable ABIs unreproducible) would re-open the
 25 `skip-cpp-only` units; headers stay helpers under any design.
+
+## T014 relaxed gate (2026-10-15 triage note)
+
+T014 (rustsmith#92, merged) relaxes the gate for assumed-shape `REAL(8)`
+Fortran (fem-b `HarmUtils` proof) — it does not touch this lane. All 60
+leaf units are C++ (`_Z`-mangled) or declaration-only headers; none exports
+Fortran of any shape, so the relaxed gate admits nothing here and the 60
+skip records stand unchanged.
