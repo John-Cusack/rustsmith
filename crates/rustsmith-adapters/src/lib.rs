@@ -2629,6 +2629,35 @@ impl Frontend for FortranFrontend {
     }
 }
 
+/// One non-`BIND(C)` procedure seen by the T014 gate scanner.
+struct GateProc {
+    name: String,
+    is_function: bool,
+    args: Vec<String>,
+    /// Result variable (`RESULT(..)` or the function name), lowercased.
+    result: String,
+    /// (`dummy`, `dtype left side`, `shape parens or None`) per declaration.
+    decls: Vec<(String, String, Option<String>)>,
+}
+
+/// One scope seen by the T014 gate scanner. Only real `MODULE` scopes can
+/// admit procedures: submodule, program, and external-procedure
+/// pseudo-scopes never do (their `__<s>_MOD_<p>` linkage is not the
+/// emitted symbol, so a shim built on it would link nothing).
+struct GateScope {
+    name: String,
+    module: bool,
+    procs: Vec<GateProc>,
+}
+
+/// A parsed Fortran file for the T014 gate: scopes plus file-level
+/// whole-program coupling (`COMMON`, `BLOCK DATA`).
+struct GateFile {
+    scopes: Vec<GateScope>,
+    common: bool,
+    blockdata: bool,
+}
+
 /// A procedure defined in a Fortran scope.
 struct FortranProc {
     name: String,
@@ -2919,6 +2948,426 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
         }
     }
     file
+}
+
+/// T014 admitted dummy profile (ADR-027 phase-1, T003-proven): scalar
+/// intrinsic dummies travel by reference (kind-agnostic on the wire), and
+/// assumed-shape `REAL(8)`-family dummies of rank 1-2 travel as the pinned
+/// gfortran descriptor. `None` = admitted; `Some` = refusal reason (the
+/// gate maps every refusal to the pinned message, never to this string).
+fn gate_dummy_refusal(dtype: &str, shape: Option<&str>, is_result: bool) -> Option<&'static str> {
+    let l: String =
+        dtype.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+    let l = l.as_str();
+    let has = |w: &str| l.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|t| t == w);
+    if l.contains("type(") || l.contains("class(") {
+        return Some("derived-type dummy (needs whole-program layout)");
+    }
+    if l.contains("character") {
+        return Some("character dummy (hidden length param)");
+    }
+    if has("optional") {
+        return Some("optional dummy (hidden presence arg)");
+    }
+    if has("allocatable") {
+        return Some("allocatable dummy (libgfortran realloc contract)");
+    }
+    if has("pointer") {
+        return Some("pointer dummy (libgfortran realloc contract)");
+    }
+    if has("value") {
+        return Some("VALUE dummy (by-value ABI)");
+    }
+    if has("external") || l.contains("procedure(") {
+        return Some("procedure dummy (code address)");
+    }
+    let intrinsic = l.contains("real")
+        || l.contains("double")
+        || l.contains("integer")
+        || l.contains("logical")
+        || l.contains("complex");
+    if !intrinsic {
+        return Some("non-intrinsic dummy");
+    }
+    let shape = match shape {
+        None => {
+            if is_result && l.contains("complex") {
+                return Some("complex function result (hidden result arg)");
+            }
+            return None;
+        }
+        Some(s) => s,
+    };
+    let s: String = shape.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+    if s == "(*)" {
+        return Some("assumed-size dummy (later shape)");
+    }
+    let inner = match s.strip_prefix('(').and_then(|t| t.strip_suffix(')')) {
+        Some(t) => t,
+        None => return Some("unparsed array shape"),
+    };
+    // Assumed-shape `(:[,:])`: only the REAL(8) family at rank 1-2 was
+    // measured (rank-1 dump, rank-2 callable proof). Integer, logical,
+    // and complex dtype codes were not; rank 3+ was not.
+    if !inner.is_empty() && inner.chars().all(|c| c == ':' || c == ',') {
+        if inner.split(',').count() > 2 {
+            return Some("assumed-shape rank > 2");
+        }
+        if l.contains("complex") || !(l.contains("real") || l.contains("double")) {
+            return Some("non-REAL(8) assumed-shape dtype");
+        }
+        if l.contains("double") {
+            return None; // DOUBLE PRECISION is always 8 bytes.
+        }
+        if l.contains("real*") {
+            return if l.contains("real*8") { None } else { Some("non-8-byte REAL") };
+        }
+        if let Some(ki) = l.find("kind=") {
+            let kind: String = l[ki + 5..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            // `dp` is the campaign-wide 8-byte kind (Elmer `Types.dp`);
+            // the equivalence corpus grades the actual width.
+            return if kind == "dp" || kind == "8" {
+                None
+            } else {
+                Some("non-8-byte REAL kind")
+            };
+        }
+        // Positional kind: `REAL(8)` / `REAL(dp)` (standard kind-selector
+        // without `KIND=`); anything else is not 8 bytes.
+        if let Some(ri) = l.find("real(") {
+            let kind: String = l[ri + 5..].chars().take_while(|c| *c != ')').collect();
+            return if kind == "8" || kind == "dp" {
+                None
+            } else {
+                Some("non-8-byte REAL kind")
+            };
+        }
+        // Bare REAL defaults to 4 bytes (no -fdefault-real-8 here).
+        return Some("bare-REAL assumed-shape (4-byte)");
+    }
+    // Explicit-shape and anything else travel raw today (later shape).
+    Some("explicit-shape dummy (later shape)")
+}
+
+/// Split a `subroutine`/`function` tail (text after the keyword) into
+/// (`name`, `args`, `result`). `RESULT(..)` wins; otherwise the function
+/// name is its own result. Best-effort on one logical line; unparsable
+/// tails yield empty names and refuse downstream.
+fn split_gate_proc(tail: &str, is_function: bool) -> (String, Vec<String>, String) {
+    let mut rest = tail.trim_start();
+    let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    rest = rest[name.len()..].trim_start();
+    let mut args = Vec::new();
+    if let Some(inner) = rest.strip_prefix('(') {
+        if let Some(end) = inner.find(')') {
+            args = inner[..end]
+                .split(',')
+                .map(|a| a.trim().to_ascii_lowercase())
+                .filter(|a| !a.is_empty())
+                .collect();
+        }
+    }
+    let mut result = if is_function { name.clone() } else { String::new() };
+    // Token-start `result(` only, so a dummy named `myresult` never matches.
+    let bytes = tail.as_bytes();
+    let mut i = 0;
+    while i + 6 < tail.len() {
+        if tail[i..].starts_with("result")
+            && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'))
+        {
+            let after = tail[i + 6..].trim_start();
+            if let Some(inner) = after.strip_prefix('(') {
+                let r: String = inner
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                if !r.is_empty() {
+                    result = r;
+                    break;
+                }
+            }
+        }
+        i += 1;
+    }
+    (name, args, result)
+}
+
+/// Narrow dummy-shape scanner for the T014 gate. Mirrors
+/// `parse_fortran_file`'s scope/procedure split (same continuation,
+/// comment, and `end`-line approximations) and additionally records each
+/// procedure's dummy declarations, plus file-level `COMMON` and
+/// `BLOCK DATA`. Anything unrecognized refuses downstream (fail closed).
+fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
+    let mut logical = Vec::new();
+    for raw in text.lines() {
+        if raw.trim_start().starts_with('#') {
+            continue;
+        }
+        if fixed {
+            let first = raw.chars().next();
+            if matches!(first, Some('c') | Some('C') | Some('*')) {
+                continue;
+            }
+        }
+        logical.push(raw.to_string());
+    }
+    let mut file = GateFile { scopes: Vec::new(), common: false, blockdata: false };
+    let mut open: Vec<usize> = Vec::new();
+    let mut interface = 0usize;
+    // (scope, proc) receiving declarations; cleared on scope close.
+    let mut cur: Option<(usize, usize)> = None;
+    for orig in join_fortran_continuations(logical, fixed) {
+        let line = strip_fortran_comment(&orig);
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let lower = t.to_ascii_lowercase();
+        let words: Vec<&str> = lower.split_whitespace().collect();
+        if words.is_empty() {
+            continue;
+        }
+        // Whole-program coupling refuses (silent zero-init vs shared state).
+        // The `=` guard keeps `common = 1` assignments out; blank COMMON
+        // (`COMMON a, b`) refuses the same as named.
+        if words[0] == "common" && !lower.contains('=') {
+            file.common = true;
+        }
+        if words[0] == "block" && words.get(1) == Some(&"data") {
+            file.blockdata = true;
+        }
+        if words[0] == "interface" || lower.starts_with("abstract interface") {
+            interface += 1;
+            continue;
+        }
+        if words[0] == "endinterface"
+            || (words[0] == "end" && words.get(1) == Some(&"interface"))
+        {
+            interface = interface.saturating_sub(1);
+            continue;
+        }
+        match words[0] {
+            "module" if words.get(1) != Some(&"procedure")
+                && !matches!(words.get(1), Some(&"function") | Some(&"subroutine")) =>
+            {
+                if let Some(name) = words.get(1).map(|s| clean_ident(s)) {
+                    if !name.is_empty() {
+                        file.scopes.push(GateScope { name, module: true, procs: Vec::new() });
+                        open.push(file.scopes.len() - 1);
+                    }
+                }
+                cur = None;
+                continue;
+            }
+            "submodule" => {
+                if let Some(last) = words.last().map(|s| clean_ident(s)) {
+                    if !last.is_empty() {
+                        file.scopes.push(GateScope { name: last, module: false, procs: Vec::new() });
+                        open.push(file.scopes.len() - 1);
+                    }
+                }
+                cur = None;
+                continue;
+            }
+            "program" => {
+                if let Some(name) = words.get(1).map(|s| clean_ident(s)) {
+                    if !name.is_empty() {
+                        file.scopes.push(GateScope { name, module: false, procs: Vec::new() });
+                        open.push(file.scopes.len() - 1);
+                    }
+                }
+                cur = None;
+                continue;
+            }
+            "end" => {
+                if words.len() == 1
+                    || matches!(
+                        words.get(1),
+                        Some(&"module") | Some(&"program") | Some(&"submodule")
+                    )
+                {
+                    open.pop();
+                    cur = None;
+                }
+                continue;
+            }
+            "endmodule" | "endprogram" | "endsubmodule" => {
+                open.pop();
+                cur = None;
+                continue;
+            }
+            _ => {}
+        }
+        if interface > 0 {
+            continue; // Interface bodies emit no symbols; skip, never admit.
+        }
+        let mut keyword_at: Option<(usize, bool)> = None;
+        for (i, w) in words.iter().enumerate() {
+            if *w == "subroutine" {
+                keyword_at = Some((i, false));
+                break;
+            }
+            if *w == "function" {
+                keyword_at = Some((i, true));
+                break;
+            }
+        }
+        if let Some((i, is_function)) = keyword_at {
+            let tail: String = words[i + 1..].join(" ");
+            // Reparse name/args off the joined tail (whitespace split may
+            // have separated `foo (a, b)`); RESULT comes from the raw tail.
+            let kw = if is_function { "function" } else { "subroutine" };
+            let raw_tail = match lower.find(kw) {
+                Some(at) => lower[at + kw.len()..].to_string(),
+                None => tail.clone(),
+            };
+            let (name, args, result) = split_gate_proc(&raw_tail, is_function);
+            if !name.is_empty() {
+                let proc = GateProc {
+                    name: name.clone(),
+                    is_function,
+                    args,
+                    result,
+                    decls: Vec::new(),
+                };
+                match open.last().copied() {
+                    Some(s) => {
+                        file.scopes[s].procs.push(proc);
+                        cur = Some((s, file.scopes[s].procs.len() - 1));
+                    }
+                    None => {
+                        file.scopes.push(GateScope {
+                            name: name.clone(),
+                            module: false,
+                            procs: vec![proc],
+                        });
+                        open.push(file.scopes.len() - 1);
+                        cur = Some((file.scopes.len() - 1, 0));
+                    }
+                }
+            }
+            continue;
+        }
+        // Dummy declarations attach to the most recent procedure: module
+        // variables precede the first procedure (no receiver yet) and
+        // procedure locals sit between their procedure line and the next.
+        if let Some((s, p)) = cur {
+            if let Some((left, right)) = t.split_once("::") {
+                let dim = left.to_ascii_lowercase().split_once("dimension").and_then(|(_, d)| {
+                    let d = d.trim_start().strip_prefix('(')?;
+                    d.split(')').next().map(str::to_string)
+                });
+                // Comma split at paren depth 0: `a(:,:), b` must not split
+                // inside the shape (a naive split would misread the rank).
+                let mut items = Vec::new();
+                let mut depth = 0usize;
+                let mut start = 0usize;
+                for (i, c) in right.char_indices() {
+                    match c {
+                        '(' => depth += 1,
+                        ')' => depth = depth.saturating_sub(1),
+                        ',' if depth == 0 => {
+                            items.push(&right[start..i]);
+                            start = i + 1;
+                        }
+                        _ => {}
+                    }
+                }
+                items.push(&right[start..]);
+                for item in items {
+                    let item = item.trim();
+                    if item.contains('=') {
+                        continue; // Initialization: never a dummy.
+                    }
+                    let (vname, vshape) = match item.split_once('(') {
+                        Some((n, rest)) => {
+                            let shape = rest.split(')').next().map(|s| format!("({s})"));
+                            let shape = shape.or_else(|| dim.as_deref().map(|d| format!("({d})")));
+                            (n.trim().to_ascii_lowercase(), shape)
+                        }
+                        None => (item.to_ascii_lowercase(), dim.as_deref().map(|d| format!("({d})"))),
+                    };
+                    let vname: String =
+                        vname.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+                    if vname.is_empty()
+                        || file.scopes[s].procs[p].decls.iter().any(|(n, _, _)| *n == vname)
+                    {
+                        continue;
+                    }
+                    file.scopes[s].procs[p]
+                        .decls
+                        .push((vname, left.trim().to_string(), vshape));
+                }
+            }
+        }
+    }
+    file
+}
+
+/// Split a gfortran module-procedure linkage (`__<scope>_MOD_<proc>`);
+/// `None` for F77 globals and anything else (later shapes).
+fn split_mod_linkage(linkage: &str) -> Option<(&str, &str)> {
+    let tail = linkage.strip_prefix("__")?;
+    let (scope, proc) = tail.split_once("_MOD_")?;
+    let ident = |s: &str| {
+        !s.is_empty() && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    };
+    if ident(scope) && ident(proc) {
+        Some((scope, proc))
+    } else {
+        None
+    }
+}
+
+/// T014 allowlist verdict over one parsed file: every linkage in `bad`
+/// is either a real module's bookkeeping export (no symbol) or a module
+/// procedure whose dummies (and function result) all fit the admitted
+/// profile. `false` refuses (fail closed, pinned message).
+fn gate_file_admits(file: &GateFile, bad: &[String]) -> bool {
+    if file.common || file.blockdata {
+        return false;
+    }
+    let mut checked = 0usize;
+    for link in bad {
+        if file.scopes.iter().any(|s| s.module && s.name == *link) {
+            continue; // Module bookkeeping export: recon emits the scope name.
+        }
+        let (scope, proc) = match split_mod_linkage(link) {
+            Some(x) => x,
+            None => return false,
+        };
+        let s = match file.scopes.iter().find(|s| s.module && s.name == scope) {
+            Some(x) => x,
+            None => return false,
+        };
+        let p = match s.procs.iter().find(|p| p.name == proc) {
+            Some(x) => x,
+            None => return false,
+        };
+        for a in &p.args {
+            let decl = match p.decls.iter().find(|(n, _, _)| n == a) {
+                Some(x) => x,
+                None => return false, // Undeclared dummy: implicit typing, unprovable.
+            };
+            if gate_dummy_refusal(&decl.1, decl.2.as_deref(), false).is_some() {
+                return false;
+            }
+        }
+        if p.is_function {
+            let decl = match p.decls.iter().find(|(n, _, _)| *n == p.result) {
+                Some(x) => x,
+                None => return false,
+            };
+            if gate_dummy_refusal(&decl.1, None, true).is_some() {
+                return false;
+            }
+        }
+        checked += 1;
+    }
+    checked > 0
 }
 
 /// Fortran fragment engine: one unit per module/program scope (`#<symbol>`
@@ -4810,7 +5259,13 @@ impl CmakeBridge {
     }
 
     /// Reject units whose splicing would cross the gfortran ABI boundary.
-    fn check_substitutable(unit: &UnitDecl) -> Result<(), String> {
+    /// T014 relaxes exactly one proven shape (ADR-027): a unit whose every
+    /// non-`BIND(C)` export is a module procedure with scalar-intrinsic or
+    /// assumed-shape-`REAL(8)`-rank-1-2 dummies, in a `COMMON`/`BLOCK DATA`
+    /// free file, substitutes through the gfortran shim. All other
+    /// non-`BIND(C)` units keep the refusal below (message pinned by
+    /// `fortran_shim_common_refusal_pins_message`).
+    fn check_substitutable(unit: &UnitDecl, tree: &Path) -> Result<(), String> {
         let mut bad: Vec<String> = unit
             .exports
             .iter()
@@ -4819,7 +5274,7 @@ impl CmakeBridge {
             .collect();
         bad.sort();
         bad.dedup();
-        if bad.is_empty() {
+        if bad.is_empty() || Self::fortran_gate_admits(unit, tree, &bad) {
             Ok(())
         } else {
             Err(format!(
@@ -4828,6 +5283,27 @@ impl CmakeBridge {
                 bad.join(", ")
             ))
         }
+    }
+
+    /// T014 allowlist probe: read the unit's source and admit only the
+    /// proven dummy profile. Unreadable source refuses (fail closed); so
+    /// does any file the shape scanner cannot prove clean.
+    fn fortran_gate_admits(unit: &UnitDecl, tree: &Path, bad: &[String]) -> bool {
+        let rel = match unit.files.first() {
+            Some(r) if !r.is_empty() => r,
+            _ => return false,
+        };
+        let text = match std::fs::read_to_string(tree.join(rel)) {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+        let ext = Path::new(rel)
+            .extension()
+            .and_then(|x| x.to_str())
+            .map(|e| e.to_lowercase())
+            .unwrap_or_default();
+        let fixed = matches!(ext.as_str(), "f" | "for");
+        gate_file_admits(&parse_gate_file(&text, fixed), bad)
     }
     /// Built objects for unit source `rel`: the root-layout suffix match
     /// plus the `DependInfo.cmake` fallback for subdir targets. Pure
@@ -4966,7 +5442,7 @@ impl BuildBridge for CmakeBridge {
                 rust_lib.display()
             )));
         }
-        if let Err(why) = Self::check_substitutable(unit) {
+        if let Err(why) = Self::check_substitutable(unit, cx.tree) {
             return Err(AdapterError::Parse(format!("substitute: {why}")));
         }
         // Archive splice, tree rebuild, unit-test verify. Ordered, fail-fast.
@@ -6438,8 +6914,12 @@ mod track_i_tests {
         assert_eq!(cmds[1].cwd, Cwd::BuildDir);
         assert_eq!(cmds[2].program, "ctest");
         assert_eq!(cmds[2].args, vec!["--output-on-failure", "-R", "gen"]);
-        // The ABI limit: non-BIND(C) units refuse one-at-a-time substitution
-        // instead of linking a corrupt archive.
+        // The ABI limit: non-BIND(C) units with unproven shapes refuse
+        // one-at-a-time substitution instead of linking a corrupt archive.
+        // T014 admits exactly one shape (assumed-shape REAL(8) + scalar
+        // intrinsics): the mock `step_solver` (`real(8) :: a(:)`) passes the
+        // gate through the substitute flow and halts later on the missing
+        // built object, while a derived-type dummy still refuses at the gate.
         let mixed_unit = UnitDecl {
             id: UnitId("fortran:src/solver.F90".into()),
             files: vec!["src/solver.F90".into()],
@@ -6451,6 +6931,25 @@ mod track_i_tests {
             imports: Vec::new(),
         };
         let err = composite.bridge.substitute(&cx, &mixed_unit, &rust_lib).unwrap_err();
+        assert!(err.to_string().contains("no built object"), "unexpected: {err}");
+        write_file(
+            &mock.tree.join("src/legacy.F90"),
+            "module legacy_mod\n  implicit none\ncontains\n  subroutine legacy_step(model, dt)\n    type(model_t) :: model\n    real(kind=dp) :: dt\n  end subroutine legacy_step\nend module legacy_mod\n",
+        );
+        let legacy_unit = UnitDecl {
+            id: UnitId("fortran:src/legacy.F90".into()),
+            files: vec!["src/legacy.F90".into()],
+            generated_from: None,
+            exports: vec![
+                Symbol { linkage: "legacy_mod".into(), abi: Abi::Fortran { bind_c: false } },
+                Symbol {
+                    linkage: "__legacy_mod_MOD_legacy_step".into(),
+                    abi: Abi::Fortran { bind_c: false },
+                },
+            ],
+            imports: Vec::new(),
+        };
+        let err = composite.bridge.substitute(&cx, &legacy_unit, &rust_lib).unwrap_err();
         assert!(err.to_string().contains("BIND(C)"), "unexpected: {err}");
         let err = composite
             .bridge
@@ -6494,11 +6993,168 @@ mod track_i_tests {
         assert_eq!(frag.units.len(), 1, "units: {:?}", frag.units);
         let unit = &frag.units[0];
         assert_eq!(unit.id.0, "fortran:src/common_state.F");
-        let err = CmakeBridge::check_substitutable(unit).unwrap_err();
+        let err = CmakeBridge::check_substitutable(unit, dir.path()).unwrap_err();
         assert_eq!(
             err,
             "unit 'fortran:src/common_state.F' exports non-BIND(C) Fortran (__cstep_MOD_cstep, cstep): no stable C ABI (__<mod>_MOD_<proc> mangling, array descriptors for assumed-shape dummies); coarsen to file granularity with an ABI shim"
         );
+    }
+
+    /// Build a single-file Fortran tree and return its (only) recon unit
+    /// with the tree kept alive for the gate's source read.
+    fn gate_unit_for(rel: &str, text: &str) -> (tempfile::TempDir, UnitDecl) {
+        let dir = tempfile::tempdir().unwrap();
+        write_file(&dir.path().join(rel), text);
+        let files = vec![dir.path().join(rel)];
+        let compiler_ids = BTreeMap::new();
+        let cx = FragmentCtx {
+            repo: dir.path(),
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
+        let frag = fortran_fragment(&cx).unwrap();
+        assert_eq!(frag.units.len(), 1, "units: {:?}", frag.units);
+        let unit = frag.units.into_iter().next().unwrap();
+        (dir, unit)
+    }
+
+    #[test]
+    fn fortran_gate_admits_assumed_shape_real8() {
+        // T014: the one relaxed shape — scalar intrinsics plus
+        // assumed-shape REAL(8) (rank 2 via KIND=dp, rank 1 via REAL(8)),
+        // with a RESULT-clause function. Clean-room fixture mirroring the
+        // proven profile (no upstream text).
+        let text = "module tideshape\n  implicit none\ncontains\n\
+            function wavesum(freq, amps, t, phase) result(s)\n\
+            real(kind=dp) :: freq, t, phase, s\n\
+            real(kind=dp) :: amps(:, :)\n\
+            integer :: i\n\
+            s = 0.0d0\n\
+            do i = 1, size(amps, 1)\n\
+              s = s + amps(i, 2) * sin(amps(i, 1) * freq * t + phase)\n\
+            end do\n\
+            end function wavesum\n\
+            function rowsum(v) result(s)\n\
+            real(8) :: v(:), s\n\
+            s = sum(v)\n\
+            end function rowsum\n\
+            end module tideshape\n";
+        let (dir, unit) = gate_unit_for("src/tideshape.F90", text);
+        let links: Vec<&str> = unit.exports.iter().map(|e| e.linkage.as_str()).collect();
+        assert!(links.contains(&"tideshape"), "exports: {links:?}");
+        assert!(links.contains(&"__tideshape_MOD_wavesum"), "exports: {links:?}");
+        assert!(links.contains(&"__tideshape_MOD_rowsum"), "exports: {links:?}");
+        CmakeBridge::check_substitutable(&unit, dir.path())
+            .expect("assumed-shape REAL(8) units admit through the shim");
+    }
+
+    #[test]
+    fn fortran_gate_refuses_later_shapes() {
+        // Explicit-shape, assumed-size, non-REAL(8) assumed-shape, and bare
+        // REAL assumed-shape are later shapes (T017): still refused here.
+        let cases = [
+            (
+                "explicit",
+                "module m\ncontains\nsubroutine eadd(n, a, b)\ninteger :: n\n\
+                real(kind=dp) :: a(n), b(n)\nb = a\nend subroutine\nend module m\n",
+            ),
+            (
+                "assumed-size",
+                "module m\ncontains\nsubroutine fsc(x, n, a)\ninteger :: n\n\
+                real*8 x(*), a\nend subroutine\nend module m\n",
+            ),
+            (
+                "integer-shape",
+                "module m\ncontains\nfunction isum(v) result(s)\ninteger :: v(:), s\n\
+                s = sum(v)\nend function\nend module m\n",
+            ),
+            (
+                "bare-real-shape",
+                "module m\ncontains\nfunction rsum(a) result(s)\nreal :: a(:, :), s\n\
+                s = sum(a)\nend function\nend module m\n",
+            ),
+            (
+                "rank3",
+                "module m\ncontains\nfunction csum(a) result(s)\nreal(kind=dp) :: a(:, :, :), s\n\
+                s = sum(a)\nend function\nend module m\n",
+            ),
+        ];
+        for (name, text) in cases {
+            let (dir, unit) = gate_unit_for("src/m.F90", text);
+            let err = CmakeBridge::check_substitutable(&unit, dir.path()).unwrap_err();
+            assert!(err.contains("BIND(C)"), "{name}: unexpected: {err}");
+        }
+    }
+
+    #[test]
+    fn fortran_gate_refuses_forbidden_features() {
+        // An admitted-shape unit carrying a forbidden feature
+        // (OPTIONAL/ALLOCATABLE/derived/character/COMMON/F77-global) refuses.
+        let admitted_head =
+            "module m\ncontains\nfunction wsum(amps, t) result(s)\nreal(kind=dp) :: amps(:, :), t, s\n";
+        let cases = [
+            ("optional", "module m\ncontains\nfunction wsum(amps, t) result(s)\nreal(kind=dp) :: amps(:, :), s\nreal(kind=dp), optional :: t\ns = 0.0d0\nend function\nend module m\n".to_string()),
+            ("allocatable", "module m\ncontains\nsubroutine abuf(buf, n)\ninteger :: n\nreal(kind=dp), allocatable :: buf(:)\nend subroutine\nend module m\n".to_string()),
+            ("derived", "module m\ncontains\nsubroutine dsolv(model, dt)\ntype(model_t) :: model\nreal(kind=dp) :: dt\nend subroutine\nend module m\n".to_string()),
+            ("character", "module m\ncontains\nsubroutine cname(label, x)\ncharacter(len=80) :: label\nreal(kind=dp) :: x\nend subroutine\nend module m\n".to_string()),
+            ("common", format!("{admitted_head}s = t\nend function\nend module m\ncommon /st/ acc\n")),
+            (
+                "f77-global",
+                "      subroutine fscale(x, n, alpha)\n      real*8 x(*), alpha\n\
+                integer n\n      end\n"
+                    .to_string(),
+            ),
+        ];
+        for (name, text) in cases {
+            let rel = if name == "f77-global" { "src/fscale.F" } else { "src/m.F90" };
+            let (dir, unit) = gate_unit_for(rel, &text);
+            let err = CmakeBridge::check_substitutable(&unit, dir.path()).unwrap_err();
+            assert!(err.contains("BIND(C)"), "{name}: unexpected: {err}");
+        }
+    }
+    #[test]
+    fn fortran_gate_real_harmutils_probe() {
+        // T014 end-to-end anchor: the real fem-b file
+        // (`fem/src/modules/HarmonicSignals.F90`, module `HarmUtils` with
+        // assumed-shape-REAL(8) `SinSum`/`CosSum` plus the derived-type
+        // `source` entry). GPL sources stay out of this repo, so this runs
+        // only with `ELMER_FORK` pointing at a checkout; otherwise it
+        // skips (the synthetic gate tests above always run).
+        let fork = match std::env::var("ELMER_FORK") {
+            Ok(p) => PathBuf::from(p),
+            Err(_) => {
+                eprintln!("SKIP real_harmutils: ELMER_FORK unset");
+                return;
+            }
+        };
+        let rel = "fem/src/modules/HarmonicSignals.F90";
+        assert!(fork.join(rel).is_file(), "no {rel} under ELMER_FORK={fork:?}");
+        let files = vec![fork.join(rel)];
+        let compiler_ids = BTreeMap::new();
+        let cx = FragmentCtx {
+            repo: &fork,
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
+        let frag = fortran_fragment(&cx).unwrap();
+        assert_eq!(frag.units.len(), 2, "units: {:?}", frag.units);
+        let harm = frag
+            .units
+            .iter()
+            .find(|u| u.id.0.ends_with("#harmutils"))
+            .expect("harmutils unit");
+        let source = frag
+            .units
+            .iter()
+            .find(|u| u.id.0.ends_with("#source"))
+            .expect("source unit");
+        CmakeBridge::check_substitutable(harm, &fork).expect("REAL-FILE-ADMIT harmutils");
+        eprintln!("REAL-FILE-ADMIT harmutils");
+        let err = CmakeBridge::check_substitutable(source, &fork).unwrap_err();
+        assert!(err.contains("BIND(C)"), "unexpected: {err}");
+        eprintln!("REAL-FILE-REFUSE source (derived-type dummies)");
     }
 
     #[test]
