@@ -1,0 +1,83 @@
+{
+  "package": "rich",
+  "version": "15.0.0",
+  "workload": {
+    "name": "render-bulk-table",
+    "source": "doc-synthetic",
+    "iters": 3,
+    "detail": "Console.print of 400-row Table + Panel/Text Markdown x3 per run, truecolor forced, buffered non-terminal"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 1.031972838100046,
+  "tottime_secs": 1.0060042160000013,
+  "fractions": {
+    "pure_python": 0.9344626325104762,
+    "native": 0.03273187574792426,
+    "io_wait": 0.0021816210758305583,
+    "regex": 0.013427858238717345,
+    "overhead": 0.017196012427049292
+  },
+  "concentration": {
+    "top1": 0.04582934372115985,
+    "top5": 0.19425340559407728,
+    "hot_modules": 9
+  },
+  "top": [
+    {
+      "file": "rich/console.py",
+      "func": "render",
+      "tottime_ms": 46.104513,
+      "ncalls": 80244
+    },
+    {
+      "file": "rich/cells.py",
+      "func": "cell_len",
+      "tottime_ms": 42.851169,
+      "ncalls": 114741
+    },
+    {
+      "file": "rich/segment.py",
+      "func": "split_and_crop_lines",
+      "tottime_ms": 38.984245,
+      "ncalls": 26232
+    },
+    {
+      "file": "rich/table.py",
+      "func": "_render",
+      "tottime_ms": 37.142202,
+      "ncalls": 27228
+    },
+    {
+      "file": "rich/text.py",
+      "func": "wrap",
+      "tottime_ms": 30.337616,
+      "ncalls": 6234
+    },
+    {
+      "file": "rich/console.py",
+      "func": "render_lines",
+      "tottime_ms": 27.130976,
+      "ncalls": 12336
+    },
+    {
+      "file": "~",
+      "func": "<method 'translate' of 'str' objects>",
+      "tottime_ms": 25.353648000000003,
+      "ncalls": 38247
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.len>",
+      "tottime_ms": 24.707873000000003,
+      "ncalls": 309660
+    }
+  ],
+  "loop_nature": "dispatch",
+  "loop_factor": 0.5,
+  "native_cover": [],
+  "score": 0.4672313162552381,
+  "verdict": "upstream_only",
+  "why": "middling headroom (93% pure-Python, dispatch loop): probe a speed core upstream, not a mirror"
+}
