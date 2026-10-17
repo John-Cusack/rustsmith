@@ -1,0 +1,83 @@
+{
+  "package": "openpyxl",
+  "version": "3.1.5",
+  "workload": {
+    "name": "xml-model-roundtrip",
+    "source": "doc-synthetic",
+    "iters": 3,
+    "detail": "Workbook 1000x30 values+styles: save to BytesIO (write serialization) + load back (worksheet _reader etree walk); zip/C-zlib out of claim"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 1.15826231893152,
+  "tottime_secs": 1.1582474920000005,
+  "fractions": {
+    "pure_python": 0.9355405666615497,
+    "native": 0.02211426588610303,
+    "io_wait": 0.027806205687860006,
+    "regex": 0.014385673282338515,
+    "overhead": 0.00015328848214764788
+  },
+  "concentration": {
+    "top1": 0.09495067052560469,
+    "top5": 0.2839552766327077,
+    "hot_modules": 8
+  },
+  "top": [
+    {
+      "file": "et_xmlfile/incremental_tree.py",
+      "func": "write_elem_start",
+      "tottime_ms": 109.976376,
+      "ncalls": 76011
+    },
+    {
+      "file": "openpyxl/cell/cell.py",
+      "func": "check_string",
+      "tottime_ms": 61.825272,
+      "ncalls": 30000
+    },
+    {
+      "file": "et_xmlfile/incremental_tree.py",
+      "func": "_serialize_ns_xml",
+      "tottime_ms": 61.411112,
+      "ncalls": 75009
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.isinstance>",
+      "tottime_ms": 49.958670000000005,
+      "ncalls": 565932
+    },
+    {
+      "file": "openpyxl/worksheet/_reader.py",
+      "func": "parse_cell",
+      "tottime_ms": 45.719057,
+      "ncalls": 30000
+    },
+    {
+      "file": "openpyxl/cell/_writer.py",
+      "func": "etree_write_cell",
+      "tottime_ms": 39.79615700000001,
+      "ncalls": 30000
+    },
+    {
+      "file": "et_xmlfile/incremental_tree.py",
+      "func": "process_attribs",
+      "tottime_ms": 34.732171,
+      "ncalls": 31007
+    },
+    {
+      "file": "openpyxl/descriptors/serialisable.py",
+      "func": "from_tree",
+      "tottime_ms": 34.448196,
+      "ncalls": 15128
+    }
+  ],
+  "loop_nature": "dispatch",
+  "loop_factor": 0.5,
+  "native_cover": [],
+  "score": 0.46777028333077486,
+  "verdict": "upstream_only",
+  "why": "middling headroom (94% pure-Python, dispatch loop): probe a speed core upstream, not a mirror"
+}
