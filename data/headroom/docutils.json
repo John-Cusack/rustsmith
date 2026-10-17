@@ -1,0 +1,83 @@
+{
+  "package": "docutils",
+  "version": "0.23",
+  "workload": {
+    "name": "rst-pipeline-synth-384k",
+    "source": "doc-synthetic",
+    "iters": 1,
+    "detail": "publish_string html5 + publish_doctree over 96 synthetic rst docs (383KB), state machine + transforms + writer"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 3.2425971650518477,
+  "tottime_secs": 3.242588639000002,
+  "fractions": {
+    "pure_python": 0.9317625158064334,
+    "native": 0.01573777271227896,
+    "io_wait": 0.0007565384552622554,
+    "regex": 0.04928020288422405,
+    "overhead": 0.0024629701418009547
+  },
+  "concentration": {
+    "top1": 0.11456879004996719,
+    "top5": 0.28969608870574953,
+    "hot_modules": 5
+  },
+  "top": [
+    {
+      "file": "docutils/statemachine.py",
+      "func": "make_transitions",
+      "tottime_ms": 371.499457,
+      "ncalls": 77760
+    },
+    {
+      "file": "docutils/statemachine.py",
+      "func": "make_transition",
+      "tottime_ms": 243.91536200000002,
+      "ncalls": 445824
+    },
+    {
+      "file": "docutils/nodes.py",
+      "func": "_fast_findall",
+      "tottime_ms": 135.90549700000003,
+      "ncalls": 406682
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.isinstance>",
+      "tottime_ms": 104.19555700000001,
+      "ncalls": 1218678
+    },
+    {
+      "file": "~",
+      "func": "<method 'search' of 're.Pattern' objects>",
+      "tottime_ms": 83.849373,
+      "ncalls": 29332
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.getattr>",
+      "tottime_ms": 77.390172,
+      "ncalls": 549603
+    },
+    {
+      "file": "docutils/statemachine.py",
+      "func": "check_line",
+      "tottime_ms": 73.95291700000001,
+      "ncalls": 21600
+    },
+    {
+      "file": "docutils/nodes.py",
+      "func": "__init__",
+      "tottime_ms": 64.172555,
+      "ncalls": 26311
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.7919981384354684,
+  "verdict": "rewrite",
+  "why": "93% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}
