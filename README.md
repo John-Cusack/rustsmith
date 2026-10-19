@@ -244,6 +244,7 @@ Standing rule (2026-10-11): a row counts as `ported` only with both (a) an insta
 | charset-normalizer | [Ousret/charset_normalizer](https://github.com/Ousret/charset_normalizer) | oracle 297/297, heldout 20/20 | 2.60x mixed detect / 0.33x ascii-logs / 0.57x bulk, slower rows honest (`bench/`, measured 2026-10-14) | — |
 | python-multipart | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) | oracle 162/162, heldout 55/55, divergence 0.0000 (run mp-port-graded2) | 1.86x parse-1.7MB / 2.72x headers / 1.76x bulk-17.7MB (`bench/`, measured 2026-10-14) | — |
 | pygments | [pygments/pygments](https://github.com/pygments/pygments) | oracle 5175 passed / 0 failed / 16 skipped of 5191 (upstream 2.19.1, graded 2026-10-13, Rust + fallback paths identical); port tests 11/11, core 12/12; heldout n/a (direct-PR lane, no control-plane held-out suite) | 9.32x regex_opt / 1.03x highlight no-change / 1.00x lex-only (`bench/`, measured 2026-10-14) | — (publishing owned by later release lane) |
+| docutils | [python/docutils](https://github.com/python/docutils) | equiv corpus 7/7 (doctree text, message levels, HTML tag profile exact vs 0.23, graded 2026-10-17); port tests 17/17, clippy clean; heldout n/a (direct-PR lane, no control-plane held-out suite) | 67x bulk-256KB / 17-52x small docs / ~13x peak RSS (`benches/two_track.py`, measured 2026-10-17) | — (release human-gated; [mirror](https://github.com/John-Cusack/docutils-rust)) |
 
 ## Status and docs
 
