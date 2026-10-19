@@ -217,6 +217,7 @@ Status is one of: `open` | `in progress (<branch>)` | `mirrored (oracle N/N, hel
 | crc (`mirror/crc`) | Python | mirrored (oracle 80/80, heldout 11/11, divergence 0.0000; graded 2026-10-06); release work in progress (`John-Cusack/rewrite-packaging`) | Primary fixture; first core+binding release example |
 | strsimpy (`mirror/strsimpy`) | Python | mirrored (oracle 18/18, heldout 16/16, divergence 0.0000; graded 2026-10-06); released (TestPyPI, 0.2.1) | Core+binding split (`strsimpy-rust-core` + `strsimpy-rust`); `release-prep` verified (11/11 checks); [mirror](https://github.com/John-Cusack/strsimpy-rust) · [strsimpy-rust (TestPyPI)](https://test.pypi.org/project/strsimpy-rust/0.2.1/) |
 | Elmer FEM (`mirror/Elmer`) | C / C++ / Fortran | S1 scope-skip landed, step-4 verified 2026-10-06 (suite 181/0, `m0`–`m9` + `release_acceptance.sh` green, `tests/elmer_mini_proof.sh` 1/1 divergence=0.0000) | S2–S5 not started |
+| sympy (polys kernel) | Python | headroom-graded 2026-10-17 (polys-domains 0.85 rewrite / simplify-core 0.49 upstream_only); kernel slice v0.1.0: equivalence 9/9 exact, core 14/14, upstream kernel subset 105 passed | Port lives at [sympy-rust](https://github.com/John-Cusack/sympy-rust) (not a mirror/ template): `dup/dmp` over QQ + PRS gcd; bench 5.06x dup_mul_800 / 8.75x dmp_mul_3var / 0.17x dup_gcd_70 slower row honest; publish human-gated, pending |
 
 ## Ported packages
 

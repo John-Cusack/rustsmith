@@ -1,0 +1,168 @@
+[
+  {
+    "package": "sympy",
+    "version": "1.14.0",
+    "workload": {
+      "name": "polys-domains",
+      "source": "doc-synthetic",
+      "iters": 1,
+      "detail": "Poly QQ[x,y,z] mul+GCD x6 + factor x6 over expanded (x+y+z+1)^15"
+    },
+    "tool": "cprofile",
+    "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+    "python": "3.12.3",
+    "wall_secs": 9.452628452097997,
+    "tottime_secs": 9.452053999999988,
+    "fractions": {
+      "pure_python": 0.9979134392376522,
+      "native": 0.0006390415247310275,
+      "io_wait": 0.0,
+      "regex": 5.04049172804134e-6,
+      "overhead": 0.0014424787458895197
+    },
+    "concentration": {
+      "top1": 0.20937103385147848,
+      "top5": 0.6630284763502207,
+      "hot_modules": 4
+    },
+    "top": [
+      {
+        "file": "sympy/polys/densearith.py",
+        "func": "dup_mul",
+        "tottime_ms": 1978.986318,
+        "ncalls": 183088
+      },
+      {
+        "file": "sympy/external/pythonmpq.py",
+        "func": "__add__",
+        "tottime_ms": 1436.3023660000001,
+        "ncalls": 2587128
+      },
+      {
+        "file": "sympy/external/pythonmpq.py",
+        "func": "__mul__",
+        "tottime_ms": 1257.05093,
+        "ncalls": 2034990
+      },
+      {
+        "file": "sympy/external/pythonmpq.py",
+        "func": "_new",
+        "tottime_ms": 1107.898114,
+        "ncalls": 4640802
+      },
+      {
+        "file": "~",
+        "func": "<built-in method __new__ of type object at 0xa44b40>",
+        "tottime_ms": 486.74323400000003,
+        "ncalls": 4647546
+      },
+      {
+        "file": "~",
+        "func": "<built-in method math.gcd>",
+        "tottime_ms": 477.64646100000004,
+        "ncalls": 6663177
+      },
+      {
+        "file": "~",
+        "func": "<built-in method builtins.max>",
+        "tottime_ms": 321.15006100000005,
+        "ncalls": 2106131
+      },
+      {
+        "file": "~",
+        "func": "<built-in method builtins.isinstance>",
+        "tottime_ms": 319.713141,
+        "ncalls": 5028656
+      }
+    ],
+    "loop_nature": "pipeline",
+    "loop_factor": 0.85,
+    "native_cover": [],
+    "score": 0.8482264233520044,
+    "verdict": "rewrite",
+    "why": "100% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+  },
+  {
+    "package": "sympy",
+    "version": "1.14.0",
+    "workload": {
+      "name": "simplify-core",
+      "source": "doc-synthetic",
+      "iters": 1,
+      "detail": "trigsimp + simplify of trig-augmented rational expression x40"
+    },
+    "tool": "cprofile",
+    "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+    "python": "3.12.3",
+    "wall_secs": 20.7153646920342,
+    "tottime_secs": 20.71008293399997,
+    "fractions": {
+      "pure_python": 0.9888470760481235,
+      "native": 0.003032091286168101,
+      "io_wait": 0.0,
+      "regex": 0.000493652731019045,
+      "overhead": 0.0076271799346914314
+    },
+    "concentration": {
+      "top1": 0.04274348518164178,
+      "top5": 0.19486577996143944,
+      "hot_modules": 9
+    },
+    "top": [
+      {
+        "file": "~",
+        "func": "<built-in method builtins.isinstance>",
+        "tottime_ms": 885.2211230000001,
+        "ncalls": 8367597
+      },
+      {
+        "file": "sympy/core/cache.py",
+        "func": "wrapper",
+        "tottime_ms": 881.8563190000001,
+        "ncalls": 1671307
+      },
+      {
+        "file": "sympy/core/sympify.py",
+        "func": "sympify",
+        "tottime_ms": 849.3503330000001,
+        "ncalls": 1017654
+      },
+      {
+        "file": "sympy/core/function.py",
+        "func": "count_ops",
+        "tottime_ms": 814.2387550000001,
+        "ncalls": 24600
+      },
+      {
+        "file": "sympy/core/exprtools.py",
+        "func": "__init__",
+        "tottime_ms": 605.0199340000001,
+        "ncalls": 246160
+      },
+      {
+        "file": "sympy/core/containers.py",
+        "func": "__new__",
+        "tottime_ms": 592.555022,
+        "ncalls": 219120
+      },
+      {
+        "file": "sympy/core/sorting.py",
+        "func": "ordered",
+        "tottime_ms": 489.767451,
+        "ncalls": 487320
+      },
+      {
+        "file": "sympy/core/basic.py",
+        "func": "__eq__",
+        "tottime_ms": 484.08738700000004,
+        "ncalls": 804320
+      }
+    ],
+    "loop_nature": "dispatch",
+    "loop_factor": 0.5,
+    "native_cover": [],
+    "score": 0.49442353802406175,
+    "verdict": "upstream_only",
+    "why": "middling headroom (99% pure-Python, dispatch loop): probe a speed core upstream, not a mirror"
+  }
+]
