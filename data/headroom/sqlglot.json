@@ -1,0 +1,83 @@
+{
+  "package": "sqlglot",
+  "version": "30.18.0",
+  "workload": {
+    "name": "dialect-parse-transpile-optimizer",
+    "source": "doc-synthetic",
+    "iters": 5,
+    "detail": "sqlglot 30.18.0: parse+generate x3 dialects, transpile pg->mysql+duckdb->spark, optimizer.qualify over 6 queries x20"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 1.460399923962541,
+  "tottime_secs": 1.4602576120000004,
+  "fractions": {
+    "pure_python": 0.9738059095287903,
+    "native": 0.001371218327194722,
+    "io_wait": 0.0,
+    "regex": 0.0034280156863171337,
+    "overhead": 0.021394856457697408
+  },
+  "concentration": {
+    "top1": 0.08346643427735131,
+    "top5": 0.24669002307518867,
+    "hot_modules": 6
+  },
+  "top": [
+    {
+      "file": "~",
+      "func": "<built-in method builtins.isinstance>",
+      "tottime_ms": 121.882496,
+      "ncalls": 1228100
+    },
+    {
+      "file": "sqlglot/optimizer/scope.py",
+      "func": "walk_in_scope",
+      "tottime_ms": 90.797678,
+      "ncalls": 76000
+    },
+    {
+      "file": "~",
+      "func": "<method 'get' of 'dict' objects>",
+      "tottime_ms": 55.48576,
+      "ncalls": 477860
+    },
+    {
+      "file": "sqlglot/expressions/core.py",
+      "func": "iter_expressions",
+      "tottime_ms": 46.262328000000004,
+      "ncalls": 94880
+    },
+    {
+      "file": "copy.py",
+      "func": "deepcopy",
+      "tottime_ms": 45.802722,
+      "ncalls": 65900
+    },
+    {
+      "file": "sqlglot/expressions/core.py",
+      "func": "__deepcopy__",
+      "tottime_ms": 45.710303,
+      "ncalls": 4360
+    },
+    {
+      "file": "sqlglot/expressions/core.py",
+      "func": "__init__",
+      "tottime_ms": 38.015473,
+      "ncalls": 41880
+    },
+    {
+      "file": "sqlglot/expressions/core.py",
+      "func": "bfs",
+      "tottime_ms": 31.959586000000005,
+      "ncalls": 44140
+    }
+  ],
+  "loop_nature": "dispatch",
+  "loop_factor": 0.5,
+  "native_cover": [],
+  "score": 0.48690295476439516,
+  "verdict": "upstream_only",
+  "why": "middling headroom (97% pure-Python, dispatch loop): probe a speed core upstream, not a mirror"
+}
