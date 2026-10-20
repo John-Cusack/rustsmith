@@ -4532,7 +4532,7 @@
    "unit": "fortran:fem/src/modules/CoordinateTransform.F90#vecutils",
    "ledger": "lane-fem-b",
    "status": "skipped-gate-refused",
-   "reason": "gate refuses: explicit-shape dummy (later shape) (4)",
+   "reason": "gate refuses: explicit-shape dummy (later shape) (4); the sibling T017 lane's port (elmer-rust#11) covers this scope under the shape B relaxation (rustsmith#108, open at this lane's done-gate): the gate still refuses it under the merged gate",
    "gate_verdict": "refuse",
    "gate_reasons": [
     "__vecutils_MOD_jac: explicit-shape dummy (later shape)",
