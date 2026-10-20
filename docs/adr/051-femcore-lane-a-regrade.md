@@ -121,9 +121,10 @@ shape B's rule (explicit-shape and assumed-size array dummies travel as
 raw base addresses), exactly **one** of the 177 claimed units flips from
 refuse to admit: `fortran:fem/src/modules/CoordinateTransform.F90#vecutils`
 (the `VecUtils` module: `norm2`, `normalized`, `jac`, `transform2rank`).
-The lane re-reads the merged gate before its done-gate; if shape B is
-merged by then, the re-grade is re-run and that unit is ported in the
-same lane. The numbers above are the merged gate's numbers.
+The lane re-reads the merged gate before its done-gate; the numbers above
+are the merged gate's numbers. That one unit is not left unported: the
+sibling T017 lane's port (elmer-rust#11) already covers the scope under
+the shape B relaxation, and the lane ledger says so.
 
 ## 5. The LAPACK band wrappers are ports, and the corpus proves it
 
