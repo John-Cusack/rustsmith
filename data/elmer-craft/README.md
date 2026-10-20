@@ -13,6 +13,9 @@ https://github.com/John-Cusack/elmer-rust/pull/9):
 | `ludecomp-inv-n256/` | `crates/elmer-fem-a/bench/mtrinv/` |
 | `ludecomp-lu-n512/` | `crates/elmer-fem-a/bench/ludecomp-n512/` |
 | `ludecomp-inv-n512/` | `crates/elmer-fem-a/bench/mtrinv-n512/` |
+| `mtr-sum-n256/` | `crates/elmer-gui-c/bench/mtr-sum-n256/` |
+| `mtr-sum-n1024/` | `crates/elmer-gui-c/bench/mtr-sum-n1024/` |
+| `mtr-sum-n4096/` | `crates/elmer-gui-c/bench/mtr-sum-n4096/` |
 | `jacobi-nogain/` | `crates/elmer-gui-c/bench/jacobi-nogain/` |
 
 Refresh them from that repo (never by hand):
@@ -23,6 +26,9 @@ cp -a crates/elmer-fem-a/bench/ludecomp     <rustsmith>/data/elmer-craft/ludecom
 cp -a crates/elmer-fem-a/bench/mtrinv       <rustsmith>/data/elmer-craft/ludecomp-inv-n256
 cp -a crates/elmer-fem-a/bench/ludecomp-n512 <rustsmith>/data/elmer-craft/ludecomp-lu-n512
 cp -a crates/elmer-fem-a/bench/mtrinv-n512   <rustsmith>/data/elmer-craft/ludecomp-inv-n512
+for n in 256 1024 4096; do
+  cp -a "crates/elmer-gui-c/bench/mtr-sum-n$n" <rustsmith>/data/elmer-craft/
+done
 cp -a crates/elmer-gui-c/bench/jacobi-nogain <rustsmith>/data/elmer-craft/jacobi-nogain
 ```
 

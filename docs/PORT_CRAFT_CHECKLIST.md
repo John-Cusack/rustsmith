@@ -148,3 +148,39 @@ change) with the value-caching variant and **0.96x** (slower) with the
 variant that also walked row pointers. Both were reverted; the lane keeps
 the bench and the no-gain row
 (`crates/elmer-gui-c/bench/jacobi-nogain/`). The port source is unchanged.
+
+---
+
+## The worked example: `mtr_sum` (lane-gui-c, elmer-rust)
+
+Unit `c:ElmerGUI/matc/src/matrix.c` (crate `gui_c_matrix`, symbol
+`mtr_sum`, the matc column sums). Same PR:
+https://github.com/John-Cusack/elmer-rust/pull/9
+
+**Anti-pattern D — the big one.** The C original walked the matrix **one
+column at a time**: every element was read with a stride of `ncola`
+doubles, so for a 4096x4096 matrix that is one cache line per element and
+the whole 128 MiB is re-read once per column pass. The recraft makes
+**one sequential pass** over the row-major data and accumulates the
+columns as it goes. The accumulation order per column is unchanged (rows
+ascending), so the sums are the same values added in the same order:
+bit-identical results, same digest on both arms.
+
+| workload | before | after | speedup | verdict | peak RSS before -> after |
+|---|---|---|---|---|---|
+| column sums n=256 | 2.079 ms | 0.437 ms | **4.76x** | faster | 2268 KiB -> 2264 KiB (-0.2%) |
+| column sums n=1024 | 75.509 ms | 3.830 ms | **19.72x** | faster | 9908 KiB -> 9928 KiB (+0.2%) |
+| column sums n=4096 | 200.674 ms | 16.126 ms | **12.44x** | faster | 132164 KiB -> 132240 KiB (+0.1%) |
+
+11 reps, arms interleaved, one corpus per size. The win grows with the
+matrix because the original is memory-bound on the strided read; the
+honest floor is the smallest size measured (4.76x at n=256, where the
+matrix already fits in cache). Peak RSS is unchanged — the corpus
+dominates the child's footprint on both sides.
+
+**What this says about the checklist.** Anti-pattern D is where the crc
+win came from in the first place (one bulk pass instead of per-item
+work), and it is the one that pays most in a C-transcription port: the
+loop shape is inherited from the C original, not chosen. Look for it
+first in any port whose hot loop walks a column, a row, or a sparse
+index.

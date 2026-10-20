@@ -1,0 +1,15 @@
+{
+  "workload": "column sums n=1024",
+  "n": 1024,
+  "iters": 20,
+  "reps": 11,
+  "noise_pct": 3,
+  "digest": "9d9f7721b7afb2ba",
+  "before": {"label":"before","wall_ns_median":75508557,"wall_ns_mad":1320814,"harness_ns_median":20,"rss_kb_median":9908,"rss_kb_samples":[9716,9952,9712,9908,9716,9928,9936,9944,9908,9908,9972],"wall_ns_samples":[78903670,75508557,73753641,84241614,76656454,73679811,74795298,72826730,74819785,76829371,76346800]},
+  "after": {"label":"after","wall_ns_median":3830005,"wall_ns_mad":357174,"harness_ns_median":20,"rss_kb_median":9928,"rss_kb_samples":[9968,9920,9912,9928,9932,9688,9936,9944,9660,9864,9964],"wall_ns_samples":[3881342,3830005,3759813,3561559,3472831,4738551,5654852,3473832,4930785,3322206,4825937]},
+  "speedup": 19.7150,
+  "rss_delta_pct": 0.20,
+  "verdict": "faster",
+  "tukey_outliers_before": [3],
+  "tukey_outliers_after": []
+}

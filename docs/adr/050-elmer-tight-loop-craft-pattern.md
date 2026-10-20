@@ -77,6 +77,29 @@ Two things were missing before any of that could be acted on:
    ADR and the checklist carry the table and cite the source, so the
    rustsmith repo never becomes a second copy of a port's numbers.
 
+## Measured evidence
+
+The rows are machine-written in the port repo (source of truth) and copied
+to `data/elmer-craft/` here; the ADR-039 convention is that a board cell
+copies a row 1:1. 11–15 reps, arms interleaved, one corpus per workload,
+peak RSS through `wait4`, digest identical on both arms.
+
+| unit | workload | before | after | speedup | verdict | peak RSS before -> after |
+|---|---|---|---|---|---|---|
+| `ludecomp` (fem-a) | LU decompose n=256 | 255.947 ms | 227.187 ms | 1.13x | faster | 2760 KiB -> 2772 KiB (+0.4%) |
+| `ludecomp` (fem-a) | matrix inverse n=256 | 187.181 ms | 179.213 ms | 1.04x | faster | 2760 KiB -> 2748 KiB (-0.4%) |
+| `ludecomp` (fem-a) | LU decompose n=512 | 214.458 ms | 203.146 ms | 1.06x | faster | 5840 KiB -> 5832 KiB (-0.1%) |
+| `ludecomp` (fem-a) | matrix inverse n=512 | 467.345 ms | 421.481 ms | 1.11x | faster | 5816 KiB -> 5824 KiB (+0.1%) |
+| `matrix` (gui-c) | column sums n=256 | 2.079 ms | 0.437 ms | 4.76x | faster | 2268 KiB -> 2264 KiB (-0.2%) |
+| `matrix` (gui-c) | column sums n=1024 | 75.509 ms | 3.830 ms | 19.72x | faster | 9908 KiB -> 9928 KiB (+0.2%) |
+| `matrix` (gui-c) | column sums n=4096 | 200.674 ms | 16.126 ms | 12.44x | faster | 132164 KiB -> 132240 KiB (+0.1%) |
+| `jacobi` (gui-c) | generalized Jacobi eigen n=128 | 210.291 ms | 208.028 ms | 1.01x | **no-change** | 3096 KiB -> 3080 KiB (-0.5%) |
+
+The `matrix` row is the anti-pattern D case (one strided pass per column
+replaced by one sequential pass): the same sums, the same order, the same
+bytes — 4.8x to 19.7x. The `jacobi` row is the no-gain: the recraft was
+reverted and the port source is unchanged.
+
 ## Consequences
 
 - The fleet's craft knowledge is now a checklist plus a worked example

@@ -2176,6 +2176,12 @@
           "example": "Example: the LU row scaling keeps `a(i,k) / a(i,i)`; caching the diagonal is fine, rewriting it as `a(i,k) * (1.0/a(i,i))` is not - it changes the last digit."
         },
         {
+          "title": "one sequential pass instead of a per-item strided access",
+          "original": "Original (C/Fortran): the loop walks one column (or one row) at a time, so every element is read with a full-width stride and the whole array is re-read once per column",
+          "rust": "Rust: one sequential pass over the row-major data replaces the strided walk; keep the accumulation order per output element identical so the result is bit-identical",
+          "example": "Example: the matc column sums walked a[i*n+j] per column; one pass over the rows gives the same sums in the same order and measured 4.76x (n=256) to 19.72x (n=1024) (elmer-rust PR #9)."
+        },
+        {
           "title": "every recraft is measured A/B, and a recraft without a measured win is reverted",
           "original": "Original (C/Fortran): the original is the reference - parity plus a measured gain, never taste",
           "rust": "Rust: every recraft gets an A/B bench in elmer-rust/bench (one corpus, rep-interleaved arms, wall time and peak RSS, result digest equality, 3% noise band); a recraft that does not beat the band is reverted and kept only as a no-gain row",
