@@ -38,6 +38,19 @@ case "$RUSTC_VERSION" in
 esac
 ELMER_COMMIT="$(git -C "$ELMER_FORK" rev-parse HEAD 2>/dev/null || echo unknown)"
 echo "   elmer_fork=$ELMER_COMMIT"
+# ccache (ADR-045 §cache): the campaign's shared cache, when the host has
+# it. The lane compiles a handful of files, so the cache is not
+# load-bearing here, but the recipe is the campaign's.
+if command -v ccache >/dev/null 2>&1; then
+  export CCACHE_DIR="${ELMER_LANES_CACHE:-/home/john/firstmate/data/elmer-lanes-cache}"
+  export CCACHE_SLOPPINESS="file_macro include_file_mtime include_file_ctime time_macros pch_defines"
+  export CCACHE_MAXSIZE="20G"
+  FC="ccache gfortran"
+  echo "   ccache: $(ccache --version | head -1), CCACHE_DIR=$CCACHE_DIR"
+else
+  FC="gfortran"
+  echo "   ccache: not installed on this host; compiling with plain gfortran"
+fi
 T_PIN=$SECONDS
 
 # The units under test. `rel` is the source in the Elmer tree, `crate` the
@@ -57,7 +70,7 @@ module Types
   integer, parameter :: dp = SELECTED_REAL_KIND(12)
 end module Types
 EOF
-gfortran -c "$WORK/types_stub.F90" -o "$WORK/types_stub.o" -J "$WORK"
+$FC -c "$WORK/types_stub.F90" -o "$WORK/types_stub.o" -J "$WORK"
 test -f "$WORK/types.mod"
 
 echo "-- drivers (clean-room corpus code)"
@@ -237,11 +250,11 @@ for spec in "${UNIT_LIST[@]}"; do
   src="$ELMER_FORK/fem/src/$rel"
   test -f "$src" || { echo "FAIL: no $src" >&2; exit 1; }
   stem="${rel%.F90}"
-  gfortran -c "$src" -o "$WORK/${stem}_ref.o" -I "$WORK"
+  $FC -c "$src" -o "$WORK/${stem}_ref.o" -I "$WORK"
   test -f "$WORK/${stem}_ref.o"
-  gfortran -c "$WORK/probe_${driver}.F90" -o "$WORK/probe_${driver}.o"
+  $FC -c "$WORK/probe_${driver}.F90" -o "$WORK/probe_${driver}.o"
   test -f "$WORK/probe_${driver}.o"
-  gfortran -o "$WORK/probe_${driver}_orig" "$WORK/probe_${driver}.o" "$WORK/${stem}_ref.o" \
+  $FC -o "$WORK/probe_${driver}_orig" "$WORK/probe_${driver}.o" "$WORK/${stem}_ref.o" \
     -llapack -lblas
   test -f "$WORK/probe_${driver}_orig"
   set +e
@@ -261,7 +274,7 @@ for spec in "${UNIT_LIST[@]}"; do
   (cd "$ER/crates/elmer-fem-a/ports/$crate" && CARGO_TARGET_DIR="$WORK/target" cargo +nightly build -q)
   PORT_LIB="$WORK/target/debug/lib${crate}.a"
   test -f "$PORT_LIB" || { echo "FAIL: no $PORT_LIB" >&2; exit 1; }
-  gfortran -o "$WORK/probe_${driver}_ports" "$WORK/probe_${driver}.o" \
+  $FC -o "$WORK/probe_${driver}_ports" "$WORK/probe_${driver}.o" \
     -Wl,--whole-archive "$PORT_LIB" -Wl,--no-whole-archive -llapack -lblas -lgfortran -lm
   test -f "$WORK/probe_${driver}_ports"
   set +e
@@ -362,11 +375,12 @@ for unit, crate, syms, corpus in units:
       ('strong-symbol', 1, {'wall_s': int(w_sym), 'dup_beyond_replaced': 0,
         'replaced': syms, 'whole_file_portable': True}),
     ]
+    con.execute('DELETE FROM gate_results WHERE unit_id=? AND gate IN (?,?,?)', (unit, gates[0][0], gates[1][0], gates[2][0]))
     for g, ok, det in gates:
         con.execute('INSERT INTO gate_results (unit_id, gate, passed, detail_json, ran_at) VALUES (?,?,?,?,?)',
           (unit, g, ok, json.dumps(det), now))
 con.commit()
-print('   rows:', con.execute('SELECT COUNT(*) FROM gate_results').fetchone()[0], 'gate rows in', db)
+print('   rows:', con.execute('SELECT COUNT(*) FROM gate_results WHERE unit_id LIKE ?', ('fortran:fem/src/%',)).fetchone()[0], 'gate rows for the graded units in', db)
 EOF
 
 echo "FEMCORE-A LAPACK BAND PROOF GREEN (pin=$((T_PIN - T0))s driver=$((T_DRIVER - T_PIN))s ref=$((T_REF - T_DRIVER))s port=$((T_PORT - T_REF))s sym=$((T_SYM - T_PORT))s)"

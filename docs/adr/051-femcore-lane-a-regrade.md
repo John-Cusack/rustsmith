@@ -155,6 +155,16 @@ constant — so the reference object is the unit's own code; the real
 `Types` module needs the generated `config.h` and the Lua module, which
 this lane does not build.
 
+Rust craft: the two new ports are marshalling wrappers, so there is no
+per-item loop to tighten — no per-item boxing, no per-item allocation,
+no dyn dispatch, and the branch on the LAPACK `info` is hoisted out of
+any loop. The one allocation is the pivot array LAPACK requires, one per
+call (the same automatic array the Fortran allocates on the stack). The
+proof script routes the Fortran compiles through the campaign's shared
+ccache recipe (`data/elmer-lanes/ccache.env`, ADR-045) when the host has
+ccache; the lane compiles a handful of files, so the cache is not
+load-bearing here.
+
 ## 6. Result
 
 - Claim: 177 of 353 fem core refused/skipped units
