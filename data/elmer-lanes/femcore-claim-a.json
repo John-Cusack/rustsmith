@@ -1,0 +1,3006 @@
+{
+ "generated_by": "data/elmer-lanes/femcore-claim-a.json (lane rs-elmer-femcore-a)",
+ "rule": "universe = fem/ core units recorded refused/skipped in the lane-fem-a ledger (crates/elmer-fem-a/LEDGER.md, port repo) and the lane-fem-b regrade record (data/elmer-lanes/lane-fem-b.regrade.json, plus the three vacuous admits the fem-b ledger records as skips); sorted lexicographically by unit id; claim A = the first ceil(N/2) ids, claim B = the rest",
+ "counts": {
+  "universe": 353,
+  "claim_a": 177,
+  "claim_b": 176,
+  "lane_fem_a_universe": 136,
+  "lane_fem_b_universe": 217
+ },
+ "not_in_universe": {
+  "lane_fem_a": [
+   {
+    "unit": "c:fem/src/CPUTime.c",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "c:fem/src/GFortranLocaleFix.c",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "c:fem/src/Load.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/binio/binio.c",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "c:fem/src/elmerf90.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/elmerld.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/f_stubs.c",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "c:fem/src/fft.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/umf4_f77wrapper.c",
+    "prior_status": "ported",
+    "prior_reason": "batch2: local differential byte-identical (di path vs vendored UMFPACK); machine grade pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/16node_quad.c",
+    "prior_status": "ported",
+    "prior_reason": "batch2: local differential byte-identical; machine grade pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/2d_4node.c",
+    "prior_status": "ported",
+    "prior_reason": "batch2: local differential byte-identical (libc fprintf %g paths); machine grade pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/BiCubicUtil.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/view3d/BiLinearUtil.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/view3d/BiQuadraticUtil.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/view3d/ClipShadow.c",
+    "prior_status": "ported",
+    "prior_reason": "batch2: local differential byte-identical; machine grade pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/ContourInteg.c",
+    "prior_status": "ported",
+    "prior_reason": "batch2: local differential byte-identical (back-face/0.5*ABS paths); machine grade pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/LUDecomp.c",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/LineUtil.c",
+    "prior_status": "ported",
+    "prior_reason": "batch2: local differential byte-identical (dead-division preserved); machine grade pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/RayTrace.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/view3d/ShaftCull.c",
+    "prior_status": "ported",
+    "prior_reason": "batch2: local differential byte-identical (driver-UB fixed, Walk/planes verified); machine grade pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/TestModel.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/view3d/TriangleUtil.c",
+    "prior_status": "ported",
+    "prior_reason": "batch2: local differential byte-identical (pair+subdivide paths); machine grade pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/VectorUtil.c",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "c:fem/src/view3d/ViewFactors.c",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "c:fem/src/view3d/second.c",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "cxx:fem/src/viewaxis/viewfact.cpp",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "fortran:fem/src/ElementDescription.F90",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "fortran:fem/src/MeshUtils.F90",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "fortran:fem/src/Radiators.F90",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "fortran:fem/src/ResultToPost.F90",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2"
+   },
+   {
+    "unit": "fortran:fem/src/SolverUtils.F90",
+    "prior_status": "ported",
+    "prior_reason": "batch1: local differential byte-identical; machine grade vs backstop pending"
+   },
+   {
+    "unit": "fortran:fem/src/Types.F90",
+    "prior_status": "deferred-round2",
+    "prior_reason": "T008 scope-cut: gate-clean BIND(C) but LARGE (108 derived-type copy symbols), ungraded here; chartered to fem-a round-2"
+   }
+  ],
+  "note": "lane-fem-a rows that are neither refused nor skipped (ported, deferred-round2) stay with their own lane"
+ },
+ "claim_a": [
+  "c:fem/obsolete/SC2Elmer.c",
+  "c:fem/src/SolveHypre.c",
+  "c:fem/src/SolveSuperLU.c",
+  "c:fem/src/amgx.c",
+  "c:fem/src/cholmod.c",
+  "c:fem/src/elmer_lua_iface.c",
+  "c:fem/src/elmer_lua_iface.h",
+  "c:fem/src/elmerf90-helper.in.h",
+  "c:fem/src/fft_test.c",
+  "c:fem/src/mpif_stub.h",
+  "c:fem/src/view3d/Ipoints.h",
+  "c:fem/src/view3d/LinearSolve.c",
+  "c:fem/src/view3d/LinearSolveConjGrad.c",
+  "c:fem/src/view3d/LinearSolveGaussSeidel.c",
+  "c:fem/src/view3d/LinearSolveJacob.c",
+  "c:fem/src/view3d/ViewFactors.h",
+  "c:fem/src/viewaxis/viewfact.h",
+  "cxx:fem/src/rocalution.cpp",
+  "fortran:fem/examples/turing/Turing.f90",
+  "fortran:fem/obsolete/MovingElstatSolver.F90",
+  "fortran:fem/src/ADIOS2Utils.F90",
+  "fortran:fem/src/Adaptive.F90",
+  "fortran:fem/src/AddrFunc.F90",
+  "fortran:fem/src/BackwardError.F90",
+  "fortran:fem/src/BandMatrix.F90",
+  "fortran:fem/src/BandwidthOptimize.F90",
+  "fortran:fem/src/BlockSolve.F90",
+  "fortran:fem/src/BoundaryConditionUtils.F90",
+  "fortran:fem/src/CRSMatrix.F90",
+  "fortran:fem/src/CircuitUtils.F90",
+  "fortran:fem/src/ClusteringMethods.F90",
+  "fortran:fem/src/Constitutive.F90",
+  "fortran:fem/src/ContactUtils.F90",
+  "fortran:fem/src/CoordinateSystems.F90",
+  "fortran:fem/src/CutFEMUtils.F90",
+  "fortran:fem/src/DefUtils.F90",
+  "fortran:fem/src/Differentials.F90",
+  "fortran:fem/src/DiffuseConvectiveAnisotropic.F90",
+  "fortran:fem/src/DiffuseConvectiveGeneralAnisotropic.F90",
+  "fortran:fem/src/DirectSolve.F90",
+  "fortran:fem/src/EigenSolve.F90",
+  "fortran:fem/src/ElemInfo.F90",
+  "fortran:fem/src/ElementBasis.F90",
+  "fortran:fem/src/ElementGeometry.F90",
+  "fortran:fem/src/ElementUtils.F90",
+  "fortran:fem/src/ElmerSolver.F90",
+  "fortran:fem/src/ExchangeCorrelations.F90",
+  "fortran:fem/src/Feti.F90",
+  "fortran:fem/src/FreeSurface.F90",
+  "fortran:fem/src/GeneralUtils.F90",
+  "fortran:fem/src/GeometryFitting.F90",
+  "fortran:fem/src/H1Basis.F90",
+  "fortran:fem/src/HashTable.F90",
+  "fortran:fem/src/Integration.F90",
+  "fortran:fem/src/InterpVarToVar.F90",
+  "fortran:fem/src/InterpolateMeshToMesh.F90",
+  "fortran:fem/src/Interpolation.F90",
+  "fortran:fem/src/IpFieldInterface.F90",
+  "fortran:fem/src/IterSolve.F90",
+  "fortran:fem/src/IterativeMethods.F90",
+  "fortran:fem/src/LinearAlgebra.F90",
+  "fortran:fem/src/LinearForms.F90",
+  "fortran:fem/src/ListMatrix.F90",
+  "fortran:fem/src/ListMatrixArray.F90",
+  "fortran:fem/src/Lists.F90",
+  "fortran:fem/src/LoadMod.F90",
+  "fortran:fem/src/Lua.F90",
+  "fortran:fem/src/LumpingUtils.F90",
+  "fortran:fem/src/MGPrec.F90",
+  "fortran:fem/src/MagnetoDynamicsUtils.F90",
+  "fortran:fem/src/MainUtils.F90",
+  "fortran:fem/src/MaterialModels.F90",
+  "fortran:fem/src/MatrixAssembly.F90",
+  "fortran:fem/src/MatrixScaling.F90",
+  "fortran:fem/src/MeshAllocations.F90",
+  "fortran:fem/src/MeshBasics.F90",
+  "fortran:fem/src/MeshExtrusion.F90",
+  "fortran:fem/src/MeshGenerate.F90",
+  "fortran:fem/src/MeshGraph.F90",
+  "fortran:fem/src/MeshIO.F90",
+  "fortran:fem/src/MeshLoad.F90",
+  "fortran:fem/src/MeshPartition.F90",
+  "fortran:fem/src/MeshRemeshing.F90",
+  "fortran:fem/src/MeshSplit.F90",
+  "fortran:fem/src/MeshTagging.F90",
+  "fortran:fem/src/MeshTransform.F90",
+  "fortran:fem/src/Messages.F90",
+  "fortran:fem/src/ModelDescription.F90",
+  "fortran:fem/src/ModelLumping.F90",
+  "fortran:fem/src/MortarUtils.F90",
+  "fortran:fem/src/Multigrid.F90",
+  "fortran:fem/src/NavierStokes.F90",
+  "fortran:fem/src/NavierStokesCylindrical.F90",
+  "fortran:fem/src/NavierStokesGeneral.F90",
+  "fortran:fem/src/OptimizationUtils.F90",
+  "fortran:fem/src/PElementBase.F90",
+  "fortran:fem/src/PElementMaps.F90",
+  "fortran:fem/src/PElementVisual.F90",
+  "fortran:fem/src/ParallelEigenSolve.F90",
+  "fortran:fem/src/ParallelUtils.F90",
+  "fortran:fem/src/ParticleUtils.F90",
+  "fortran:fem/src/PowellOptBobyqa.F90",
+  "fortran:fem/src/PowellOptNewuoa.F90",
+  "fortran:fem/src/ProjectorUtils.F90",
+  "fortran:fem/src/Radiation.F90",
+  "fortran:fem/src/RadiationFactors.F90",
+  "fortran:fem/src/ResultToResult.F90",
+  "fortran:fem/src/SParIterComm.F90",
+  "fortran:fem/src/SParIterGlobals.F90",
+  "fortran:fem/src/SParIterPrecond.F90",
+  "fortran:fem/src/SParIterSolver.F90",
+  "fortran:fem/src/SaveUtils.F90",
+  "fortran:fem/src/Smoothers.F90",
+  "fortran:fem/src/SolidMechanicsUtils.F90",
+  "fortran:fem/src/SolveBand.F90",
+  "fortran:fem/src/SolveCore.F90",
+  "fortran:fem/src/SolveSBand.F90",
+  "fortran:fem/src/Solver.F90",
+  "fortran:fem/src/SolverActivate_x.F90",
+  "fortran:fem/src/SolverBasics.F90",
+  "fortran:fem/src/Stress.F90",
+  "fortran:fem/src/StressGeneral.F90",
+  "fortran:fem/src/TimeIntegrate.F90",
+  "fortran:fem/src/VankaCreate.F90",
+  "fortran:fem/src/VectorHelmholtzUtils.F90",
+  "fortran:fem/src/ViewFactors.F90",
+  "fortran:fem/src/ViewUtils.F90",
+  "fortran:fem/src/Walls.F90",
+  "fortran:fem/src/ZirkaHysteresis.F90",
+  "fortran:fem/src/binio/biniomod.f90",
+  "fortran:fem/src/minpack.F90",
+  "fortran:fem/src/minpack_kinds.F90",
+  "fortran:fem/src/modules/ADIOS2OutputSolver.F90#adios2outputsolver_init",
+  "fortran:fem/src/modules/ADIOS2OutputSolver.F90#adiosoutputsolverutils",
+  "fortran:fem/src/modules/Acoustics.F90",
+  "fortran:fem/src/modules/AdvectionDiffusion.F90",
+  "fortran:fem/src/modules/AdvectionReaction.F90",
+  "fortran:fem/src/modules/AllocateSolver.F90",
+  "fortran:fem/src/modules/AmsPrecSolver.F90",
+  "fortran:fem/src/modules/ArteryOutlet.F90",
+  "fortran:fem/src/modules/ArtificialCompressibility.F90",
+  "fortran:fem/src/modules/BatterySolver/BatteryPost.F90",
+  "fortran:fem/src/modules/BatterySolver/BatteryUtils.F90",
+  "fortran:fem/src/modules/BatterySolver/ElectrolyteCons.F90",
+  "fortran:fem/src/modules/BatterySolver/ElectrolytePot.F90",
+  "fortran:fem/src/modules/BatterySolver/SolidPhaseCons.F90",
+  "fortran:fem/src/modules/BatterySolver/SolidPhasePot.F90",
+  "fortran:fem/src/modules/BeamSolver3D.F90",
+  "fortran:fem/src/modules/CahnHilliard.F90",
+  "fortran:fem/src/modules/CircuitsAndDynamics.F90",
+  "fortran:fem/src/modules/CoilSolver.F90",
+  "fortran:fem/src/modules/CompressibleNS.F90",
+  "fortran:fem/src/modules/ConsistentSplitting/CompressibilitySolver.F90",
+  "fortran:fem/src/modules/ConsistentSplitting/OptimalSolutionUpdate.F90",
+  "fortran:fem/src/modules/ConsistentSplitting/PressureSolver.F90",
+  "fortran:fem/src/modules/ConsistentSplitting/VelocitySolver.F90",
+  "fortran:fem/src/modules/CoordinateTransform.F90#rotmsolver_init",
+  "fortran:fem/src/modules/CoordinateTransform.F90#vecutils",
+  "fortran:fem/src/modules/CraigBamptonSolver.F90",
+  "fortran:fem/src/modules/CyclicConvergence.F90",
+  "fortran:fem/src/modules/DCRComplexSolve.F90",
+  "fortran:fem/src/modules/DFTSolver.F90",
+  "fortran:fem/src/modules/DataToFieldSolver.F90",
+  "fortran:fem/src/modules/DirectionSolver.F90",
+  "fortran:fem/src/modules/DistanceSolve.F90",
+  "fortran:fem/src/modules/DistributeSource.F90",
+  "fortran:fem/src/modules/DivProjection.F90",
+  "fortran:fem/src/modules/DivergenceSolver.F90",
+  "fortran:fem/src/modules/EMPort.F90",
+  "fortran:fem/src/modules/EMWaveSolver.F90#emwavesolver_init0",
+  "fortran:fem/src/modules/EMWaveSolver.F90#emwavesolverutils",
+  "fortran:fem/src/modules/EdgeFEInterpolationTest.F90",
+  "fortran:fem/src/modules/ElasticSolve.F90",
+  "fortran:fem/src/modules/ElectricForce.F90",
+  "fortran:fem/src/modules/Electrokinetics.F90",
+  "fortran:fem/src/modules/ElementSizeSolver.F90",
+  "fortran:fem/src/modules/ElementStats.F90"
+ ],
+ "claim_b": [
+  "fortran:fem/src/modules/EliminateDirichlet.F90",
+  "fortran:fem/src/modules/EliminatePeriodic.F90",
+  "fortran:fem/src/modules/Elmer2OpenFoamIO.F90",
+  "fortran:fem/src/modules/EnergyRelease.F90",
+  "fortran:fem/src/modules/FDiffusion.F90",
+  "fortran:fem/src/modules/FDiffusion3D.F90",
+  "fortran:fem/src/modules/FacetShellSolve.F90",
+  "fortran:fem/src/modules/FilmCompressibility.F90",
+  "fortran:fem/src/modules/FilmFlowSolver.F90",
+  "fortran:fem/src/modules/FilterTimeSeries.F90",
+  "fortran:fem/src/modules/FindOptimum.F90",
+  "fortran:fem/src/modules/FixTangentVelo.F90",
+  "fortran:fem/src/modules/FlowSolve.F90",
+  "fortran:fem/src/modules/FluidicForce.F90",
+  "fortran:fem/src/modules/FluxSolver.F90",
+  "fortran:fem/src/modules/FourierLoss.F90",
+  "fortran:fem/src/modules/FreeSurfaceReduced.F90",
+  "fortran:fem/src/modules/FreeSurfaceSolver.F90",
+  "fortran:fem/src/modules/GmshOutputReader.F90",
+  "fortran:fem/src/modules/HarmonicSignals.F90#source",
+  "fortran:fem/src/modules/HeatSolve.F90#heatsolvefront",
+  "fortran:fem/src/modules/HeatSolve.F90#heatsolver_init0",
+  "fortran:fem/src/modules/HeatSolveLegacy.F90",
+  "fortran:fem/src/modules/HeatSolveVec.F90#heatsolver_init0",
+  "fortran:fem/src/modules/HeatSolveVec.F90#heatsolvevecfront",
+  "fortran:fem/src/modules/HelmholtzBEM.F90#globmatc",
+  "fortran:fem/src/modules/HelmholtzBEM.F90#helmholtzbemsolver",
+  "fortran:fem/src/modules/HelmholtzProjection.F90",
+  "fortran:fem/src/modules/HelmholtzSolve.F90",
+  "fortran:fem/src/modules/HydrostaticNS.F90#hydrostaticnssolver_init0",
+  "fortran:fem/src/modules/HydrostaticNS.F90#hydrostaticnsutils",
+  "fortran:fem/src/modules/HydrostaticNSVec.F90#hydrostaticnssolver_init0",
+  "fortran:fem/src/modules/HydrostaticNSVec.F90#hydrostaticnsvecfront",
+  "fortran:fem/src/modules/IncompressibleNS.F90#incompressiblelocalforms",
+  "fortran:fem/src/modules/IncompressibleNS.F90#incompressiblenssolver_init0",
+  "fortran:fem/src/modules/IncompressibleNSVec.F90#incompressiblenssolver_init0",
+  "fortran:fem/src/modules/IncompressibleNSVec.F90#incompressiblensvecfront",
+  "fortran:fem/src/modules/Isosurface.F90",
+  "fortran:fem/src/modules/LevelSet/LevelSetCurvature.F90",
+  "fortran:fem/src/modules/LevelSet/LevelSetDistance.F90",
+  "fortran:fem/src/modules/LevelSet/LevelSetIntegrate.F90",
+  "fortran:fem/src/modules/LevelSet/LevelSetSolver.F90",
+  "fortran:fem/src/modules/LevelSet/LevelSetTimestep.F90",
+  "fortran:fem/src/modules/MagneticSolve/MagneticSolve.F90",
+  "fortran:fem/src/modules/MagneticSolve/Maxwell.F90",
+  "fortran:fem/src/modules/MagneticSolve/MaxwellAxiS.F90",
+  "fortran:fem/src/modules/MagneticSolve/MaxwellGeneral.F90",
+  "fortran:fem/src/modules/MagnetoDynamics/CalcFields.F90",
+  "fortran:fem/src/modules/MagnetoDynamics/JfixPotentialSolver.F90",
+  "fortran:fem/src/modules/MagnetoDynamics/PlatiseFerroModel.F90",
+  "fortran:fem/src/modules/MagnetoDynamics/Utils.F90",
+  "fortran:fem/src/modules/MagnetoDynamics/WhitneyAVHarmonicSolver.F90",
+  "fortran:fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90",
+  "fortran:fem/src/modules/MagnetoDynamics2D.F90",
+  "fortran:fem/src/modules/MarchingODESolver.F90",
+  "fortran:fem/src/modules/Mesh2MeshSolver.F90",
+  "fortran:fem/src/modules/MeshChecksum.F90",
+  "fortran:fem/src/modules/MeshSolve.F90",
+  "fortran:fem/src/modules/ModelMixedPoisson.F90",
+  "fortran:fem/src/modules/ModelPDE.F90",
+  "fortran:fem/src/modules/ModelPDECutFEM.F90",
+  "fortran:fem/src/modules/ModelPDEhandle.F90",
+  "fortran:fem/src/modules/NodeToEdgeSolver.F90",
+  "fortran:fem/src/modules/NonphysicalMeshSolve.F90",
+  "fortran:fem/src/modules/NormalSolver.F90",
+  "fortran:fem/src/modules/OdeSolver.F90",
+  "fortran:fem/src/modules/OpenFoam2ElmerIO.F90",
+  "fortran:fem/src/modules/ParStokes.F90#anisotropicmaterialmodels",
+  "fortran:fem/src/modules/ParStokes.F90#stokessolver_init0",
+  "fortran:fem/src/modules/ParallelRemesh.F90",
+  "fortran:fem/src/modules/ParticleAdvector.F90",
+  "fortran:fem/src/modules/ParticleDynamics.F90#particledynamics",
+  "fortran:fem/src/modules/ParticleDynamics.F90#particledynamicsstuff",
+  "fortran:fem/src/modules/PartitionMesh.F90",
+  "fortran:fem/src/modules/PhaseChangeSolve.F90",
+  "fortran:fem/src/modules/Poisson.F90",
+  "fortran:fem/src/modules/PoissonBEM.F90#globmat",
+  "fortran:fem/src/modules/PoissonBEM.F90#poissonbemsolver",
+  "fortran:fem/src/modules/PoissonBoltzmannSolve.F90",
+  "fortran:fem/src/modules/PoissonDG.F90",
+  "fortran:fem/src/modules/PressurePrecond.F90",
+  "fortran:fem/src/modules/Probes.F90",
+  "fortran:fem/src/modules/ProjectToPlane.F90",
+  "fortran:fem/src/modules/RateOfChange.F90",
+  "fortran:fem/src/modules/ReloadData.F90",
+  "fortran:fem/src/modules/ReloadInput.F90",
+  "fortran:fem/src/modules/ResultOutputSolve/DXOutputSolver.F90#dxfile",
+  "fortran:fem/src/modules/ResultOutputSolve/DXOutputSolver.F90#dxoutputsolver",
+  "fortran:fem/src/modules/ResultOutputSolve/ElmerPostOutputSolver.F90",
+  "fortran:fem/src/modules/ResultOutputSolve/GidOutputSolver.F90",
+  "fortran:fem/src/modules/ResultOutputSolve/ResultOutputSolver.F90",
+  "fortran:fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90#vtklegacyfile",
+  "fortran:fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90#vtkoutputsolver",
+  "fortran:fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90#vtuoutputsolver",
+  "fortran:fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90#vtuxmlfile",
+  "fortran:fem/src/modules/ReynoldsSolver.F90",
+  "fortran:fem/src/modules/RichardsSolver.F90#porousmaterials",
+  "fortran:fem/src/modules/RichardsSolver.F90#richardssolver_init",
+  "fortran:fem/src/modules/RigidBodyReduction.F90",
+  "fortran:fem/src/modules/RigidMeshMapper.F90",
+  "fortran:fem/src/modules/SaveData/SaveBoundaryValues.F90",
+  "fortran:fem/src/modules/SaveData/SaveDependence.F90",
+  "fortran:fem/src/modules/SaveData/SaveLine.F90",
+  "fortran:fem/src/modules/SaveData/SaveMaterials.F90",
+  "fortran:fem/src/modules/SaveData/SaveProjection.F90",
+  "fortran:fem/src/modules/SaveData/SaveScalars.F90",
+  "fortran:fem/src/modules/SaveGridData.F90",
+  "fortran:fem/src/modules/SaveMesh.F90",
+  "fortran:fem/src/modules/ScalarPotentialSolver.F90",
+  "fortran:fem/src/modules/ScannedFieldSolver.F90",
+  "fortran:fem/src/modules/ShallowWaterNS.F90",
+  "fortran:fem/src/modules/ShearrateSolver.F90",
+  "fortran:fem/src/modules/ShellSolver.F90",
+  "fortran:fem/src/modules/SimpleCircuits.F90",
+  "fortran:fem/src/modules/Smitc.F90",
+  "fortran:fem/src/modules/SpringAssembly.F90",
+  "fortran:fem/src/modules/StatCurrentSolve.F90#statcurrentsolvefront",
+  "fortran:fem/src/modules/StatCurrentSolve.F90#statcurrentsolver_init",
+  "fortran:fem/src/modules/StatCurrentSolveLegacy.F90",
+  "fortran:fem/src/modules/StatCurrentSolveVec.F90#statcurrentsolver_init",
+  "fortran:fem/src/modules/StatCurrentSolveVec.F90#statcurrentsolvevecfront",
+  "fortran:fem/src/modules/StatElecBoundary.F90#statelecboundaryenergy",
+  "fortran:fem/src/modules/StatElecBoundary.F90#statelecboundaryutils",
+  "fortran:fem/src/modules/StatElecSolve.F90#statelecsolvefront",
+  "fortran:fem/src/modules/StatElecSolve.F90#statelecsolver_init0",
+  "fortran:fem/src/modules/StatElecSolveLegacy.F90",
+  "fortran:fem/src/modules/StatElecSolveVec.F90#statelecsolver_init0",
+  "fortran:fem/src/modules/StatElecSolveVec.F90#statelecsolvevecfront",
+  "fortran:fem/src/modules/StatMagSolve.F90",
+  "fortran:fem/src/modules/SteadyPhaseChange.F90",
+  "fortran:fem/src/modules/Stokes.F90",
+  "fortran:fem/src/modules/StreamSolver.F90",
+  "fortran:fem/src/modules/StressSolve.F90#stresssolvefront",
+  "fortran:fem/src/modules/StressSolve.F90#stresssolver_init0",
+  "fortran:fem/src/modules/StructuredFlowLine.F90",
+  "fortran:fem/src/modules/StructuredMeshMapper.F90",
+  "fortran:fem/src/modules/StructuredProjectToPlane.F90",
+  "fortran:fem/src/modules/SunAngle.F90",
+  "fortran:fem/src/modules/ThermoElectricSolver.F90",
+  "fortran:fem/src/modules/TopoOpt.F90",
+  "fortran:fem/src/modules/TransientCost.F90",
+  "fortran:fem/src/modules/TransientPhaseChange.F90",
+  "fortran:fem/src/modules/TransportEquation.F90",
+  "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolver",
+  "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolverfront",
+  "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolverlocalforms",
+  "fortran:fem/src/modules/TurbulenceModels/KESolverLegacy.F90",
+  "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komega",
+  "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komegafront",
+  "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komegalocalforms",
+  "fortran:fem/src/modules/TurbulenceModels/KomegaLegacy.F90",
+  "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomega",
+  "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomegafront",
+  "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomegalocalforms",
+  "fortran:fem/src/modules/TurbulenceModels/SSTKomegaLegacy.F90",
+  "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmaras",
+  "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmarasfront",
+  "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmaraslocalforms",
+  "fortran:fem/src/modules/TurbulenceModels/Spalart-AllmarasLegacy.F90",
+  "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2f_ldm",
+  "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2fsolverfront",
+  "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2fsolverlocalforms",
+  "fortran:fem/src/modules/TurbulenceModels/V2FSolverLegacy.F90",
+  "fortran:fem/src/modules/UMATLib.F90",
+  "fortran:fem/src/modules/VectorHelmholtz.F90",
+  "fortran:fem/src/modules/VectorHelmholtzLumping.F90",
+  "fortran:fem/src/modules/VectorHelmholtzNodal.F90",
+  "fortran:fem/src/modules/VelocityPrecond.F90",
+  "fortran:fem/src/modules/VorticitySolver.F90",
+  "fortran:fem/src/modules/WPotentialSolver.F90",
+  "fortran:fem/src/modules/WVectorFix.F90",
+  "fortran:fem/src/modules/WaveSolver.F90",
+  "fortran:fem/src/mpif_stubs.F90",
+  "fortran:fem/src/solve_cmplx.F90",
+  "fortran:fem/src/solve_real.F90",
+  "python:fem/src/split_ElementDescription.py"
+ ],
+ "units": [
+  {
+   "unit": "c:fem/obsolete/SC2Elmer.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "fem/obsolete has no CMakeLists: never compiled",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/SolveHypre.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-ext-dep",
+   "prior_reason": "needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/SolveSuperLU.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-ext-dep",
+   "prior_reason": "needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/amgx.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-ext-dep",
+   "prior_reason": "needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/cholmod.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-ext-dep",
+   "prior_reason": "needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/elmer_lua_iface.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "WITH_LUA=FALSE: excluded from solverlib_SOURCES, never compiled",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/elmer_lua_iface.h",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-helper",
+   "prior_reason": "header-only unit: links, never ports (matc T005 precedent)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/elmerf90-helper.in.h",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-helper",
+   "prior_reason": "header-only unit: links, never ports (matc T005 precedent)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/fft_test.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "no CMake target (test main never built)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/mpif_stub.h",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-helper",
+   "prior_reason": "header-only unit: links, never ports (matc T005 precedent)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/view3d/Ipoints.h",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-helper",
+   "prior_reason": "header-only unit: links, never ports (matc T005 precedent)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/view3d/LinearSolve.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/view3d/LinearSolveConjGrad.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/view3d/LinearSolveGaussSeidel.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/view3d/LinearSolveJacob.c",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/view3d/ViewFactors.h",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-helper",
+   "prior_reason": "header-only unit: links, never ports (matc T005 precedent)",
+   "claim": "a"
+  },
+  {
+   "unit": "c:fem/src/viewaxis/viewfact.h",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-helper",
+   "prior_reason": "header-only unit: links, never ports (matc T005 precedent)",
+   "claim": "a"
+  },
+  {
+   "unit": "cxx:fem/src/rocalution.cpp",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-ext-dep",
+   "prior_reason": "needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/examples/turing/Turing.f90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/obsolete/MovingElstatSolver.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "fem/obsolete has no CMakeLists: never compiled (also non-BIND(C))",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ADIOS2Utils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (17); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Adaptive.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (26); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/AddrFunc.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (2); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/BackwardError.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (6); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/BandMatrix.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (12); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/BandwidthOptimize.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (6); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/BlockSolve.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (38); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/BoundaryConditionUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (26); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/CRSMatrix.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (77); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/CircuitUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (83); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ClusteringMethods.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (11); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Constitutive.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (14); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ContactUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (20); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/CoordinateSystems.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (13); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/CutFEMUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (31); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/DefUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (144); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Differentials.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (9); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/DiffuseConvectiveAnisotropic.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/DiffuseConvectiveGeneralAnisotropic.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/DirectSolve.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (42); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/EigenSolve.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (15); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ElemInfo.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (38); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ElementBasis.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (30); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ElementGeometry.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (21); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ElementUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (37); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ElmerSolver.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (24); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ExchangeCorrelations.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (7); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Feti.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (31); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/FreeSurface.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/GeneralUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/GeometryFitting.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (7); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/H1Basis.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (104); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/HashTable.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (13); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Integration.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (36); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/InterpVarToVar.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (5); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/InterpolateMeshToMesh.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (11); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Interpolation.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (14); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/IpFieldInterface.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (2); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/IterSolve.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (21); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/IterativeMethods.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (27); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/LinearAlgebra.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (25); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/LinearForms.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (8); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ListMatrix.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (29); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ListMatrixArray.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (18); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Lists.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (176); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/LoadMod.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (48); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Lua.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (19); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/LumpingUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (15); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MGPrec.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (2); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MagnetoDynamicsUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (14); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MainUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MaterialModels.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (8); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MatrixAssembly.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (30); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MatrixScaling.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (10); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshAllocations.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (8); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshBasics.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (79); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshExtrusion.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (8); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshGenerate.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (5); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshGraph.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (15); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshIO.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (35); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshLoad.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshPartition.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (40); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshRemeshing.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (20); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshSplit.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (7); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshTagging.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MeshTransform.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (8); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Messages.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (7); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ModelDescription.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (43); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ModelLumping.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (8); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/MortarUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (45); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Multigrid.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/NavierStokes.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (7); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/NavierStokesCylindrical.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/NavierStokesGeneral.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/OptimizationUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (27); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/PElementBase.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (150); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/PElementMaps.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (35); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/PElementVisual.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ParallelEigenSolve.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (12); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ParallelUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (44); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ParticleUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (84); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/PowellOptBobyqa.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (11); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/PowellOptNewuoa.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (10); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ProjectorUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (14); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Radiation.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/RadiationFactors.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (30); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ResultToResult.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SParIterComm.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SParIterGlobals.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SParIterPrecond.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (7); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SParIterSolver.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (31); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SaveUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (16); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Smoothers.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (35); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SolidMechanicsUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SolveBand.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SolveCore.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (58); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SolveSBand.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Solver.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (2); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SolverActivate_x.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (2); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/SolverBasics.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Stress.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (45); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/StressGeneral.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/TimeIntegrate.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (17); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/VankaCreate.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/VectorHelmholtzUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ViewFactors.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-COMMON",
+   "prior_reason": "ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ViewUtils.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (9); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/Walls.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (8); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/ZirkaHysteresis.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (31); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/binio/biniomod.f90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (14); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/minpack.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (28); no T014 relaxation landed",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/minpack_kinds.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-not-in-build",
+   "prior_reason": "WITH_EXTOPTIM off: minpack*.F90 excluded from solverlib_SOURCES, never compiled (port kept in tree)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ADIOS2OutputSolver.F90#adios2outputsolver_init",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: adios2outputsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ADIOS2OutputSolver.F90#adiosoutputsolverutils",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __adiosoutputsolverutils_MOD_getadiosholder:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Acoustics.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: acousticssolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/AdvectionDiffusion.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: advectiondiffusionsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/AdvectionReaction.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: advectionreactionsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/AllocateSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: allocatesolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/AmsPrecSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: amsvectorsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ArteryOutlet.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: outletcompute_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ArtificialCompressibility.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: compressibilityscale:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/BatterySolver/BatteryPost.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: batterypost:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/BatterySolver/BatteryUtils.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __batterymodule_MOD_variablerange:var:derived-type dummy (needs whole-program layout)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/BatterySolver/ElectrolyteCons.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: electrolytecons_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/BatterySolver/ElectrolytePot.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: electrolytepot_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/BatterySolver/SolidPhaseCons.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: solidphasecons_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/BatterySolver/SolidPhasePot.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: solidphasepot_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/BeamSolver3D.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: timoshenkosolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/CahnHilliard.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: cahnhilliardsolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/CircuitsAndDynamics.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: circuitsanddynamics_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/CoilSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: coilsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/CompressibleNS.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: compressiblens:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ConsistentSplitting/CompressibilitySolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: compressibilitysolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ConsistentSplitting/OptimalSolutionUpdate.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: optimalsolutionupdate:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ConsistentSplitting/PressureSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: pressuresolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ConsistentSplitting/VelocitySolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: velocitysolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/CoordinateTransform.F90#rotmsolver_init",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: rotmsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/CoordinateTransform.F90#vecutils",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __vecutils_MOD_norm2:a:explicit-shape dummy (later shape)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/CraigBamptonSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: craigbamptonsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/CyclicConvergence.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: cyclicconvergence_init:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/DCRComplexSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: dcrcomplexsolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/DFTSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: chargedensitysolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/DataToFieldSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: datatofieldsolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/DirectionSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: directionsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/DistanceSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: distancesolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/DistributeSource.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: distributesource:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/DivProjection.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: divprojection:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/DivergenceSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: divergencesolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/EMPort.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: emportsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/EMWaveSolver.F90#emwavesolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: emwavesolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/EMWaveSolver.F90#emwavesolverutils",
+   "ledger": "lane-fem-b",
+   "prior_status": "skipped",
+   "prior_reason": "gate admits (no non-BIND(C) procedures) but scope owns no portable procedure: empty module or data-only module (module ALLOCATABLE descriptor symbol unproven shape, T017)",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/EdgeFEInterpolationTest.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: bestapproximationsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ElasticSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: elasticsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ElectricForce.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statelecforce:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Electrokinetics.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: helmholtz_smoluchowski1:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ElementSizeSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: elementsizesolver:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ElementStats.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: elementstats:f77-global-or-unparsable-linkage",
+   "claim": "a"
+  },
+  {
+   "unit": "fortran:fem/src/modules/EliminateDirichlet.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: eliminatedirichlet:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/EliminatePeriodic.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: eliminateperiodic:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Elmer2OpenFoamIO.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: elmer2openfoamwrite:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/EnergyRelease.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: releaseratesolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FDiffusion.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: fourierdiffusionsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FDiffusion3D.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: fourierdiffusion3dsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FacetShellSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: shellsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FilmCompressibility.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: filmcompressibility_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FilmFlowSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: filmflowsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FilterTimeSeries.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: filtertimeseries:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FindOptimum.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: findoptimum:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FixTangentVelo.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: fixtangentvelo_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FlowSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: flowsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FluidicForce.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: forcecompute:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FluxSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: fluxsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FourierLoss.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: fourierlosssolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FreeSurfaceReduced.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: freesurfacereduced:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/FreeSurfaceSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: freesurfacesolver_rotinit:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/GmshOutputReader.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: gmshoutputreader:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HarmonicSignals.F90#source",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: source:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HeatSolve.F90#heatsolvefront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __heatsolvefront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HeatSolve.F90#heatsolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: heatsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HeatSolveLegacy.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: heatsolverlegacy_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HeatSolveVec.F90#heatsolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: heatsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HeatSolveVec.F90#heatsolvevecfront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __heatsolvevecfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HelmholtzBEM.F90#globmatc",
+   "ledger": "lane-fem-b",
+   "prior_status": "skipped",
+   "prior_reason": "gate admits (no non-BIND(C) procedures) but scope owns no portable procedure: empty module or data-only module (module ALLOCATABLE descriptor symbol unproven shape, T017)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HelmholtzBEM.F90#helmholtzbemsolver",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: helmholtzbemsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HelmholtzProjection.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: helmholtzprojector_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HelmholtzSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: helmholtzsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HydrostaticNS.F90#hydrostaticnssolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: hydrostaticnssolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HydrostaticNS.F90#hydrostaticnsutils",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __hydrostaticnsutils_MOD_effectiveviscosityvec:dbasisdxvec:assumed-shape rank > 2",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HydrostaticNSVec.F90#hydrostaticnssolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: hydrostaticnssolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/HydrostaticNSVec.F90#hydrostaticnsvecfront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __hydrostaticnsvecfront_MOD_delegateto:entry:character dummy (hidden length param)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/IncompressibleNS.F90#incompressiblelocalforms",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __incompressiblelocalforms_MOD_localbulkmatrix:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/IncompressibleNS.F90#incompressiblenssolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: incompressiblenssolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/IncompressibleNSVec.F90#incompressiblenssolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: incompressiblenssolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/IncompressibleNSVec.F90#incompressiblensvecfront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __incompressiblensvecfront_MOD_delegateto:entry:character dummy (hidden length param)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Isosurface.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: isosurfacesolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/LevelSet/LevelSetCurvature.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: levelsetcurvature:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/LevelSet/LevelSetDistance.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: levelsetdistance:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/LevelSet/LevelSetIntegrate.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: levelsetintegrate:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/LevelSet/LevelSetSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: levelsetsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/LevelSet/LevelSetTimestep.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: levelsettimestep:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagneticSolve/MagneticSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: magneticsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagneticSolve/Maxwell.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __maxwell_MOD_maxwellcompose:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagneticSolve/MaxwellAxiS.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __maxwellaxis_MOD_maxwellaxiscompose:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagneticSolve/MaxwellGeneral.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __maxwellgeneral_MOD_maxwellgeneralcompose:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagnetoDynamics/CalcFields.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: magnetodynamicscalcfields_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagnetoDynamics/JfixPotentialSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: jfixpotentialsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagnetoDynamics/PlatiseFerroModel.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: platiseferromodel:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagnetoDynamics/Utils.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __magnetodynamicsutils_MOD_addconstraintfrombulk:a:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagnetoDynamics/WhitneyAVHarmonicSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: whitneyavharmonicsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: whitneyavsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MagnetoDynamics2D.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: magnetodynamics2d_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MarchingODESolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: marchingodesolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Mesh2MeshSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: mesh2meshsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MeshChecksum.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: meshchecksum_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/MeshSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: meshsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ModelMixedPoisson.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: mixedpoisson_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ModelPDE.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: advdiffsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ModelPDECutFEM.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: advdiffsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ModelPDEhandle.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: advdiffsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/NodeToEdgeSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: extrudedrestart_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/NonphysicalMeshSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: meshsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/NormalSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: normalsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/OdeSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: odesolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/OpenFoam2ElmerIO.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: openfoam2elmerfit:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ParStokes.F90#anisotropicmaterialmodels",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __anisotropicmaterialmodels_MOD_anisotropiceffectiveviscosity:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ParStokes.F90#stokessolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: stokessolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ParallelRemesh.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: parallelremesh:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ParticleAdvector.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: particleadvector:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ParticleDynamics.F90#particledynamics",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: particledynamics:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ParticleDynamics.F90#particledynamicsstuff",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __particledynamicsstuff_MOD_particleparticlecontact:coord:explicit-shape dummy (later shape)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/PartitionMesh.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: partitionmeshsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/PhaseChangeSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: phasechangesolve_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Poisson.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: poissonsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/PoissonBEM.F90#globmat",
+   "ledger": "lane-fem-b",
+   "prior_status": "skipped",
+   "prior_reason": "gate admits (no non-BIND(C) procedures) but scope owns no portable procedure: empty module or data-only module (module ALLOCATABLE descriptor symbol unproven shape, T017)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/PoissonBEM.F90#poissonbemsolver",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: poissonbemsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/PoissonBoltzmannSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: poissonboltzmannsolve:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/PoissonDG.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: poissonsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/PressurePrecond.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: pressureprecond_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Probes.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: volumeprobe:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ProjectToPlane.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: projecttoplane:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/RateOfChange.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: rateofchangesolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ReloadData.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: reloadsolution:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ReloadInput.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: reloadinput:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/DXOutputSolver.F90#dxfile",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __dxfile_MOD_writedxfiles:prefix:character dummy (hidden length param)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/DXOutputSolver.F90#dxoutputsolver",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: dxoutputsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/ElmerPostOutputSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: elmerpostoutputsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/GidOutputSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: gidoutputsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/ResultOutputSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: resultoutputsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90#vtklegacyfile",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __vtklegacyfile_MOD_writevtklegacyfile:vtkfile:character dummy (hidden length param)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90#vtkoutputsolver",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: vtkoutputsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90#vtuoutputsolver",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: vtuoutputsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90#vtuxmlfile",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __vtuxmlfile_MOD_checkanydgfield:model:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ReynoldsSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: reynoldssolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/RichardsSolver.F90#porousmaterials",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __porousmaterials_MOD_hydraulicconductivity:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/RichardsSolver.F90#richardssolver_init",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: richardssolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/RigidBodyReduction.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: rigidbody:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/RigidMeshMapper.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: rigidmeshmapper:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SaveData/SaveBoundaryValues.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: saveboundaryvalues:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SaveData/SaveDependence.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: savedependence_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SaveData/SaveLine.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: saveline_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SaveData/SaveMaterials.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: savematerials:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SaveData/SaveProjection.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: saveprojection_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SaveData/SaveScalars.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: savescalars_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SaveGridData.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: particleoutputsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SaveMesh.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: savemesh:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ScalarPotentialSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: scalarpotentialsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ScannedFieldSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: scannedfieldsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ShallowWaterNS.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: shallowwaternssolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ShearrateSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: shearratesolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ShellSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: shellsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SimpleCircuits.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: circuitsanddynamics_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Smitc.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: smitcsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SpringAssembly.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: springassembler:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatCurrentSolve.F90#statcurrentsolvefront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __statcurrentsolvefront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatCurrentSolve.F90#statcurrentsolver_init",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statcurrentsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatCurrentSolveLegacy.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statcurrentsolverlegacy_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatCurrentSolveVec.F90#statcurrentsolver_init",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statcurrentsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatCurrentSolveVec.F90#statcurrentsolvevecfront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __statcurrentsolvevecfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatElecBoundary.F90#statelecboundaryenergy",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statelecboundaryenergy:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatElecBoundary.F90#statelecboundaryutils",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __statelecboundaryutils_MOD_statelecboundarygeneric:model:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatElecSolve.F90#statelecsolvefront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __statelecsolvefront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatElecSolve.F90#statelecsolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statelecsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatElecSolveLegacy.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statelecsolverlegacy_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatElecSolveVec.F90#statelecsolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statelecsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatElecSolveVec.F90#statelecsolvevecfront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __statelecsolvevecfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StatMagSolve.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: statmagsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SteadyPhaseChange.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: steadyphasechange:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/Stokes.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: stokessolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StreamSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: streamsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StressSolve.F90#stresssolvefront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __stresssolvefront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StressSolve.F90#stresssolver_init0",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: stresssolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StructuredFlowLine.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: structuredflowline:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StructuredMeshMapper.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: structuredmeshmapper_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/StructuredProjectToPlane.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: structuredprojecttoplane_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/SunAngle.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: sunanglesolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/ThermoElectricSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: thermoelectricsolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TopoOpt.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: topoopt_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TransientCost.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: transientcost_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TransientPhaseChange.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: transientphasechange:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TransportEquation.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: transportequationsolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolver",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: kesolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolverfront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __kesolverfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/KESolver.F90#kesolverlocalforms",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __kesolverlocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/KESolverLegacy.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: kesolverlegacy:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komega",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: komega:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komegafront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __komegafront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/Komega.F90#komegalocalforms",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __komegalocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/KomegaLegacy.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: komegalegacy:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomega",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: sstkomega:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomegafront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __sstkomegafront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/SSTKomega.F90#sstkomegalocalforms",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __sstkomegalocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/SSTKomegaLegacy.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: sstkomegalegacy:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmaras",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: spalartallmaras:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmarasfront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __spalartallmarasfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90#spalartallmaraslocalforms",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __spalartallmaraslocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/Spalart-AllmarasLegacy.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: spalartallmaraslegacy:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2f_ldm",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: v2f_ldm:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2fsolverfront",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __v2fsolverfront_MOD_legacyassembly:solver:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/V2FSolver.F90#v2fsolverlocalforms",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: __v2fsolverlocalforms_MOD_localmatrixvec:element:derived-type dummy (needs whole-program layout)",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/TurbulenceModels/V2FSolverLegacy.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: v2f_ldm_legacy:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/UMATLib.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: umat_template:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/VectorHelmholtz.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: vectorhelmholtzsolver_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/VectorHelmholtzLumping.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: vectorhelmholtzlumping:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/VectorHelmholtzNodal.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: vectorhelmholtznodal_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/VelocityPrecond.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: velocityprecond_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/VorticitySolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: vorticitysolver:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/WPotentialSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: wsolve_init0:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/WVectorFix.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: wvectorfix_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/modules/WaveSolver.F90",
+   "ledger": "lane-fem-b",
+   "prior_status": "refused-gate",
+   "prior_reason": "lane-fem-b regrade: wavesolver_init:f77-global-or-unparsable-linkage",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/mpif_stubs.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (40); no T014 relaxation landed",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/solve_cmplx.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (2); no T014 relaxation landed",
+   "claim": "b"
+  },
+  {
+   "unit": "fortran:fem/src/solve_real.F90",
+   "ledger": "lane-fem-a",
+   "prior_status": "refused-gate",
+   "prior_reason": "check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed",
+   "claim": "b"
+  },
+  {
+   "unit": "python:fem/src/split_ElementDescription.py",
+   "ledger": "lane-fem-a",
+   "prior_status": "skipped-helper",
+   "prior_reason": "build-time code generator, not linked",
+   "claim": "b"
+  }
+ ]
+}

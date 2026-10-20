@@ -3517,12 +3517,14 @@ fn split_mod_linkage(linkage: &str) -> Option<(&str, &str)> {
 /// is either a real module's bookkeeping export (no symbol), a module
 /// procedure whose dummies (and function result) all fit the admitted
 /// profile, or (T017 shape A) an F77 global external subprogram.
-/// `false` refuses (fail closed, pinned message).
-fn gate_file_admits(file: &GateFile, bad: &[String]) -> bool {
+/// `Err(reasons)` refuses (fail closed, pinned message) and names, per
+/// offending export, why the shape is not admitted; `Ok(())` admits.
+fn gate_file_verdict(file: &GateFile, bad: &[String]) -> Result<(), Vec<String>> {
     if file.common || file.blockdata {
-        return false;
+        return Err(vec!["COMMON/BLOCK DATA coupling (ADR-027)".to_string()]);
     }
     let mut checked = 0usize;
+    let mut reasons: Vec<String> = Vec::new();
     for link in bad {
         if file.scopes.iter().any(|s| s.module && s.name == *link) {
             continue; // Module bookkeeping export: recon emits the scope name.
@@ -3536,52 +3538,87 @@ fn gate_file_admits(file: &GateFile, bad: &[String]) -> bool {
             None => match file.scopes.iter().find(|s| !s.module && s.name == *link) {
                 Some(s) => match s.procs.first() {
                     Some(p) => (s.name.as_str(), p.name.as_str()),
-                    None => return false,
+                    None => {
+                        reasons.push(format!("{link}: external scope owns no procedure"));
+                        continue;
+                    }
                 },
-                None => return false,
+                None => {
+                    reasons.push(format!("{link}: scope-not-found-in-gate-parse"));
+                    continue;
+                }
             },
         };
         if let Some(s) = file.scopes.iter().find(|s| s.module && s.name == scope) {
             // Module procedure: the T014 profile.
             let p = match s.procs.iter().find(|p| p.name == proc) {
                 Some(x) => x,
-                None => return false,
+                None => {
+                    reasons.push(format!("{link}: procedure-not-found-in-gate-parse"));
+                    continue;
+                }
             };
+            let mut why: Option<&'static str> = None;
             for a in &p.args {
                 let decl = match p.decls.iter().find(|(n, _, _)| n == a) {
                     Some(x) => x,
-                    None => return false, // Undeclared dummy: implicit typing, unprovable.
+                    // Undeclared dummy: implicit typing, unprovable.
+                    None => {
+                        why = Some("undeclared dummy (implicit typing)");
+                        break;
+                    }
                 };
-                if gate_dummy_refusal(&decl.1, decl.2.as_deref(), false).is_some() {
-                    return false;
+                if let Some(r) = gate_dummy_refusal(&decl.1, decl.2.as_deref(), false) {
+                    why = Some(r);
+                    break;
                 }
             }
-            if p.is_function {
-                let decl = match p.decls.iter().find(|(n, _, _)| *n == p.result) {
-                    Some(x) => x,
-                    None => return false,
-                };
-                if gate_dummy_refusal(&decl.1, None, true).is_some() {
-                    return false;
+            if why.is_none() && p.is_function {
+                match p.decls.iter().find(|(n, _, _)| *n == p.result) {
+                    Some(decl) => {
+                        if let Some(r) = gate_dummy_refusal(&decl.1, None, true) {
+                            why = Some(r);
+                        }
+                    }
+                    None => {
+                        why = Some("undeclared function result (implicit typing)");
+                    }
                 }
+            }
+            if let Some(r) = why {
+                reasons.push(format!("{link}: {r}"));
+                continue;
             }
         } else {
             // T017 shape A: an F77 global external subprogram.
             let s = match file.scopes.iter().find(|s| !s.module && s.name == scope) {
                 Some(x) => x,
-                None => return false,
+                None => {
+                    reasons.push(format!("{link}: scope-not-found-in-gate-parse"));
+                    continue;
+                }
             };
             let p = match s.procs.iter().find(|p| p.name == proc) {
                 Some(x) => x,
-                None => return false,
+                None => {
+                    reasons.push(format!("{link}: procedure-not-found-in-gate-parse"));
+                    continue;
+                }
             };
-            if !gate_f77_external_admits(p) {
-                return false;
+            if let Some(r) = gate_f77_external_reason(p) {
+                reasons.push(format!("{link}: {r}"));
+                continue;
             }
         }
         checked += 1;
     }
-    checked > 0
+    if checked > 0 && reasons.is_empty() {
+        Ok(())
+    } else if reasons.is_empty() {
+        Err(vec!["scope owns no admitted procedure".to_string()])
+    } else {
+        Err(reasons)
+    }
 }
 
 /// T017 shape A: an F77 global external subprogram (`<name>_`). Every
@@ -3591,7 +3628,9 @@ fn gate_file_admits(file: &GateFile, bad: &[String]) -> bool {
 /// `REAL(8)` rank 1-2, and raw-base-address arrays of intrinsic type.
 /// A function result must be a scalar intrinsic: an array result travels
 /// as a hidden result pointer, which this shape does not admit.
-fn gate_f77_external_admits(p: &GateProc) -> bool {
+/// `Some(reason)` names the first dummy (or result) that leaves the
+/// proven shape A profile.
+fn gate_f77_external_reason(p: &GateProc) -> Option<&'static str> {
     for a in &p.args {
         let decl = p
             .decls
@@ -3600,10 +3639,11 @@ fn gate_f77_external_admits(p: &GateProc) -> bool {
             .or_else(|| p.legacy_decls.iter().find(|(n, _, _)| n == a));
         let decl = match decl {
             Some(x) => x,
-            None => return false, // Undeclared dummy: implicit typing, unprovable.
+            // Undeclared dummy: implicit typing, unprovable.
+            None => return Some("undeclared dummy (implicit typing)"),
         };
-        if gate_f77_dummy_refusal(&decl.1, decl.2.as_deref(), false).is_some() {
-            return false;
+        if let Some(r) = gate_f77_dummy_refusal(&decl.1, decl.2.as_deref(), false) {
+            return Some(r);
         }
     }
     if p.is_function {
@@ -3617,17 +3657,18 @@ fn gate_f77_external_admits(p: &GateProc) -> bool {
             // The function's own type prefix types the result.
             None => match p.fn_type.as_deref() {
                 Some(t) => (t, None),
-                None => return false,
+                None => return Some("untyped function result (no type prefix)"),
             },
         };
         if shape.is_some() {
-            return false; // Array result: hidden result pointer, not admitted.
+            // Array result: hidden result pointer, not admitted.
+            return Some("array function result (hidden result pointer)");
         }
-        if gate_dummy_refusal(dtype, shape, true).is_some() {
-            return false;
+        if let Some(r) = gate_dummy_refusal(dtype, shape, true) {
+            return Some(r);
         }
     }
-    true
+    None
 }
 
 /// T017 shape A dummy profile for an F77 global: an explicit-shape or
@@ -5575,13 +5616,20 @@ impl CmakeBridge {
     /// proven dummy profile. Unreadable source refuses (fail closed); so
     /// does any file the shape scanner cannot prove clean.
     fn fortran_gate_admits(unit: &UnitDecl, tree: &Path, bad: &[String]) -> bool {
+        Self::fortran_gate_reasons(unit, tree, bad).is_empty()
+    }
+    /// The reason-carrying form of [`CmakeBridge::fortran_gate_admits`]:
+    /// an empty list admits; a non-empty list refuses (fail closed) and
+    /// names, per offending export, why the shape is not admitted. The
+    /// boolean verdict is unchanged — the reasons are an extra channel.
+    fn fortran_gate_reasons(unit: &UnitDecl, tree: &Path, bad: &[String]) -> Vec<String> {
         let rel = match unit.files.first() {
             Some(r) if !r.is_empty() => r,
-            _ => return false,
+            _ => return vec!["unit declares no source file".to_string()],
         };
         let text = match std::fs::read_to_string(tree.join(rel)) {
             Ok(t) => t,
-            Err(_) => return false,
+            Err(_) => return vec![format!("source unreadable (fail closed): {rel}")],
         };
         let ext = Path::new(rel)
             .extension()
@@ -5589,7 +5637,10 @@ impl CmakeBridge {
             .map(|e| e.to_lowercase())
             .unwrap_or_default();
         let fixed = matches!(ext.as_str(), "f" | "for");
-        gate_file_admits(&parse_gate_file(&text, fixed), bad)
+        match gate_file_verdict(&parse_gate_file(&text, fixed), bad) {
+            Ok(()) => Vec::new(),
+            Err(reasons) => reasons,
+        }
     }
     /// Built objects for unit source `rel`: the root-layout suffix match
     /// plus the `DependInfo.cmake` fallback for subdir targets. Pure
@@ -5668,6 +5719,52 @@ impl CmakeBridge {
         }
         out
     }
+}
+
+/// The reason-carrying form of the Fortran substitution gate: `Ok(())`
+/// admits the unit through the gfortran shim, `Err(reasons)` refuses it
+/// (fail closed) and names, per offending export, why the shape is not
+/// admitted. The decision is the one [`CmakeBridge::check_substitutable`]
+/// makes — this adds the reason channel, it does not decide twice.
+pub fn fortran_substitution_verdict(unit: &UnitDecl, tree: &Path) -> Result<(), Vec<String>> {
+    let mut bad: Vec<String> = unit
+        .exports
+        .iter()
+        .filter(|e| matches!(e.abi, Abi::Fortran { bind_c: false }))
+        .map(|e| e.linkage.clone())
+        .collect();
+    bad.sort();
+    bad.dedup();
+    if bad.is_empty() {
+        return Ok(());
+    }
+    let reasons = CmakeBridge::fortran_gate_reasons(unit, tree, &bad);
+    if reasons.is_empty() {
+        Ok(())
+    } else {
+        Err(reasons)
+    }
+}
+
+/// The per-scope units the Fortran frontend sees in one file: the current
+/// scope split (`#<scope>` ids), which is what the lane-fem-b ledger
+/// grades (ADR-047, ADR-049). Empty when the file is not Fortran or the
+/// frontend claims nothing.
+pub fn fortran_scope_units(tree: &Path, rel: &str) -> Result<Vec<UnitDecl>, String> {
+    let file = tree.join(rel);
+    if !file.is_file() {
+        return Err(format!("no {rel} under {}", tree.display()));
+    }
+    let files = vec![file];
+    let compiler_ids = BTreeMap::new();
+    let cx = FragmentCtx {
+        repo: tree,
+        files: &files,
+        compile_db: None,
+        compiler_ids: &compiler_ids,
+    };
+    let frag = fortran_fragment(&cx).map_err(|e| e.to_string())?;
+    Ok(frag.units)
 }
 
 impl BuildBridge for CmakeBridge {
@@ -7590,6 +7687,32 @@ mod track_i_tests {
         };
         CmakeBridge::check_substitutable(&unit, dir.path())
             .expect("file-level F77-external unit admits through the shim");
+    }
+
+    #[test]
+    fn fortran_substitution_verdict_reports_reasons() {
+        // The reason channel (lane rs-elmer-femcore-a): the public verdict
+        // API makes the same decision as `check_substitutable` and, on a
+        // refusal, names why — per offending export. An admitted unit
+        // reports no reason at all.
+        let admitted = "module m\ncontains\nfunction wsum(amps, t) result(s)\n\
+            real(kind=dp) :: amps(:, :), t, s\ns = 0.0d0\nend function\nend module m\n";
+        let (dir, unit) = gate_unit_for("src/m.F90", admitted);
+        assert!(fortran_substitution_verdict(&unit, dir.path()).is_ok());
+        assert!(CmakeBridge::check_substitutable(&unit, dir.path()).is_ok());
+
+        let refused = "module m\ncontains\nsubroutine dsolv(model, dt)\n\
+            type(model_t) :: model\nreal(kind=dp) :: dt\nend subroutine\nend module m\n";
+        let (dir, unit) = gate_unit_for("src/m.F90", refused);
+        let reasons = fortran_substitution_verdict(&unit, dir.path()).unwrap_err();
+        assert!(!reasons.is_empty(), "a refusal must carry a reason");
+        assert!(
+            reasons.iter().any(|r| r.contains("derived-type dummy")),
+            "reasons: {reasons:?}"
+        );
+        // The decision is the gate's: the pinned refusal still stands.
+        let err = CmakeBridge::check_substitutable(&unit, dir.path()).unwrap_err();
+        assert!(err.contains("BIND(C)"), "unexpected: {err}");
     }
 
     #[test]
