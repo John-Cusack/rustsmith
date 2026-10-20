@@ -96,6 +96,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 - [ ] T015 [P] [US4] `fem/` core lane A (sub-subsystem split, disjoint files): shim ports graded through the unchanged chain; near-full affected sets expected (~480 s/unit). Non-goal: `COMMON` units (refused, recorded).
 - [ ] T016 [P] [US4] `fem/` core lane B (disjoint split from T015): same acceptance.
 - [ ] T017 [US4] Per-shape relaxation PRs for each further proven shape (one PR per shape, each with graded-run numbers). Non-goal: `COMMON` strategy (follow-up design).
+- [x] T017a [US4] shape A (F77-external): the gate admits an F77 global external subprogram (`<name>_`) with the proven dummy profile (scalars by reference; explicit-shape/assumed-size arrays as a raw base address). Real unit `fortran:fem/src/Walls.F90` (4 F77 globals) graded: 12-case corpus byte-identical (84 values at 17 s.f.), strong-symbol gate clean (zero dups beyond the 4 replaced symbols, whole-file portable), negative controls hold (`COMMON`/`optional`/`allocatable`/derived/character/internal-proc still refuse). Judgments: ADR-049. Proof: `tests/f77_external_shape_proof.sh`; port crate `crates/elmer-fem-a/ports/walls` (elmer-rust). No timing sample (lane-fem-a has no `bench_sample_unit`).
 
 **Checkpoint**: core green except explicitly refused `COMMON` units.
 
