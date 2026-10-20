@@ -76,10 +76,15 @@ script, not a regression from this change. It was left untouched.
 
 ## Consequences
 
-- The backlog is empty: no open PR in the porting effort is undecided.
-  The only open PR (`elmer-rust` #9) is live lane work.
+- Every open PR in the porting effort now carries a decision. The PRs
+  still open after this record are the re-implementation (#107) and two
+  live lane PRs opened during the sweep (`rustsmith` #106 "Measured
+  Elmer campaign CPU headroom per unit", created 2026-10-20T22:05Z, and
+  `elmer-rust` #9, created 2026-10-20T21:51Z) — in-flight work, not
+  backlog.
 - A stale PR is closed with the exact superseding commit or PR, never
   silently, and a needed-but-conflicting change is re-landed as a fresh
-  PR on current main instead of being force-pushed.
-- The three rustsmith merges are tool-fix PRs (`crates/`); no port code
-  moved into `rustsmith` main.
+  PR on current main instead of being force-pushed. The closed branch
+  stays in place.
+- The three rustsmith merges are tool-fix PRs (`crates/`, plus one
+  `mirror/` release config); no port code moved into `rustsmith` main.
