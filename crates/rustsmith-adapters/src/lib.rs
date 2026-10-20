@@ -5591,6 +5591,16 @@ impl CmakeBridge {
         let fixed = matches!(ext.as_str(), "f" | "for");
         gate_file_admits(&parse_gate_file(&text, fixed), bad)
     }
+    /// True when unit source `rel` has at least one built object under
+    /// `build_dir`: the scheduler's compilable-claim check. Headers and
+    /// helpers never produce an object, so grading them can only halt at
+    /// the substitute gate; the scheduler skips them instead (recorded,
+    /// never graded, never merged). Same resolution as `substitute` (root
+    /// suffix match plus the `DependInfo.cmake` fallback), read-only.
+    pub fn has_built_object(build_dir: &Path, tree: &Path, rel: &str) -> bool {
+        !Self::find_unit_objects(build_dir, tree, rel).is_empty()
+    }
+
     /// Built objects for unit source `rel`: the root-layout suffix match
     /// plus the `DependInfo.cmake` fallback for subdir targets. Pure
     /// path resolution (no gate logic): every returned path is an existing
@@ -7648,6 +7658,29 @@ mod track_i_tests {
         // Listed but never built: no resolution, honest halt downstream.
         std::fs::remove_file(build.join("copy/CMakeFiles/u.dir/foo.c.o")).unwrap();
         assert!(CmakeBridge::find_unit_objects(&build, &tree, "other/sub/foo.c").is_empty());
+    }
+
+    #[test]
+    fn has_built_object_matches_substitute_resolution() {
+        // Scheduler compilable-claim check: a header has no object (skip),
+        // a subdir-target source resolves via DependInfo.cmake (grade).
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let tree = dir.path().join("tree");
+        let obj_rel = "matc/src/CMakeFiles/matc.dir/str.c.o";
+        write_file(&build.join("CMakeFiles/placeholder"), "x");
+        write_file(&build.join(obj_rel), "object");
+        write_file(&tree.join("matc/src/str.c"), "int str(void){return 1;}\n");
+        let src = tree.join("matc/src/str.c").to_string_lossy().replace('\\', "/");
+        write_file(
+            &build.join("matc/src/CMakeFiles/matc.dir/DependInfo.cmake"),
+            &format!(
+                "set(CMAKE_DEPENDS_DEPENDENCY_FILES\n  \"{src}\" \"{obj_rel}\" \"gcc\" \"{obj_rel}.d\"\n  )"
+            ),
+        );
+        assert!(CmakeBridge::has_built_object(&build, &tree, "matc/src/str.c"));
+        assert!(!CmakeBridge::has_built_object(&build, &tree, "matc/src/str.h"));
+        assert!(!CmakeBridge::has_built_object(&build, &tree, "other/src/str.c"));
     }
 
     #[test]
