@@ -45,12 +45,17 @@ upstream_url = "https://github.com/pygments/pygments"
 upstream_license = "BSD-2-Clause"
 upstream_authors = "Georg Brandl and the Pygments team"
 
-# Smoke checks run against the installed wheel (Python expressions; each must
-# evaluate truthy). Kept to stdlib-only, deterministic vectors.
+# Smoke checks run against the installed wheel (Python expressions; each is
+# evaluated as `import pygments; assert <expr>`, so submodules need an
+# explicit import inside the expression: upstream `pygments/__init__.py`
+# only exposes `lex`/`format`/`highlight`/`__version__`). Kept to
+# stdlib-only, deterministic vectors; the last one proves the compiled
+# Rust core (`pygments._pygments`) ships inside the wheel.
 smoke_exprs = [
-  "len(list(pygments.lex('print(1)\\n', pygments.lexers.get_lexer_by_name('python')))) > 0",
-  "pygments.format([(pygments.token.Keyword, 'if')], pygments.formatters.get_formatter_by_name('html')) != ''",
-  "pygments.lexers.get_lexer_by_name('python').name == 'Python'",
-  "pygments.formatters.get_formatter_by_name('html').name == 'HTML'",
+  "len(list(pygments.lex('print(1)\\n', __import__('pygments.lexers', fromlist=['x']).get_lexer_by_name('python')))) > 0",
+  "pygments.format([(__import__('pygments.token', fromlist=['x']).Keyword, 'if')], __import__('pygments.formatters', fromlist=['x']).get_formatter_by_name('html')) != ''",
+  "__import__('pygments.lexers', fromlist=['x']).get_lexer_by_name('python').name == 'Python'",
+  "__import__('pygments.formatters', fromlist=['x']).get_formatter_by_name('html').name == 'HTML'",
   "len(pygments.__version__) > 0",
+  "__import__('pygments._pygments', fromlist=['x']) is not None",
 ]
