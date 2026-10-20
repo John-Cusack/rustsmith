@@ -135,3 +135,26 @@ expected wall time before starting one.
 - Retries are bounded by the spend guards — per-unit ceilings and the
   marginal gain/token floor — not by patience (`SPEC.md` §10.3,
   §12; `SPEC_STAGE2.md` §12.1).
+
+## 9. Tight loops: the craft pattern
+
+A port's hot loop is the deliverable's core, and the craft that made the
+difference is a **checklist, not a technique**:
+[`docs/PORT_CRAFT_CHECKLIST.md`](PORT_CRAFT_CHECKLIST.md) (crc precedent
+ADR-049; the Elmer application and the machine path that carries it to
+the next ~1100 units, ADR-050).
+
+- Four anti-patterns to hunt in a hot loop: per-item boxing/allocation,
+  per-item property access or virtual dispatch, per-item branching that
+  could be hoisted, per-item lookup a bulk transform replaces.
+- **One change per variant, and every variant measured.** In compiled
+  Rust the compiler already unswitches loop-invariant branches and
+  strength-reduces index math, so the crc recipe does not transfer
+  automatically: on the measured Elmer unit, two of its steps came out at
+  0.93x and 0.81x and were dropped.
+- The arithmetic stays identical (same operations, same order); the result
+  digest must match on both arms of the A/B; a recraft that does not beat
+  the noise band is **reverted** and kept as a no-gain row.
+- Measure wall time **and** peak RSS, both arms, one corpus
+  (`SPEC_STAGE2.md` §10.3, §10.4: a faster arm that trades memory is a
+  regression).

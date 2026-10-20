@@ -2150,6 +2150,36 @@
           "original": "Original (C): main.c ignores argv and runs a fgets REPL where only the exit and quit lines terminate with status 0",
           "rust": "Rust: any port keeps the byte-identical line protocol so piped stdin scripts compare equal across trees",
           "example": "Example: stdin 1+2 then exit prints \"         3\" on both sides; bare argv runs never terminate."
+        },
+        {
+          "title": "the hot loop is one tight loop over primitive state",
+          "original": "Original (C/Fortran): the hot loop re-derives per-item state instead of carrying it (the index math a[i*n+j] on every access, a pivot candidate re-read from the array, a partial sum written back per item)",
+          "rust": "Rust: the hot loop runs on primitive state (c_int counters, f64 scalars) with the index math done once per row and the loop-invariant values read into registers before the loop",
+          "example": "Example: the LU elimination loop over a[i*n+j] becomes a row pointer plus a column index and the pivot candidate stays in a register (elmer-rust PR #9: 1.13x, result digest identical on both arms)."
+        },
+        {
+          "title": "the variant case is hoisted out of the loop body",
+          "original": "Original (C/Fortran): a mode or size test that is invariant over the loop sits inside the body, so the body branches per item",
+          "rust": "Rust: decide the case once before the loop (two loop shapes, one body each) or leave it to the compiler's unswitching - and measure, because a hand-rolled split can block the unroller and lose 0.81x",
+          "example": "Example: the `j != i` swap test leaves the LU elimination k-loop; the same split in the inverse product measured 0.81x and was dropped (docs/PORT_CRAFT_CHECKLIST.md)."
+        },
+        {
+          "title": "one final store instead of a per-item store chain",
+          "original": "Original (C/Fortran): the loop writes its partial result back into the output array on every iteration, so the store count is O(n^3) although only the last value is ever read back",
+          "rust": "Rust: prove that no read inside the loop depends on the intermediate value, then write once after the loop",
+          "example": "Example: the mtrinv inverse product stored a(i,j) on every k iteration; the value read back is read only on the first iteration, so one final store is equivalent (n^3 stores become n^2, 1.09x on that phase)."
+        },
+        {
+          "title": "the arithmetic stays identical: same operations, same order",
+          "original": "Original (C/Fortran): the C arithmetic is the contract - the port returns the same bytes, so a faster port that changes a digit is a different port",
+          "rust": "Rust: same operations in the same order (a reciprocal times a multiply is not a division); a cached value may only replace a read that cannot change between the two reads",
+          "example": "Example: the LU row scaling keeps `a(i,k) / a(i,i)`; caching the diagonal is fine, rewriting it as `a(i,k) * (1.0/a(i,i))` is not - it changes the last digit."
+        },
+        {
+          "title": "every recraft is measured A/B, and a recraft without a measured win is reverted",
+          "original": "Original (C/Fortran): the original is the reference - parity plus a measured gain, never taste",
+          "rust": "Rust: every recraft gets an A/B bench in elmer-rust/bench (one corpus, rep-interleaved arms, wall time and peak RSS, result digest equality, 3% noise band); a recraft that does not beat the band is reverted and kept only as a no-gain row",
+          "example": "Example: the Jacobi eigensolver recraft measured 1.01x (no-change) and 0.96x (slower); both were reverted and the port source is unchanged (crates/elmer-gui-c/bench/jacobi-nogain/)."
         }
       ],
       "differential": {

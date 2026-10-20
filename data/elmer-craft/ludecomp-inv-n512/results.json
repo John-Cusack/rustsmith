@@ -1,0 +1,15 @@
+{
+  "workload": "matrix inverse n=512",
+  "n": 512,
+  "iters": 2,
+  "reps": 11,
+  "noise_pct": 3,
+  "digest": "cb876b2f27596318",
+  "before": {"label":"before","wall_ns_median":467344659,"wall_ns_mad":844053,"harness_ns_median":273316,"rss_kb_median":5816,"rss_kb_samples":[5764,5840,5792,5772,5848,5840,5820,5848,5816,5580,5540],"wall_ns_samples":[467683826,466792649,469593011,466500606,465729397,475493901,467344659,462084397,472151411,467813923,467319598]},
+  "after": {"label":"after","wall_ns_median":421480956,"wall_ns_mad":2079705,"harness_ns_median":331386,"rss_kb_median":5824,"rss_kb_samples":[5584,5776,5548,5876,5884,5852,5852,5824,5516,5516,5864],"wall_ns_samples":[417782267,414664504,421480956,422858338,419680872,422267079,417041703,423434844,419024729,423560661,425848964]},
+  "speedup": 1.1088,
+  "rss_delta_pct": 0.14,
+  "verdict": "faster",
+  "tukey_outliers_before": [5],
+  "tukey_outliers_after": []
+}

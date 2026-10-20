@@ -1,0 +1,15 @@
+{
+  "workload": "generalized Jacobi eigen n=128 (craft variant: value caching + hoisted bounds)",
+  "n": 128,
+  "iters": 5,
+  "reps": 15,
+  "noise_pct": 3,
+  "digest": "fb5d76d6feb6dc1c",
+  "before": {"label":"before","wall_ns_median":210290936,"wall_ns_mad":4401188,"harness_ns_median":62087,"rss_kb_median":3096,"rss_kb_samples":[3064,3104,2832,3096,3092,3120,3120,3108,3112,3120,2572,2840,3096,3120,2552],"wall_ns_samples":[195359747,218902234,207638434,220771927,214201097,205889748,197609017,214108291,210290936,216303330,217648211,214564983,200302787,208640165,208986810]},
+  "after": {"label":"after","wall_ns_median":208027920,"wall_ns_mad":2475188,"harness_ns_median":62809,"rss_kb_median":3080,"rss_kb_samples":[3148,3080,3144,3128,2880,3000,3080,3140,3104,2580,3128,2796,2592,3144,2852],"wall_ns_samples":[203398692,206168367,208027920,205552732,210004235,211744204,215107951,202514068,205892162,206224540,216970901,214201747,210037135,210281067,204093380]},
+  "speedup": 1.0109,
+  "rss_delta_pct": -0.52,
+  "verdict": "no-change",
+  "tukey_outliers_before": [],
+  "tukey_outliers_after": []
+}

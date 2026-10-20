@@ -1,0 +1,15 @@
+{
+  "workload": "LU decompose n=512",
+  "n": 512,
+  "iters": 20,
+  "reps": 11,
+  "noise_pct": 3,
+  "digest": "a69014cc52bb9f30",
+  "before": {"label":"before","wall_ns_median":214457600,"wall_ns_mad":3483795,"harness_ns_median":1367465,"rss_kb_median":5840,"rss_kb_samples":[5872,5852,5872,5836,5840,5864,5812,5616,5812,5820,5868],"wall_ns_samples":[210219331,216614848,212349807,223108820,207779369,214457600,218278040,217656285,227742166,210973805,212244847]},
+  "after": {"label":"after","wall_ns_median":203145801,"wall_ns_mad":3840841,"harness_ns_median":1394044,"rss_kb_median":5832,"rss_kb_samples":[5864,5876,5860,5576,5816,5784,5876,5868,5608,5832,5620],"wall_ns_samples":[200163116,209325683,206986642,208739855,200065280,206289554,198996199,199182762,203145801,209357701,200318858]},
+  "speedup": 1.0557,
+  "rss_delta_pct": -0.14,
+  "verdict": "faster",
+  "tukey_outliers_before": [],
+  "tukey_outliers_after": []
+}
