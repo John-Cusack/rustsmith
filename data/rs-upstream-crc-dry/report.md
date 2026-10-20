@@ -5,7 +5,7 @@ Fork: [John-Cusack/crc](https://github.com/John-Cusack/crc), branch
 `feature/table-register-fast-loop`, commit `b6b307b`.
 Upstream PR: https://github.com/Nicoretti/crc/pull/212 (open, `draft: no`, verified
 via `gh-axi pr view 212 -R Nicoretti/crc`).
-Rustsmith PR: RUSTSMITH_PR_URL
+Rustsmith PR: https://github.com/John-Cusack/rustsmith/pull/102
 Status: UPSTREAM PR OPENED. The fork CI run
 (https://github.com/Nicoretti/crc/actions/runs/39498582264) is `action_required`,
 i.e. waiting for the maintainer to approve the workflow of a fork PR — it is not
