@@ -2638,12 +2638,20 @@ struct GateProc {
     result: String,
     /// (`dummy`, `dtype left side`, `shape parens or None`) per declaration.
     decls: Vec<(String, String, Option<String>)>,
+    /// T017 shape A: old-style (pre-`::`) F77 declarations, kept apart
+    /// from `decls` so the T014 module profile stays exactly as proven.
+    legacy_decls: Vec<(String, String, Option<String>)>,
+    /// T017 shape A: the function's own type prefix (`DOUBLE PRECISION
+    /// FUNCTION f(...)`), which types the result when the result variable
+    /// carries no separate declaration.
+    fn_type: Option<String>,
 }
 
-/// One scope seen by the T014 gate scanner. Only real `MODULE` scopes can
-/// admit procedures: submodule, program, and external-procedure
-/// pseudo-scopes never do (their `__<s>_MOD_<p>` linkage is not the
-/// emitted symbol, so a shim built on it would link nothing).
+/// One scope seen by the T014 gate scanner. `MODULE` scopes admit through
+/// the T014/T017-B module profile; external-procedure pseudo-scopes (a
+/// file-scope `SUBROUTINE`/`FUNCTION` outside any module) hold the T017
+/// shape-A F77 globals, whose emitted symbol is `<name>_` and not the
+/// `__<s>_MOD_<p>` the recon models.
 struct GateScope {
     name: String,
     module: bool,
@@ -3095,6 +3103,116 @@ fn split_gate_proc(tail: &str, is_function: bool) -> (String, Vec<String>, Strin
     (name, args, result)
 }
 
+/// Split a comma-separated list at parenthesis depth 0, so `a(:,:), b`
+/// keeps one item and a shape's own commas never split an item.
+fn split_top_level(s: &str) -> Vec<&str> {
+    let mut items = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                items.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(&s[start..]);
+    items
+}
+
+/// One old-style declaration item: the declared name and its inline
+/// array shape (`None` for a scalar).
+type LegacyItem = (String, Option<String>);
+
+/// An old-style declaration: the type spec and the declared items.
+type LegacyDecl = (String, Vec<LegacyItem>);
+
+/// T017 shape A: parse an old-style (pre-`::`) F77 declaration — a type
+/// keyword followed by a comma-separated name list. Returns the type spec
+/// and the declared names with their inline array shapes. `None` when the
+/// statement is not a declaration: the caller then leaves the dummy
+/// undeclared and the gate refuses (fail closed).
+fn parse_legacy_decl(stmt: &str) -> Option<LegacyDecl> {
+    let s = stmt.trim();
+    // `::` forms are handled by the modern path; an `=` means an
+    // initialization (never a dummy declaration).
+    if s.is_empty() || s.contains("::") || s.contains('=') {
+        return None;
+    }
+    let low = s.to_ascii_lowercase();
+    let (ts, rest) = if low.starts_with("double precision") || low.starts_with("double complex") {
+        let after = &low["double ".len()..];
+        let cut = after.find(' ').map(|i| "double ".len() + i).unwrap_or(low.len());
+        (low[..cut].to_string(), low[cut..].trim().to_string())
+    } else {
+        let mut it = low.splitn(2, char::is_whitespace);
+        let w = it.next()?.to_string();
+        let rest = it.next().unwrap_or("").trim().to_string();
+        let kind = w.split(['(', '*']).next().unwrap_or(&w);
+        if !matches!(kind, "real" | "integer" | "logical" | "complex" | "character") {
+            return None;
+        }
+        (w, rest)
+    };
+    if rest.is_empty() {
+        return None;
+    }
+    let mut names = Vec::new();
+    for item in split_top_level(&rest) {
+        let it = item.trim();
+        if it.is_empty() {
+            return None;
+        }
+        // `X(10)` carries the shape inline; `X*4` is a repeat count.
+        let (nm, shape) = match it.split_once('(') {
+            Some((n, rest2)) => {
+                let sh = rest2.split(')').next().map(|s| format!("({s})"))?;
+                (n.trim().to_string(), Some(sh))
+            }
+            None => (
+                it.split('*').next().unwrap_or(it).trim().to_string(),
+                None,
+            ),
+        };
+        let nm: String =
+            nm.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        if nm.is_empty() {
+            return None;
+        }
+        names.push((nm, shape));
+    }
+    Some((ts, names))
+}
+
+/// T017 shape A: an old-style `DIMENSION name(shape), ...` statement.
+fn parse_legacy_dimension(stmt: &str) -> Option<Vec<(String, String)>> {
+    let low = stmt.trim().to_ascii_lowercase();
+    let rest = low.strip_prefix("dimension")?;
+    if !rest.starts_with(|c: char| c.is_whitespace() || c == '(') {
+        return None;
+    }
+    let mut out = Vec::new();
+    for item in split_top_level(rest) {
+        let (n, sh) = item.trim().split_once('(')?;
+        let shape = format!("({}", sh.split(')').next()?);
+        let nm: String =
+            n.trim().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        if nm.is_empty() {
+            return None;
+        }
+        out.push((nm, shape));
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
 /// Narrow dummy-shape scanner for the T014 gate. Mirrors
 /// `parse_fortran_file`'s scope/procedure split (same continuation,
 /// comment, and `end`-line approximations) and additionally records each
@@ -3119,6 +3237,10 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
     let mut interface = 0usize;
     // (scope, proc) receiving declarations; cleared on scope close.
     let mut cur: Option<(usize, usize)> = None;
+    // T017 shape A: `CONTAINS` inside an external (non-module) scope opens
+    // the internal-procedure region. Internal procedures emit no global
+    // symbol, so they are not part of the F77-global set.
+    let mut contains_seen = false;
     for orig in join_fortran_continuations(logical, fixed) {
         let line = strip_fortran_comment(&orig);
         let t = line.trim();
@@ -3138,6 +3260,18 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
         }
         if words[0] == "block" && words.get(1) == Some(&"data") {
             file.blockdata = true;
+        }
+        // T017 shape A: `CONTAINS` inside an external scope starts the
+        // internal-procedure region (no global symbols); inside a module
+        // it starts the module procedures, which are real globals.
+        if words[0] == "contains" {
+            if let Some(&s) = open.last() {
+                if !file.scopes[s].module {
+                    contains_seen = true;
+                }
+            }
+            cur = None;
+            continue;
         }
         if words[0] == "interface" || lower.starts_with("abstract interface") {
             interface += 1;
@@ -3160,6 +3294,7 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                     }
                 }
                 cur = None;
+                contains_seen = false;
                 continue;
             }
             "submodule" => {
@@ -3170,6 +3305,7 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                     }
                 }
                 cur = None;
+                contains_seen = false;
                 continue;
             }
             "program" => {
@@ -3180,6 +3316,7 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                     }
                 }
                 cur = None;
+                contains_seen = false;
                 continue;
             }
             "end" => {
@@ -3191,12 +3328,14 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                 {
                     open.pop();
                     cur = None;
+                    contains_seen = false;
                 }
                 continue;
             }
             "endmodule" | "endprogram" | "endsubmodule" => {
                 open.pop();
                 cur = None;
+                contains_seen = false;
                 continue;
             }
             _ => {}
@@ -3225,13 +3364,34 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                 None => tail.clone(),
             };
             let (name, args, result) = split_gate_proc(&raw_tail, is_function);
+            // T017 shape A: the type prefix in front of `FUNCTION` types the
+            // result when the result variable carries no declaration.
+            let fn_type = if is_function && i > 0 {
+                let prefix = words[..i].join(" ");
+                if prefix.is_empty() {
+                    None
+                } else {
+                    Some(prefix)
+                }
+            } else {
+                None
+            };
             if !name.is_empty() {
+                // T017 shape A: an internal procedure of an external
+                // subprogram emits no global symbol. The recon models it
+                // as an export, so the unit keeps refusing (fail closed).
+                if contains_seen {
+                    cur = None;
+                    continue;
+                }
                 let proc = GateProc {
                     name: name.clone(),
                     is_function,
                     args,
                     result,
                     decls: Vec::new(),
+                    legacy_decls: Vec::new(),
+                    fn_type,
                 };
                 match open.last().copied() {
                     Some(s) => {
@@ -3246,6 +3406,7 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                         });
                         open.push(file.scopes.len() - 1);
                         cur = Some((file.scopes.len() - 1, 0));
+                        contains_seen = false;
                     }
                 }
             }
@@ -3301,6 +3462,36 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                         .decls
                         .push((vname, left.trim().to_string(), vshape));
                 }
+            } else if let Some((ts, names)) = parse_legacy_decl(t) {
+                // T017 shape A: old-style F77 declaration (no `::`). Kept
+                // apart from `decls` so the T014 module profile stays
+                // exactly as proven.
+                for (vname, vshape) in names {
+                    if vname.is_empty()
+                        || file.scopes[s].procs[p]
+                            .legacy_decls
+                            .iter()
+                            .any(|(n, _, _)| *n == vname)
+                    {
+                        continue;
+                    }
+                    file.scopes[s].procs[p]
+                        .legacy_decls
+                        .push((vname, ts.clone(), vshape));
+                }
+            } else if let Some(shapes) = parse_legacy_dimension(t) {
+                // T017 shape A: old-style `DIMENSION name(shape), ...`.
+                for (vname, vshape) in shapes {
+                    if let Some(slot) = file.scopes[s].procs[p]
+                        .legacy_decls
+                        .iter_mut()
+                        .find(|(n, _, _)| *n == vname)
+                    {
+                        if slot.2.is_none() {
+                            slot.2 = Some(vshape);
+                        }
+                    }
+                }
             }
         }
     }
@@ -3323,9 +3514,10 @@ fn split_mod_linkage(linkage: &str) -> Option<(&str, &str)> {
 }
 
 /// T014 allowlist verdict over one parsed file: every linkage in `bad`
-/// is either a real module's bookkeeping export (no symbol) or a module
+/// is either a real module's bookkeeping export (no symbol), a module
 /// procedure whose dummies (and function result) all fit the admitted
-/// profile. `false` refuses (fail closed, pinned message).
+/// profile, or (T017 shape A) an F77 global external subprogram.
+/// `false` refuses (fail closed, pinned message).
 fn gate_file_admits(file: &GateFile, bad: &[String]) -> bool {
     if file.common || file.blockdata {
         return false;
@@ -3335,39 +3527,133 @@ fn gate_file_admits(file: &GateFile, bad: &[String]) -> bool {
         if file.scopes.iter().any(|s| s.module && s.name == *link) {
             continue; // Module bookkeeping export: recon emits the scope name.
         }
+        // T017 shape A: the recon models a file-scope external subprogram
+        // as a scope named after it, so its export arrives either as that
+        // scope name or as `__<scope>_MOD_<proc>`. The emitted gfortran
+        // symbol is `<proc>_`, not that linkage.
         let (scope, proc) = match split_mod_linkage(link) {
             Some(x) => x,
-            None => return false,
+            None => match file.scopes.iter().find(|s| !s.module && s.name == *link) {
+                Some(s) => match s.procs.first() {
+                    Some(p) => (s.name.as_str(), p.name.as_str()),
+                    None => return false,
+                },
+                None => return false,
+            },
         };
-        let s = match file.scopes.iter().find(|s| s.module && s.name == scope) {
-            Some(x) => x,
-            None => return false,
-        };
-        let p = match s.procs.iter().find(|p| p.name == proc) {
-            Some(x) => x,
-            None => return false,
-        };
-        for a in &p.args {
-            let decl = match p.decls.iter().find(|(n, _, _)| n == a) {
-                Some(x) => x,
-                None => return false, // Undeclared dummy: implicit typing, unprovable.
-            };
-            if gate_dummy_refusal(&decl.1, decl.2.as_deref(), false).is_some() {
-                return false;
-            }
-        }
-        if p.is_function {
-            let decl = match p.decls.iter().find(|(n, _, _)| *n == p.result) {
+        if let Some(s) = file.scopes.iter().find(|s| s.module && s.name == scope) {
+            // Module procedure: the T014 profile.
+            let p = match s.procs.iter().find(|p| p.name == proc) {
                 Some(x) => x,
                 None => return false,
             };
-            if gate_dummy_refusal(&decl.1, None, true).is_some() {
+            for a in &p.args {
+                let decl = match p.decls.iter().find(|(n, _, _)| n == a) {
+                    Some(x) => x,
+                    None => return false, // Undeclared dummy: implicit typing, unprovable.
+                };
+                if gate_dummy_refusal(&decl.1, decl.2.as_deref(), false).is_some() {
+                    return false;
+                }
+            }
+            if p.is_function {
+                let decl = match p.decls.iter().find(|(n, _, _)| *n == p.result) {
+                    Some(x) => x,
+                    None => return false,
+                };
+                if gate_dummy_refusal(&decl.1, None, true).is_some() {
+                    return false;
+                }
+            }
+        } else {
+            // T017 shape A: an F77 global external subprogram.
+            let s = match file.scopes.iter().find(|s| !s.module && s.name == scope) {
+                Some(x) => x,
+                None => return false,
+            };
+            let p = match s.procs.iter().find(|p| p.name == proc) {
+                Some(x) => x,
+                None => return false,
+            };
+            if !gate_f77_external_admits(p) {
                 return false;
             }
         }
         checked += 1;
     }
     checked > 0
+}
+
+/// T017 shape A: an F77 global external subprogram (`<name>_`). Every
+/// dummy travels by reference; an array dummy (explicit-shape or
+/// assumed-size) travels as a raw base address (ADR-027 §3, measured).
+/// The dummy profile is the proven one: scalar intrinsics, assumed-shape
+/// `REAL(8)` rank 1-2, and raw-base-address arrays of intrinsic type.
+/// A function result must be a scalar intrinsic: an array result travels
+/// as a hidden result pointer, which this shape does not admit.
+fn gate_f77_external_admits(p: &GateProc) -> bool {
+    for a in &p.args {
+        let decl = p
+            .decls
+            .iter()
+            .find(|(n, _, _)| n == a)
+            .or_else(|| p.legacy_decls.iter().find(|(n, _, _)| n == a));
+        let decl = match decl {
+            Some(x) => x,
+            None => return false, // Undeclared dummy: implicit typing, unprovable.
+        };
+        if gate_f77_dummy_refusal(&decl.1, decl.2.as_deref(), false).is_some() {
+            return false;
+        }
+    }
+    if p.is_function {
+        let decl = p
+            .decls
+            .iter()
+            .find(|(n, _, _)| *n == p.result)
+            .or_else(|| p.legacy_decls.iter().find(|(n, _, _)| *n == p.result));
+        let (dtype, shape) = match decl {
+            Some((_, d, s)) => (d.as_str(), s.as_deref()),
+            // The function's own type prefix types the result.
+            None => match p.fn_type.as_deref() {
+                Some(t) => (t, None),
+                None => return false,
+            },
+        };
+        if shape.is_some() {
+            return false; // Array result: hidden result pointer, not admitted.
+        }
+        if gate_dummy_refusal(dtype, shape, true).is_some() {
+            return false;
+        }
+    }
+    true
+}
+
+/// T017 shape A dummy profile for an F77 global: an explicit-shape or
+/// assumed-size array dummy travels as a raw base address (ADR-027 §3,
+/// measured), so only the type/feature rules apply to it; every other
+/// dummy follows the proven module-procedure profile.
+fn gate_f77_dummy_refusal(
+    dtype: &str,
+    shape: Option<&str>,
+    is_result: bool,
+) -> Option<&'static str> {
+    let s: String = shape
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let inner = s.strip_prefix('(').and_then(|t| t.strip_suffix(')'));
+    // Assumed-size `(*)` and explicit-shape `(n)` travel raw; assumed-shape
+    // `(:)` travels as a descriptor and keeps the T014 profile.
+    let raw_array =
+        shape.is_some() && inner.is_some_and(|i| !i.is_empty() && !i.contains(':'));
+    if raw_array {
+        return gate_dummy_refusal(dtype, None, false);
+    }
+    gate_dummy_refusal(dtype, shape, is_result)
 }
 
 /// Fortran fragment engine: one unit per module/program scope (`#<symbol>`
@@ -7088,6 +7374,31 @@ mod track_i_tests {
     }
 
     #[test]
+    fn fortran_gate_admits_f77_external() {
+        // T017 shape A: an F77 global external subprogram (gfortran symbol
+        // `<name>_`). Every dummy travels by reference; an array dummy
+        // (explicit-shape or assumed-size) travels as a raw base address
+        // (ADR-027 §3). Clean-room fixed-form fixture: no upstream text.
+        let text = "      subroutine fscale(x, n, alpha)\n\
+             double precision x(*), alpha\n\
+             integer n\n\
+             x(1) = alpha * n\n\
+             end subroutine fscale\n\
+             double precision function fnorm(v, n)\n\
+             double precision v(n), fnorm\n\
+             integer n\n\
+             fnorm = v(1)\n\
+             end subroutine fnorm\n";
+        let (dir, unit) = gate_unit_for("src/fscale.F", text);
+        let links: Vec<&str> = unit.exports.iter().map(|e| e.linkage.as_str()).collect();
+        assert!(links.contains(&"fscale"), "exports: {links:?}");
+        assert!(links.contains(&"__fscale_MOD_fscale"), "exports: {links:?}");
+        assert!(links.contains(&"__fscale_MOD_fnorm"), "exports: {links:?}");
+        CmakeBridge::check_substitutable(&unit, dir.path())
+            .expect("F77-external units admit through the shim");
+    }
+
+    #[test]
     fn fortran_gate_refuses_forbidden_features() {
         // An admitted-shape unit carrying a forbidden feature
         // (OPTIONAL/ALLOCATABLE/derived/character/COMMON/F77-global) refuses.
@@ -7099,16 +7410,57 @@ mod track_i_tests {
             ("derived", "module m\ncontains\nsubroutine dsolv(model, dt)\ntype(model_t) :: model\nreal(kind=dp) :: dt\nend subroutine\nend module m\n".to_string()),
             ("character", "module m\ncontains\nsubroutine cname(label, x)\ncharacter(len=80) :: label\nreal(kind=dp) :: x\nend subroutine\nend module m\n".to_string()),
             ("common", format!("{admitted_head}s = t\nend function\nend module m\ncommon /st/ acc\n")),
+        ];
+        for (name, text) in cases {
+            let (dir, unit) = gate_unit_for("src/m.F90", &text);
+            let err = CmakeBridge::check_substitutable(&unit, dir.path()).unwrap_err();
+            assert!(err.contains("BIND(C)"), "{name}: unexpected: {err}");
+        }
+        // T017 shape A: the F77-external shape admits, but an admitted-shape
+        // F77 external carrying a forbidden feature still refuses.
+        let f77_cases = [
             (
-                "f77-global",
-                "      subroutine fscale(x, n, alpha)\n      real*8 x(*), alpha\n\
-                integer n\n      end\n"
+                "f77-common",
+                "      subroutine fscale(x, n, alpha)\n      double precision x(*), alpha\n\
+                 integer n\n      common /st/ acc\n      end subroutine fscale\n"
+                    .to_string(),
+            ),
+            (
+                "f77-derived",
+                "      subroutine fscale(model, n)\n      type(model_t) model\n\
+                 integer n\n      end subroutine fscale\n"
+                    .to_string(),
+            ),
+            (
+                "f77-optional",
+                "      subroutine fscale(x, n, alpha)\n      double precision x(*), alpha\n\
+                 integer n\n      double precision, optional :: alpha\n\
+                 end subroutine fscale\n"
+                    .to_string(),
+            ),
+            (
+                "f77-allocatable",
+                "      subroutine fscale(x, n)\n      double precision, allocatable :: x(:)\n\
+                 integer n\n      end subroutine fscale\n"
+                    .to_string(),
+            ),
+            (
+                "f77-character",
+                "      subroutine fscale(label, n)\n      character(len=80) label\n\
+                 integer n\n      end subroutine fscale\n"
+                    .to_string(),
+            ),
+            (
+                "f77-internal-proc",
+                "      subroutine fscale(x, n)\n      double precision x(*)\n\
+                 integer n\n      contains\n      subroutine inner(y)\n\
+                 double precision y\n      end subroutine inner\n\
+                 end subroutine fscale\n"
                     .to_string(),
             ),
         ];
-        for (name, text) in cases {
-            let rel = if name == "f77-global" { "src/fscale.F" } else { "src/m.F90" };
-            let (dir, unit) = gate_unit_for(rel, &text);
+        for (name, text) in f77_cases {
+            let (dir, unit) = gate_unit_for("src/fscale.F", &text);
             let err = CmakeBridge::check_substitutable(&unit, dir.path()).unwrap_err();
             assert!(err.contains("BIND(C)"), "{name}: unexpected: {err}");
         }
@@ -7155,6 +7507,89 @@ mod track_i_tests {
         let err = CmakeBridge::check_substitutable(source, &fork).unwrap_err();
         assert!(err.contains("BIND(C)"), "unexpected: {err}");
         eprintln!("REAL-FILE-REFUSE source (derived-type dummies)");
+    }
+
+    #[test]
+    fn fortran_gate_real_walls_probe() {
+        // T017 shape A end-to-end anchor: the real Elmer file
+        // (`fem/src/Walls.F90`) holds four F77 global external
+        // subprograms (`solve_ufric`, `wall_law`, `d_wall_law`, `kewall`)
+        // whose dummies are all scalar intrinsics. GPL sources stay out of
+        // this repo, so this runs only with `ELMER_FORK` pointing at a
+        // checkout; otherwise it skips (the synthetic gate tests above
+        // always run).
+        let fork = match std::env::var("ELMER_FORK") {
+            Ok(p) => PathBuf::from(p),
+            Err(_) => {
+                eprintln!("SKIP real_walls: ELMER_FORK unset");
+                return;
+            }
+        };
+        let rel = "fem/src/Walls.F90";
+        assert!(fork.join(rel).is_file(), "no {rel} under ELMER_FORK={fork:?}");
+        let files = vec![fork.join(rel)];
+        let compiler_ids = BTreeMap::new();
+        let cx = FragmentCtx {
+            repo: &fork,
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
+        let frag = fortran_fragment(&cx).unwrap();
+        assert_eq!(frag.units.len(), 4, "units: {:?}", frag.units);
+        for unit in &frag.units {
+            CmakeBridge::check_substitutable(unit, &fork)
+                .unwrap_or_else(|e| panic!("REAL-FILE-ADMIT {}: {e}", unit.id));
+            eprintln!("REAL-FILE-ADMIT {}", unit.id);
+        }
+    }
+
+    #[test]
+    fn fortran_gate_admits_f77_external_fixture() {
+        // T017 shape A: the ADR-027 F77 assumed-size fixture
+        // (`tests/fixtures/fortran_shim/src/scale.F`) must now pass the
+        // gate: it is an F77 global external subprogram whose array dummy
+        // travels as a raw base address (ADR-027 §3).
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/fortran_shim/src/scale.F");
+        let text = std::fs::read_to_string(&fixture).expect("shim F77 fixture");
+        let (dir, unit) = gate_unit_for("src/scale.F", &text);
+        CmakeBridge::check_substitutable(&unit, dir.path())
+            .expect("F77 assumed-size fixture admits through the shim");
+    }
+
+    #[test]
+    fn fortran_gate_admits_f77_external_file_unit() {
+        // T017 shape A: the frozen campaign inventory models a file that
+        // holds several F77 globals as ONE unit carrying every scope
+        // export (`fortran:fem/src/Walls.F90` has 8). The gate must admit
+        // that shape too, not only the per-scope units.
+        let text = "      subroutine fscale(x, n, alpha)\n\
+             double precision x(*), alpha\n\
+             integer n\n\
+             end\n\
+             double precision function fnorm(v, n)\n\
+             double precision v(n), fnorm\n\
+             integer n\n\
+             end\n";
+        let dir = tempfile::tempdir().unwrap();
+        write_file(&dir.path().join("src/fscale.F"), text);
+        let mut exports = Vec::new();
+        for linkage in ["fscale", "__fscale_MOD_fscale", "fnorm", "__fnorm_MOD_fnorm"] {
+            exports.push(Symbol {
+                linkage: linkage.to_string(),
+                abi: Abi::Fortran { bind_c: false },
+            });
+        }
+        let unit = UnitDecl {
+            id: UnitId("fortran:src/fscale.F".to_string()),
+            files: vec!["src/fscale.F".to_string()],
+            generated_from: None,
+            exports,
+            imports: Vec::new(),
+        };
+        CmakeBridge::check_substitutable(&unit, dir.path())
+            .expect("file-level F77-external unit admits through the shim");
     }
 
     #[test]
