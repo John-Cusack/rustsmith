@@ -126,6 +126,18 @@ fn skip_reason(
 fn dep_satisfied(status: &str) -> bool {
     status == "passed" || status == "skipped"
 }
+
+/// Compilable-claim rule (spec US2): a unit whose source has no built
+/// object in the pristine build has no compilable claim (header, helper),
+/// so the scheduler skips it instead of grading it. `None` build dir (the
+/// Python spine builds no pristine tree) means no claim check at all:
+/// every unit keeps its claim there.
+fn compilable_claim(build_dir: Option<&Path>, tree: &Path, rel: &str) -> bool {
+    match build_dir {
+        None => true,
+        Some(build) => CmakeBridge::has_built_object(build, tree, rel),
+    }
+}
 /// Campaign-known upstream oracle failures (Elmer decision A, pinned by
 /// T002 `specs/elmer-campaign/baseline.md`): 3 `fem/tests` solver cases
 /// segfaulting in `DefaultDirichletBCs` on the pristine tree. Ports must
@@ -1230,6 +1242,19 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
                 return Err(format!("unit {id} scheduled before dep {d} passed (got {st})"));
             }
         }
+        // No-compilable-claim skip (spec US2): headers and helpers never
+        // produce a built object, so grading them can only halt at the
+        // substitute gate. Skip against the shared pristine build instead:
+        // recorded `skipped`, never graded, never merged. CTest spine only
+        // (the Python spine builds no pristine tree). Same object
+        // resolution as `substitute`, read-only.
+        let (orig_rel, merge_deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
+        let staged_src = a.fork.join("orig_src");
+        if !compilable_claim(shared_orig_build.as_deref(), &staged_src, &orig_rel) {
+            store.set_unit_status(id, "skipped").map_err(|e| e.to_string())?;
+            ev(store, run_id, "unit_skip", serde_json::json!({"unit": id, "reason": "outside_scope", "detail": "no built object (header/helper)"}));
+            continue;
+        }
         store.set_unit_status(id, "running").map_err(|e| e.to_string())?;
         ev(store, run_id, "unit_start", serde_json::json!({"unit": id}));
         // Worktree on branch unit/<sanitized id>: raw UnitIds contain `:` (and
@@ -1244,8 +1269,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         // Bundle (held-out blind: no held-out input exists on this path).
         // Orig source + task come from the template manifest, never hardcodes.
         let bundle_dir = a.fork.join(format!(".bundles/{wt_name}"));
-        let (orig_rel, _) =
-            crate::units::unit_sources(&tspec, &recon_modules, id)?;
+        // `orig_rel` resolved above for the compilable-claim check.
         let orig_file = a.repo.join(&orig_rel);
         let orig_source =
             std::fs::read_to_string(&orig_file).unwrap_or_else(|_| String::from("// empty"));
@@ -1521,9 +1545,9 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         let providers = rustsmith_council::configured_providers();
         let (r1, r2) = assign_reviewers(None, &providers)?;
         // Merge + delete mirrored module in the SAME commit (targets from template).
-        let (_, deletes) = crate::units::unit_sources(&tspec, &recon_modules, id)?;
+        // Deletes resolved with `orig_rel` above (same `unit_sources` call).
         let pre = git(&a.fork, &["rev-parse", "HEAD"])?;
-        let merged = merge_unit(&a.fork, wt.as_str(), id, &deletes, |diff| {
+        let merged = merge_unit(&a.fork, wt.as_str(), id, &merge_deletes, |diff| {
             record_review(store, run_id, id, diff, r1, r2)
         })?;
         let sha = git(&a.fork, &["rev-parse", "HEAD"])?;
@@ -2518,6 +2542,27 @@ mod tests {
         assert!(!dep_satisfied("gated"));
         assert!(!dep_satisfied(""));
         assert!(!dep_satisfied("failed"));
+    }
+
+    #[test]
+    fn compilable_claim_skips_units_without_a_built_object() {
+        // Spec US2: a header/helper unit has no compilable claim (the
+        // pristine build emits no object for it) and is skipped, never
+        // graded; a compiled source keeps its claim. The Python spine has
+        // no pristine build, so every unit keeps its claim there.
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let tree = dir.path().join("tree");
+        std::fs::create_dir_all(build.join("CMakeFiles/matc.dir/matc/src")).unwrap();
+        std::fs::create_dir_all(tree.join("matc/src")).unwrap();
+        std::fs::write(
+            build.join("CMakeFiles/matc.dir/matc/src/str.c.o"),
+            "object",
+        )
+        .unwrap();
+        assert!(compilable_claim(Some(&build), &tree, "matc/src/str.c"));
+        assert!(!compilable_claim(Some(&build), &tree, "matc/src/str.h"));
+        assert!(compilable_claim(None, &tree, "matc/src/str.h"));
     }
 
     #[test]
