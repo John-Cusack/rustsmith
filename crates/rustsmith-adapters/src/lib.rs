@@ -2958,11 +2958,13 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
     file
 }
 
-/// T014 admitted dummy profile (ADR-027 phase-1, T003-proven): scalar
-/// intrinsic dummies travel by reference (kind-agnostic on the wire), and
+/// Admitted dummy profile (ADR-027 phase-1, T003-proven): scalar intrinsic
+/// dummies travel by reference (kind-agnostic on the wire), and
 /// assumed-shape `REAL(8)`-family dummies of rank 1-2 travel as the pinned
-/// gfortran descriptor. `None` = admitted; `Some` = refusal reason (the
-/// gate maps every refusal to the pinned message, never to this string).
+/// gfortran descriptor. T017 shape B adds the raw-base-address forms:
+/// explicit-shape (`x(n)`, `x(3,3)`) and assumed-size (`x(*)`) array
+/// dummies. `None` = admitted; `Some` = refusal reason (the gate maps
+/// every refusal to the pinned message, never to this string).
 fn gate_dummy_refusal(dtype: &str, shape: Option<&str>, is_result: bool) -> Option<&'static str> {
     let l: String =
         dtype.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
@@ -3007,17 +3009,29 @@ fn gate_dummy_refusal(dtype: &str, shape: Option<&str>, is_result: bool) -> Opti
         Some(s) => s,
     };
     let s: String = shape.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+    // T017 shape B: an assumed-size (`x(*)`) or explicit-shape (`x(n)`,
+    // `x(3,3)`) array dummy travels as a raw base address (ADR-027 §3:
+    // measured `s = 10` for assumed-size, raw base address for
+    // explicit-shape), so only the type/feature rules apply to it.
     if s == "(*)" {
-        return Some("assumed-size dummy (later shape)");
+        return gate_dummy_refusal(dtype, None, false);
     }
     let inner = match s.strip_prefix('(').and_then(|t| t.strip_suffix(')')) {
         Some(t) => t,
         None => return Some("unparsed array shape"),
     };
+    if inner.is_empty() {
+        return Some("unparsed array shape");
+    }
     // Assumed-shape `(:[,:])`: only the REAL(8) family at rank 1-2 was
     // measured (rank-1 dump, rank-2 callable proof). Integer, logical,
     // and complex dtype codes were not; rank 3+ was not.
-    if !inner.is_empty() && inner.chars().all(|c| c == ':' || c == ',') {
+    if inner.contains(':') {
+        // A shape with bounds (`(:n)`, `(lb:ub)`) is still an assumed-shape
+        // dummy: it travels as a descriptor, not as a raw base address.
+        if !inner.chars().all(|c| c == ':' || c == ',') {
+            return Some("assumed-shape with bounds (descriptor)");
+        }
         if inner.split(',').count() > 2 {
             return Some("assumed-shape rank > 2");
         }
@@ -3056,8 +3070,9 @@ fn gate_dummy_refusal(dtype: &str, shape: Option<&str>, is_result: bool) -> Opti
         // Bare REAL defaults to 4 bytes (no -fdefault-real-8 here).
         return Some("bare-REAL assumed-shape (4-byte)");
     }
-    // Explicit-shape and anything else travel raw today (later shape).
-    Some("explicit-shape dummy (later shape)")
+    // T017 shape B: explicit-shape (`x(n)`, `x(3,3)`) travels as a raw
+    // base address (ADR-027 §3), so only the type/feature rules apply.
+    gate_dummy_refusal(dtype, None, false)
 }
 
 /// Split a `subroutine`/`function` tail (text after the keyword) into
@@ -7346,20 +7361,32 @@ mod track_i_tests {
     }
 
     #[test]
+    fn fortran_gate_admits_module_dummy() {
+        // T017 shape B: a module procedure whose array dummies are
+        // explicit-shape (`a(n)`, `a(3,3)`) or assumed-size (`x(*)`)
+        // travels with those dummies as raw base addresses (ADR-027 §3).
+        // Clean-room fixture: no upstream text.
+        let text = "module m\ncontains\n\
+            subroutine eadd(n, a, b)\ninteger :: n\n\
+            real(kind=dp) :: a(n), b(n)\nb = a\nend subroutine eadd\n\
+            subroutine fsc(x, n, a)\ninteger :: n\n\
+            real*8 :: x(*), a\nend subroutine fsc\n\
+            function m2(a) result(s)\nreal(kind=dp) :: a(3,3), s\n\
+            s = sum(a)\nend function m2\nend module m\n";
+        let (dir, unit) = gate_unit_for("src/m.F90", text);
+        let links: Vec<&str> = unit.exports.iter().map(|e| e.linkage.as_str()).collect();
+        assert!(links.contains(&"__m_MOD_eadd"), "exports: {links:?}");
+        assert!(links.contains(&"__m_MOD_fsc"), "exports: {links:?}");
+        assert!(links.contains(&"__m_MOD_m2"), "exports: {links:?}");
+        CmakeBridge::check_substitutable(&unit, dir.path())
+            .expect("explicit-shape / assumed-size module dummies admit through the shim");
+    }
+
+    #[test]
     fn fortran_gate_refuses_later_shapes() {
-        // Explicit-shape, assumed-size, non-REAL(8) assumed-shape, and bare
-        // REAL assumed-shape are later shapes (T017): still refused here.
+        // Non-REAL(8) assumed-shape, bare REAL assumed-shape, rank 3+, and
+        // an assumed-shape with bounds are later shapes: still refused here.
         let cases = [
-            (
-                "explicit",
-                "module m\ncontains\nsubroutine eadd(n, a, b)\ninteger :: n\n\
-                real(kind=dp) :: a(n), b(n)\nb = a\nend subroutine\nend module m\n",
-            ),
-            (
-                "assumed-size",
-                "module m\ncontains\nsubroutine fsc(x, n, a)\ninteger :: n\n\
-                real*8 x(*), a\nend subroutine\nend module m\n",
-            ),
             (
                 "integer-shape",
                 "module m\ncontains\nfunction isum(v) result(s)\ninteger :: v(:), s\n\
@@ -7374,6 +7401,11 @@ mod track_i_tests {
                 "rank3",
                 "module m\ncontains\nfunction csum(a) result(s)\nreal(kind=dp) :: a(:, :, :), s\n\
                 s = sum(a)\nend function\nend module m\n",
+            ),
+            (
+                "assumed-shape-bounds",
+                "module m\ncontains\nfunction bsum(a, n) result(s)\ninteger :: n\n\
+                real(kind=dp) :: a(1:n), s\ns = sum(a)\nend function\nend module m\n",
             ),
         ];
         for (name, text) in cases {
@@ -7420,6 +7452,32 @@ mod track_i_tests {
             ("derived", "module m\ncontains\nsubroutine dsolv(model, dt)\ntype(model_t) :: model\nreal(kind=dp) :: dt\nend subroutine\nend module m\n".to_string()),
             ("character", "module m\ncontains\nsubroutine cname(label, x)\ncharacter(len=80) :: label\nreal(kind=dp) :: x\nend subroutine\nend module m\n".to_string()),
             ("common", format!("{admitted_head}s = t\nend function\nend module m\ncommon /st/ acc\n")),
+            // T017 shape B: an admitted-shape (explicit-shape dummy) module
+            // procedure carrying a forbidden feature still refuses.
+            (
+                "module-dummy-optional",
+                "module m\ncontains\nsubroutine eadd(n, a, b, t)\ninteger :: n\n\
+                real(kind=dp) :: a(n), b(n)\nreal(kind=dp), optional :: t\n\
+                b = a\nend subroutine\nend module m\n".to_string(),
+            ),
+            (
+                "module-dummy-allocatable",
+                "module m\ncontains\nsubroutine eadd(n, a, b, buf)\ninteger :: n\n\
+                real(kind=dp) :: a(n), b(n)\nreal(kind=dp), allocatable :: buf(:)\n\
+                b = a\nend subroutine\nend module m\n".to_string(),
+            ),
+            (
+                "module-dummy-derived",
+                "module m\ncontains\nsubroutine eadd(n, a, model)\ninteger :: n\n\
+                real(kind=dp) :: a(n)\ntype(model_t) :: model\n\
+                end subroutine\nend module m\n".to_string(),
+            ),
+            (
+                "module-dummy-common",
+                "module m\ncontains\nsubroutine eadd(n, a, b)\ninteger :: n\n\
+                real(kind=dp) :: a(n), b(n)\ncommon /st/ acc\n\
+                b = a\nend subroutine\nend module m\n".to_string(),
+            ),
         ];
         for (name, text) in cases {
             let (dir, unit) = gate_unit_for("src/m.F90", &text);

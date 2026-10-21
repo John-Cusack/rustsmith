@@ -158,3 +158,23 @@ Two honest limitations, recorded for the lanes (T015/T016), not fixed here:
   compiler-builtins, `rust_eh_personality`) plus weak libm names — the
   same class as T003, resolved by the runbook's one-provider/
   byte-identity rule at merge time, not asserted away here.
+
+## Status (T017, 2026-10-20): two more shapes landed
+
+- **shape A — F77-external** (ADR-049): an F77 global external
+  subprogram (gfortran symbol `<name>_`) with the proven dummy profile
+  (scalars by reference; explicit-shape / assumed-size arrays as a raw
+  base address). Real unit `fem/src/Walls.F90`, 12-case corpus
+  byte-identical, whole-file portable.
+- **shape B — module-dummy** (ADR-050): a module procedure whose array
+  dummies are explicit-shape or assumed-size (raw base address). Real
+  unit `fem/src/modules/CoordinateTransform.F90#vecutils`, 7-case corpus
+  byte-identical. The array-result wire — a gfortran array descriptor
+  as the hidden first argument — was measured for this shape; a port
+  that assumes a pointer corrupts the caller's data.
+
+Both relaxations keep the `COMMON`/`BLOCK DATA` refusal, the
+derived-type / character / `optional` / `allocatable` dummies, and every
+assumed-shape profile that is not `REAL(8)` rank 1-2. The remaining
+lane-fem-b refusals are dominated by the `Model_t`/`Solver_t` derived
+types (whole-program layout) and by `COMMON` — both out of scope here.
