@@ -7,6 +7,9 @@ use rustsmith_harvest::{rank, suggest, Suggestion};
 use rustsmith_store::{FailedRow, OptimizationRow, RoundRow, Store};
 use thiserror::Error;
 
+pub mod export;
+pub mod scrub;
+
 #[derive(Debug, Error)]
 pub enum ReportError {
     #[error("store: {0}")]

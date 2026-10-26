@@ -1,5 +1,5 @@
 use parking_lot::Mutex;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use rustsmith_core::{Event, Gate};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -37,6 +37,15 @@ pub struct FailedRow {
     pub measured_delta_pct: Option<f64>, pub detail_json: String, pub tokens_spent: i64,
     pub model: String, pub prompt_version: String, pub guidance_version: String,
     pub proposal_text: String, pub parent_sha: String,
+    /// Unified diff parent..child; empty when rejected before implementation.
+    /// Pre-Stage2 databases predate the column: reads fall back to "".
+    pub patch_text: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UnitRow {
+    pub id: String, pub kind: String, pub spec_json: String, pub status: String,
+    pub attempts: i64, pub commit_sha: Option<String>,
+    pub tokens_in: i64, pub tokens_out: i64,
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RoundRow {
@@ -522,6 +531,38 @@ CREATE TABLE IF NOT EXISTS github_repos (
         }
         Ok(out)
     }
+    /// Full unit rows for offline export (mirror-unit training records).
+    pub fn list_units_full(&self, run_id: &str) -> Result<Vec<UnitRow>, StoreError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, spec_json, status, COALESCE(attempts,0), commit_sha, COALESCE(tokens_in,0), COALESCE(tokens_out,0) FROM units WHERE run_id=?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok(UnitRow {
+                id: r.get(0)?, kind: r.get(1)?, spec_json: r.get(2)?, status: r.get(3)?,
+                attempts: r.get(4)?, commit_sha: r.get(5)?,
+                tokens_in: r.get(6)?, tokens_out: r.get(7)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+    /// `(started_at, ended_at)` for incremental `--since` filtering.
+    pub fn run_times(&self, run_id: &str) -> Result<Option<(i64, Option<i64>)>, StoreError> {
+        let conn = self.conn.lock();
+        let v: Option<(i64, Option<i64>)> = conn
+            .query_row(
+                "SELECT started_at, ended_at FROM runs WHERE id=?1",
+                params![run_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(StoreError::from)?;
+        Ok(v)
+    }
     pub fn gate_count(&self, unit_id: &str, gate: &str, passed: bool) -> Result<i64, StoreError> {
         let conn = self.conn.lock();
         Ok(conn.query_row(
@@ -563,10 +604,19 @@ CREATE TABLE IF NOT EXISTS github_repos (
         Ok(out)
     }
     pub fn list_failed(&self, run_id: &str) -> Result<Vec<FailedRow>, StoreError> {
+        // patch_text postdates some databases: probe the column, fall back to "".
+        let has_patch: bool = {
+            let conn = self.conn.lock();
+            let probe = conn.prepare("SELECT patch_text FROM failed_optimizations LIMIT 0");
+            probe.is_ok()
+        };
+        let sql = if has_patch {
+            "SELECT round, hotspot, bound, tier, technique, outcome, gate, measured_delta_pct, detail_json, tokens_spent, model, prompt_version, guidance_version, proposal_text, parent_sha, patch_text FROM failed_optimizations WHERE run_id=?1 ORDER BY round, id"
+        } else {
+            "SELECT round, hotspot, bound, tier, technique, outcome, gate, measured_delta_pct, detail_json, tokens_spent, model, prompt_version, guidance_version, proposal_text, parent_sha FROM failed_optimizations WHERE run_id=?1 ORDER BY round, id"
+        };
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT round, hotspot, bound, tier, technique, outcome, gate, measured_delta_pct, detail_json, tokens_spent, model, prompt_version, guidance_version, proposal_text, parent_sha FROM failed_optimizations WHERE run_id=?1 ORDER BY round, id",
-        )?;
+        let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(params![run_id], |r| {
             Ok(FailedRow {
                 round: r.get(0)?, hotspot: r.get(1)?, bound: r.get(2)?, tier: r.get(3)?,
@@ -574,6 +624,7 @@ CREATE TABLE IF NOT EXISTS github_repos (
                 measured_delta_pct: r.get(7)?, detail_json: r.get(8)?, tokens_spent: r.get(9)?,
                 model: r.get(10)?, prompt_version: r.get(11)?, guidance_version: r.get(12)?,
                 proposal_text: r.get(13)?, parent_sha: r.get(14)?,
+                patch_text: if has_patch { r.get(15)? } else { String::new() },
             })
         })?;
         let mut out = Vec::new();
