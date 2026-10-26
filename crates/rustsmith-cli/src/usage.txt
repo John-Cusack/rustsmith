@@ -16,3 +16,4 @@ usage: rustsmith run --repo <url[#pin]|path> --fork <dir> --work <dir> [--store 
        rustsmith candidates fetch --out <snapshot.json> [--url <url>]
        rustsmith candidates classify --input <snapshot.json> --out <candidates.md> [--limit <n>] [--offline]
        rustsmith headroom probe --package <name> --workload-file <wl.py> --workload-name <n> --detail <text> --out <row.json> [--import-root <mod>] [--iters <n>] [--python <path>]
+       rustsmith export-records --store <store.db> --out <records.jsonl> [--since DATE] [--run-ids A,B] [--session-map F]

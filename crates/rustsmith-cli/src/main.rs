@@ -63,6 +63,7 @@ fn run() -> Result<(), String> {
         "create-github-repo" => github::cmd_create_github_repo(&args[2..]),
         "candidates" => candidate_finder::cmd_candidates(&args[2..]),
         "headroom" => headroom::cmd_headroom(&args[2..]),
+        "export-records" => cmd_export_records(&args[2..]),
         _ => Err(usage().into()),
     }
 }
@@ -1338,6 +1339,46 @@ fn cmd_combine_stores(args: &[String]) -> Result<(), String> {
     let rep = rustsmith_store::combine_stores(&refs, &out).map_err(|e| e.to_string())?;
     println!("{rep}");
     Ok(())
+}
+/// Offline training-record export (report §2-3): scrubbed JSONL v1 + QUALITY.md.
+/// Deterministic: store.db + events.jsonl + manifest/bench readers, no LLM/net.
+/// Invalid records drop LOUDLY (stderr counts); exit 1 when nothing exports.
+fn cmd_export_records(args: &[String]) -> Result<(), String> {
+    use rustsmith_report::export::{parse_since, ExportOptions, ExportStats};
+    let out = flag(args, "--out").ok_or("missing --out")?;
+    let out_path = PathBuf::from(&out);
+    let store_path = PathBuf::from(flag(args, "--store").ok_or("missing --store")?);
+    let since = match flag(args, "--since") {
+        Some(s) => Some(parse_since(&s)?),
+        None => None,
+    };
+    let run_ids = flag(args, "--run-ids").map(|s| s.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect());
+    let session_map = flag(args, "--session-map").map(PathBuf::from);
+    let quality = PathBuf::from(&out).parent().map(|p| p.join("QUALITY.md")).unwrap_or_else(|| PathBuf::from("QUALITY.md"));
+    fn loud(stats: &ExportStats) {
+        if stats.dropped_invalid > 0 || stats.dropped_gutted > 0 {
+            eprintln!(
+                "export-records: dropped {} invalid ({}), {} gutted (>50% redacted)",
+                stats.dropped_invalid,
+                stats.invalid_reasons.iter().map(|(r, n)| format!("{r}×{n}")).collect::<Vec<_>>().join(", "),
+                stats.dropped_gutted,
+            );
+        }
+    }
+    match rustsmith_report::export::export_records(&ExportOptions { store_path, out_path, since, run_ids, session_map }) {
+        Ok(stats) => {
+            loud(&stats);
+            println!("{}", stats.summary_json(&PathBuf::from(&out), &quality));
+            Ok(())
+        }
+        // Empty export still reports its drop accounting, then exits 1.
+        Err(rustsmith_report::export::ExportError::NothingExported(stats)) => {
+            loud(&stats);
+            println!("{}", stats.summary_json(&PathBuf::from(&out), &quality));
+            Err(format!("nothing exported: {stats}"))
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 fn cmd_learn(args: &[String]) -> Result<(), String> {
     match args.first().map(|s| s.as_str()) {
