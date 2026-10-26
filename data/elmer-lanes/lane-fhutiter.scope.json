@@ -1,0 +1,195 @@
+{
+ "lane": "lane-fhutiter",
+ "slice": "fhutiter/ (17 units)",
+ "upstream": "ElmerCSC/elmerfem@9f6af2f85",
+ "toolchain": {
+  "rustc": "1.100.0-nightly (feaadeeac 2026-09-19)",
+  "gfortran": "13.3.0",
+  "cmake": "3.28.3 (Makefiles)"
+ },
+ "timings": {
+  "configure_s": 6.51,
+  "configure_peak_rss_kb": 228224,
+  "build_s": 32.39,
+  "build_peak_rss_kb": 211116,
+  "port_rebuild_s": 0.26,
+  "port_rebuild_peak_rss_kb": 122864,
+  "probe_ref": {
+   "wall_s": 0.0,
+   "peak_rss_kb": 2600
+  },
+  "probe_port": {
+   "wall_s": 0.0,
+   "peak_rss_kb": 3084
+  }
+ },
+ "selection": {
+  "enumerated": 963,
+  "with_texts": 963
+ },
+ "evidence": {
+  "elmer_rust_pr": "https://github.com/John-Cusack/elmer-rust/pull/13",
+  "ledger": "crates/elmer-fhutiter/LEDGER.md (elmer-rust)",
+  "gate_verdicts": "proof/gate-verdicts.json (T010 evidence dir)",
+  "grade_logs": "proof/grade-logs/ (T010 evidence dir)"
+ },
+ "units": [
+  {
+   "unit": "c:fhutiter/examples/ex1/dummymain.c",
+   "status": "skip-no-built-object",
+   "reason": "examples/ unbuilt (no add_subdirectory): no object",
+   "gate": "admit",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "c:fhutiter/include/huti_fdefs.h",
+   "status": "skip-helper",
+   "reason": "header: no compilable claim",
+   "gate": "admit",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "c:fhutiter/src/huti_fdefs.h",
+   "status": "skip-helper",
+   "reason": "header: no compilable claim",
+   "gate": "admit",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "c:fhutiter/src/huti_intdefs.h",
+   "status": "skip-helper",
+   "reason": "header: no compilable claim",
+   "gate": "admit",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/examples/ex1/globals_module.f90",
+   "status": "skip-no-built-object",
+   "reason": "examples/ unbuilt: no object (data-only module)",
+   "gate": "admit",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/examples/ex1/huti-ex.F",
+   "status": "skip-no-built-object",
+   "reason": "examples/ unbuilt: no object",
+   "gate": "admit",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/examples/ex1/huti-ex.F90",
+   "status": "skip-no-built-object",
+   "reason": "examples/ unbuilt: no object (dual source with .F)",
+   "gate": "admit",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_aux.F90",
+   "status": "graded",
+   "reason": "hutiaux: 12/12 symbols, differential byte-identical (elmer-rust PR 13)",
+   "gate": "admit",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_bicgstab.F90",
+   "status": "refused-gate",
+   "reason": "procedure-pointer callbacks (matvec/pcond/dotp/norm/stop) in all 4 precision variants",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_bicgstab_2.F90",
+   "status": "refused-gate",
+   "reason": "procedure-pointer callbacks in all 4 precision variants",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_cg.F90",
+   "status": "refused-gate",
+   "reason": "procedure-pointer callbacks in all 4 precision variants",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_cgs.F90",
+   "status": "refused-gate",
+   "reason": "procedure-pointer callbacks in all 4 precision variants",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_gmres.F90",
+   "status": "refused-gate",
+   "reason": "procedure-pointer callbacks in all 4 precision variants",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_interfaces.F90",
+   "status": "refused-gate",
+   "reason": "abstract-interface bodies only; object defines no text symbols",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_qmr.F90",
+   "status": "refused-gate",
+   "reason": "procedure-pointer callbacks in all 4 precision variants",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_sfe.F90",
+   "status": "refused-gate",
+   "reason": "28 wrappers with procedure-pointer callbacks + external BLAS interfaces",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  },
+  {
+   "unit": "fortran:fhutiter/src/huti_tfqmr.F90",
+   "status": "refused-gate",
+   "reason": "procedure-pointer callbacks in all 4 precision variants",
+   "gate": "refuse",
+   "has_built_object_tool": false,
+   "affected": 0,
+   "grade_path": "fallback-full"
+  }
+ ],
+ "notes": [
+  "has_built_object_tool=false for huti_aux.F90 is a tool DependInfo gap (CHECK_Fortran unparsed); object verified present by ls+nm; substitute mechanics validated manually via identical ld -r composition.",
+  "ctest execution environmentally blocked here (MPI_Init hangs); K=3 anchored from T002 baseline + c9 re-verification, not re-measured."
+ ]
+}
