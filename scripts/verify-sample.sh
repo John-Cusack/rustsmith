@@ -90,6 +90,7 @@ for ln, r in recs:
                  "ci_high", "rss_delta_pct", "alloc_delta_pct", "binary_delta_pct",
                  "compile_delta_pct", "noise_floor_pct"]:
         finite_or_null(m.get(name), name, rid)
+    finite_or_null(r.get("provenance", {}).get("cost_usd"), "cost_usd", rid)
     if not r.get("rights", {}).get("upstream_license"):
         fail(f"{rid}: empty rights.upstream_license")
     rejected = r.get("record_kind") == "failed_optimization" and m.get("outcome") == "rejected_at_proposal"
@@ -124,8 +125,16 @@ for ln, r in sample:
                        (unit_id, run_id)).fetchone()
         if u is None:
             fail(f"{rid}: unit {unit_id} missing in store"); continue
-        if u["status"] != "passed":
-            fail(f"{rid}: unit status {u['status']} != passed"); continue
+        if u["status"] == "passed":
+            want_outcome = "merged" if all(v["passed"] for v in r["review"]["gate_verdicts"]) else "gate_failed"
+        elif u["status"] == "failed":
+            want_outcome = "gate_failed"
+        elif u["status"] in ("parked", "abandoned"):
+            want_outcome = u["status"]
+        else:
+            fail(f"{rid}: unit status {u['status']} not a terminal lane status"); continue
+        if r["measurement"]["outcome"] != want_outcome:
+            fail(f"{rid}: outcome {r['measurement']['outcome']!r} != {want_outcome!r} for status {u['status']}"); continue
         if u["sha"] != r["code"]["commit_sha"]:
             fail(f"{rid}: commit_sha drift (store {u['sha']!r})"); continue
         rows = db.execute(

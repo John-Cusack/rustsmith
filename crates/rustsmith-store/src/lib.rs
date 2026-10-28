@@ -402,6 +402,20 @@ CREATE TABLE IF NOT EXISTS github_repos (
             .unwrap_or(None);
         Ok(v)
     }
+    /// Close a run: terminal status plus `ended_at` (wall-span source for
+    /// export). The timestamp is set once; re-finishing keeps the first.
+    pub fn finish_run(&self, run_id: &str, status: &str) -> Result<(), StoreError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE runs SET status=?1, ended_at=COALESCE(ended_at,?2) WHERE id=?3",
+            params![status, now, run_id],
+        )?;
+        Ok(())
+    }
     /// Append-only decision log. `seat_positions_json` stores ALL positions +
     /// reasoning verbatim (minority recoverable). No UPDATE/DELETE path exists.
     pub fn insert_decision(

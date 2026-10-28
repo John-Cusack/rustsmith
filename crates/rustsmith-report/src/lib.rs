@@ -7,6 +7,7 @@ use rustsmith_harvest::{rank, suggest, Suggestion};
 use rustsmith_store::{FailedRow, OptimizationRow, RoundRow, Store};
 use thiserror::Error;
 
+pub mod evidence;
 pub mod export;
 pub mod scrub;
 

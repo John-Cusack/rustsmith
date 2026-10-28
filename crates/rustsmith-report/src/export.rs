@@ -18,6 +18,7 @@
 //!   model/proposal, and default-path mirrors are reference-template copies
 //!   (report §7.4: label them honestly).
 
+use crate::evidence::TranscriptIndex;
 use crate::scrub::scrub_text;
 use rustsmith_store::Store;
 use sha2::{Digest, Sha256};
@@ -39,6 +40,8 @@ pub enum ExportError {
     NoRuns,
     #[error("nothing exported: {0}")]
     NothingExported(Box<ExportStats>),
+    #[error("evidence: {0}")]
+    Evidence(String),
 }
 
 impl std::fmt::Display for ExportStats {
@@ -57,6 +60,12 @@ impl From<rustsmith_store::StoreError> for ExportError {
     }
 }
 
+impl From<crate::evidence::EvidenceError> for ExportError {
+    fn from(e: crate::evidence::EvidenceError) -> Self {
+        ExportError::Evidence(e.to_string())
+    }
+}
+
 /// CLI-facing options for one export pass.
 pub struct ExportOptions {
     pub store_path: PathBuf,
@@ -64,6 +73,8 @@ pub struct ExportOptions {
     pub since: Option<i64>,
     pub run_ids: Option<Vec<String>>,
     pub session_map: Option<PathBuf>,
+    pub transcripts: Option<PathBuf>,
+    pub license_split: Option<PathBuf>,
 }
 
 /// Loud counters: every dropped record lands in `invalid_reasons` or
@@ -79,6 +90,7 @@ pub struct ExportStats {
     pub scrubbed_fields: usize,
     pub redacted_spans: usize,
     pub run_spans: BTreeMap<String, Option<i64>>,
+    pub gpl_rows: usize,
 }
 
 impl ExportStats {
@@ -96,6 +108,7 @@ impl ExportStats {
             "dropped_invalid": self.dropped_invalid,
             "dropped_gutted": self.dropped_gutted,
             "invalid_reasons": self.invalid_reasons,
+            "gpl_rows": self.gpl_rows,
             "out": out.display().to_string(),
             "quality": quality.display().to_string(),
         })
@@ -125,6 +138,7 @@ pub struct Provenance {
     pub bound: String,
     pub tier: i64,
     pub tokens_spent: i64,
+    pub cost_usd: Option<f64>,
     pub wall_seconds: Option<i64>,
     pub grade_count: i64,
     pub upstream_review: Option<String>,
@@ -350,8 +364,10 @@ struct RunContext {
     upstream_repo: String,
     upstream_commit: String,
     upstream_license: String,
+    record_license: String,
     attribution_text: String,
     delivered_artifact: bool,
+    run_wall: Option<i64>,
 }
 
 /// Candidate sidecar paths, in priority order, relative to the store dir.
@@ -381,6 +397,35 @@ fn release_toml(store_dir: &Path) -> Option<PathBuf> {
     first_hit(store_dir, &["fork/release.toml", "out/stage/release.toml"])
 }
 
+/// Lane-capture sidecar (`lane-capture init`): package, upstream and rights
+/// pins for lanes that never ran recon/release. Highest priority source.
+fn lane_toml(store_dir: &Path) -> Option<PathBuf> {
+    first_hit(store_dir, &["lane.toml"])
+}
+
+fn lane_value(store_dir: &Path, key: &str) -> Option<String> {
+    lane_toml(store_dir).and_then(|p| toml_string(&p, key))
+}
+
+/// Attribution line: `lane.toml` override or the run repo URL, with a
+/// `rights_note` (e.g. a training-use permission grant) appended in
+/// brackets when present.
+fn lane_attribution(store_dir: &Path, repo_url: &str) -> String {
+    let base =
+        lane_value(store_dir, "attribution_text").unwrap_or_else(|| repo_url.to_string());
+    match lane_value(store_dir, "rights_note") {
+        Some(note) => format!("{base} [{note}]"),
+        None => base,
+    }
+}
+
+/// A GPL mention anywhere in the license string marks the record for the
+/// opt-in `--license-split` sink (ADR-055 decision 7 as amended 2026-10-28:
+/// Elmer GPL rows ship inline with a rights_note permission).
+fn is_gpl(license: &str) -> bool {
+    license.to_ascii_uppercase().contains("GPL")
+}
+
 fn toml_string(path: &Path, key: &str) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
     for line in text.lines() {
@@ -399,9 +444,13 @@ fn toml_string(path: &Path, key: &str) -> Option<String> {
     None
 }
 
-/// License priority: run-local `release.toml` `upstream_license`, then
-/// recon `facts.json` probe-attribution license, else "" (record drops).
+/// License priority: `lane.toml` sidecar, run-local `release.toml`
+/// `upstream_license`, then recon `facts.json` probe-attribution license,
+/// else "" (record drops).
 fn upstream_license(store_dir: &Path) -> String {
+    if let Some(v) = lane_value(store_dir, "upstream_license") {
+        return v;
+    }
     if let Some(p) = release_toml(store_dir) {
         if let Some(v) = toml_string(&p, "upstream_license") {
             return v;
@@ -423,7 +472,28 @@ fn upstream_license(store_dir: &Path) -> String {
     String::new()
 }
 
+/// Record license: explicit `lane.toml`/`release.toml` `record_license`
+/// wins; a GPL upstream forces the upstream value (opt-in split at emit,
+/// inline otherwise); otherwise MIT. Never empty (validation drops).
+fn record_license(store_dir: &Path, upstream: &str) -> String {
+    if let Some(v) = lane_value(store_dir, "record_license") {
+        return v;
+    }
+    if let Some(p) = release_toml(store_dir) {
+        if let Some(v) = toml_string(&p, "record_license") {
+            return v;
+        }
+    }
+    if is_gpl(upstream) {
+        return upstream.to_string();
+    }
+    "MIT".to_string()
+}
+
 fn run_package(store_dir: &Path, repo_url: &str) -> String {
+    if let Some(v) = lane_value(store_dir, "package") {
+        return v;
+    }
     if let Some(p) = release_toml(store_dir) {
         if let Some(v) = toml_string(&p, "project") {
             return v;
@@ -615,6 +685,7 @@ fn validate(rec: &ExportRecord) -> Result<(), String> {
         ("binary_delta_pct", rec.measurement.binary_delta_pct),
         ("compile_delta_pct", rec.measurement.compile_delta_pct),
         ("noise_floor_pct", rec.measurement.noise_floor_pct),
+        ("cost_usd", rec.provenance.cost_usd),
     ] {
         if v.is_some_and(|x| !x.is_finite()) {
             return Err(format!("non-finite {name}"));
@@ -630,6 +701,113 @@ fn validate(rec: &ExportRecord) -> Result<(), String> {
 // Main pass.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Lane-capture joins (ADR-055): transcript provenance + gate wall times +
+// spec scope verdicts, and the GPL license split.
+// ---------------------------------------------------------------------------
+
+/// Transcript spend for a joined session: dominant model + summed usage.
+/// Store values stand when no transcript joins (or it carries no usage).
+fn join_provenance(
+    transcripts: &TranscriptIndex,
+    session_id: &Option<String>,
+    store_model: &str,
+    store_tokens: i64,
+) -> (String, i64, Option<f64>) {
+    let joined = session_id.as_ref().and_then(|s| transcripts.lookup(s));
+    match joined {
+        Some(spend) if !spend.model.is_empty() || spend.input + spend.output > 0 => {
+            let model = if spend.model.is_empty() {
+                store_model.to_string()
+            } else {
+                spend.model.clone()
+            };
+            let tokens = if spend.input + spend.output > 0 {
+                spend.input + spend.output
+            } else {
+                store_tokens
+            };
+            let cost = (spend.cost_usd > 0.0).then_some(spend.cost_usd);
+            (model, tokens, cost)
+        }
+        _ => (store_model.to_string(), store_tokens, None),
+    }
+}
+
+/// Max `wall_secs` across gate detail_jsons (the lane helper records
+/// measured grade/bench wall time there), else the run wall span.
+fn wall_seconds(
+    gates: &[rustsmith_store::GateRow],
+    unit: Option<&str>,
+    run_wall: Option<i64>,
+) -> Option<i64> {
+    let mut best: Option<i64> = None;
+    for g in gates {
+        if unit.is_some_and(|u| g.unit_id != u) {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&g.detail_json) {
+            let w = v
+                .get("wall_secs")
+                .and_then(|x| x.as_f64())
+                .filter(|x| x.is_finite() && *x > 0.0);
+            if let Some(w) = w {
+                let w = w as i64;
+                best = Some(best.map_or(w, |b: i64| b.max(w)));
+            }
+        }
+    }
+    best.or(run_wall)
+}
+
+/// Scope verdict the lane helper filed in `units.spec_json` (ADR-055: no
+/// new gate variant, no run-wide decision rows).
+fn scope_verdict_from_spec(spec_json: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(spec_json)
+        .ok()?
+        .get("scope_verdict")?
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// Opt-in GPL sink (`--license-split PATH`): created on the first
+/// GPL-licensed row only. Without the flag, GPL rows ship inline in the
+/// main file — Elmer (GPL-2.0-or-later upstream) is permitted training data
+/// per the captain 2026-10-28, with the permission noted in
+/// `rights.attribution_text`; see `rights_note` in `lane.toml`.
+struct GplSink {
+    path: PathBuf,
+    file: Option<std::io::BufWriter<std::fs::File>>,
+}
+
+impl GplSink {
+
+    fn write(&mut self, line: &str) -> Result<(), ExportError> {
+        use std::io::Write as _;
+        if self.file.is_none() {
+            let f = std::fs::File::create(&self.path)
+                .map_err(|e| ExportError::Io(format!("{:?}: {e}", self.path)))?;
+            self.file = Some(std::io::BufWriter::new(f));
+            eprintln!("export-records: GPL-licensed rows split to {:?}", self.path);
+        }
+        if let Some(f) = self.file.as_mut() {
+            writeln!(f, "{line}").map_err(|e| ExportError::Io(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), ExportError> {
+        use std::io::Write as _;
+        if let Some(f) = self.file.as_mut() {
+            f.flush().map_err(|e| ExportError::Io(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn created(&self) -> bool {
+        self.file.is_some()
+    }
+}
 pub fn export_records(opts: &ExportOptions) -> Result<ExportStats, ExportError> {
     let store = Store::open(&opts.store_path)?;
     let store_dir = opts.store_path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
@@ -638,6 +816,13 @@ pub fn export_records(opts: &ExportOptions) -> Result<ExportStats, ExportError> 
         Some(p) => SessionMap::load(p)?,
         None => SessionMap::empty(),
     };
+    let transcripts = match &opts.transcripts {
+        Some(d) => TranscriptIndex::load(d)?,
+        None => TranscriptIndex::empty(),
+    };
+    if !transcripts.is_empty() {
+        eprintln!("export-records: indexed {} transcript session(s) from {:?}", transcripts.len(), opts.transcripts.as_ref().unwrap());
+    }
     let created_at = now_epoch();
     let version = exporter_version();
 
@@ -662,6 +847,8 @@ pub fn export_records(opts: &ExportOptions) -> Result<ExportStats, ExportError> 
     let out_file = std::fs::File::create(&opts.out_path)
         .map_err(|e| ExportError::Io(format!("{:?}: {e}", opts.out_path)))?;
     let mut out = std::io::BufWriter::new(out_file);
+    let mut gpl: Option<GplSink> =
+        opts.license_split.clone().map(|path| GplSink { path, file: None });
     let mut stats = ExportStats { runs_seen: run_ids.len(), ..Default::default() };
     // Per-window aggregates for QUALITY.md.
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
@@ -677,24 +864,38 @@ pub fn export_records(opts: &ExportOptions) -> Result<ExportStats, ExportError> 
 
     for run_id in &run_ids {
         let Some(run) = store.get_run(run_id)? else { continue };
-        let (upstream_repo, upstream_commit) = split_repo_pin(&run.repo_url);
+        // lane.toml pins the upstream project; otherwise the run repo URL
+        // doubles as both port and upstream (pipeline default).
+        let (repo_from_url, commit_from_url) = split_repo_pin(&run.repo_url);
+        let upstream_repo =
+            lane_value(&store_dir, "upstream_repo").unwrap_or(repo_from_url);
+        let upstream_commit = lane_value(&store_dir, "upstream_commit")
+            .filter(|s| !s.is_empty())
+            .unwrap_or(commit_from_url);
+        let upstream_license = upstream_license(&store_dir);
+        let run_wall = store
+            .run_times(run_id)
+            .ok()
+            .flatten()
+            .and_then(|(start, end)| end.filter(|e| *e > start).map(|e| e - start));
         let ctx = RunContext {
             oracle_passed: None,
             oracle_total: None,
             manifest_sha: manifest_sha(&store_dir),
             package: run_package(&store_dir, &run.repo_url),
             source_lang: run.source_lang.clone(),
-
             run_id: run_id.clone(),
             upstream_repo,
             upstream_commit,
-            upstream_license: upstream_license(&store_dir),
-            attribution_text: run.repo_url.clone(),
+            upstream_license: upstream_license.clone(),
+            record_license: record_license(&store_dir, &upstream_license),
+            attribution_text: lane_attribution(&store_dir, &run.repo_url),
             delivered_artifact: first_hit(
                 &store_dir,
                 &["fork/ACCEPTED.json", "out/ACCEPTED.json", "ACCEPTED.json"],
             )
             .is_some(),
+            run_wall,
         };
         let gates = store.list_gate_results(run_id).unwrap_or_default();
         let (run_passed, run_total) = oracle_counts(&gates, None);
@@ -707,25 +908,28 @@ pub fn export_records(opts: &ExportOptions) -> Result<ExportStats, ExportError> 
         let mut run_exported = 0;
         let units = store.list_units_full(run_id).unwrap_or_default();
         for u in &units {
-            if u.status != "passed" {
+            // Queued/running/gated units are incomplete work, not training
+            // signal. Failed/parked/abandoned units export as negative rows
+            // (gap 7); rows with oracle.total == 0 still drop loudly.
+            if !matches!(u.status.as_str(), "passed" | "failed" | "parked" | "abandoned") {
                 continue;
             }
-            if let Some(rec) = mirror_record(&ctx, u, &gates, &hunks, &decisions, &sessions, &home, created_at, &version, &mut stats) {
-                if emit(&mut out, &rec, None, &mut stats, &mut kinds, &mut outcomes, &mut by_btt, &mut calib, &mut divergence_failures)? {
+            if let Some(rec) = mirror_record(&ctx, u, &gates, &hunks, &decisions, &sessions, &transcripts, &home, created_at, &version, &mut stats) {
+                if emit(&mut out, &mut gpl, &rec, None, &mut stats, &mut kinds, &mut outcomes, &mut by_btt, &mut calib, &mut divergence_failures)? {
                     run_exported += 1;
                 }
             }
         }
         for o in store.list_optimizations(run_id)? {
-            if let Some(rec) = optimization_record(&ctx, &o, &gates, &decisions, &sessions, &home, created_at, &version, &mut stats) {
-                if emit(&mut out, &rec, Some(o.ceiling_pct), &mut stats, &mut kinds, &mut outcomes, &mut by_btt, &mut calib, &mut divergence_failures)? {
+            if let Some(rec) = optimization_record(&ctx, &o, &gates, &decisions, &sessions, &transcripts, &home, created_at, &version, &mut stats) {
+                if emit(&mut out, &mut gpl, &rec, Some(o.ceiling_pct), &mut stats, &mut kinds, &mut outcomes, &mut by_btt, &mut calib, &mut divergence_failures)? {
                     run_exported += 1;
                 }
             }
         }
         for f in store.list_failed(run_id)? {
-            if let Some(rec) = failed_record(&ctx, &f, &decisions, &sessions, &home, created_at, &version, &mut stats) {
-                if emit(&mut out, &rec, None, &mut stats, &mut kinds, &mut outcomes, &mut by_btt, &mut calib, &mut divergence_failures)? {
+            if let Some(rec) = failed_record(&ctx, &f, &decisions, &sessions, &transcripts, &home, created_at, &version, &mut stats) {
+                if emit(&mut out, &mut gpl, &rec, None, &mut stats, &mut kinds, &mut outcomes, &mut by_btt, &mut calib, &mut divergence_failures)? {
                     run_exported += 1;
                 }
             }
@@ -738,12 +942,15 @@ pub fn export_records(opts: &ExportOptions) -> Result<ExportStats, ExportError> 
     use std::io::Write as _;
     out.flush().map_err(|e| ExportError::Io(e.to_string()))?;
     drop(out);
-
+    if let Some(g) = gpl.as_mut() {
+        g.flush()?;
+    }
+    let gpl_path = gpl.as_ref().filter(|g| g.created()).map(|g| g.path.clone());
     if stats.exported == 0 {
         return Err(ExportError::NothingExported(Box::new(stats)));
     }
     let quality_path = opts.out_path.parent().map(|p| p.join("QUALITY.md")).unwrap_or_else(|| PathBuf::from("QUALITY.md"));
-    let md = quality_md(&stats, &kinds, &outcomes, &by_btt, &calib, divergence_failures, &run_delivered, created_at);
+    let md = quality_md(&stats, &kinds, &outcomes, &by_btt, &calib, divergence_failures, &run_delivered, gpl_path, created_at);
     std::fs::write(&quality_path, md).map_err(|e| ExportError::Io(format!("{quality_path:?}: {e}")))?;
     Ok(stats)
 }
@@ -751,6 +958,7 @@ pub fn export_records(opts: &ExportOptions) -> Result<ExportStats, ExportError> 
 #[allow(clippy::too_many_arguments)]
 fn emit(
     out: &mut std::io::BufWriter<std::fs::File>,
+    gpl: &mut Option<GplSink>,
     rec: &ExportRecord,
     ceiling: Option<f64>,
     stats: &mut ExportStats,
@@ -766,7 +974,19 @@ fn emit(
     }
     let line = serde_json::to_string(rec).map_err(|e| ExportError::Io(e.to_string()))?;
     use std::io::Write as _;
-    writeln!(out, "{line}").map_err(|e| ExportError::Io(e.to_string()))?;
+    // GPL-licensed rows take the opt-in `--license-split` sink when present;
+    // otherwise they ship inline (Elmer is permitted training data per the
+    // captain 2026-10-28; permission noted in rights.attribution_text).
+    if is_gpl(&rec.rights.record_license) {
+        stats.gpl_rows += 1;
+        if let Some(g) = gpl.as_mut() {
+            g.write(&line)?;
+        } else {
+            writeln!(out, "{line}").map_err(|e| ExportError::Io(e.to_string()))?;
+        }
+    } else {
+        writeln!(out, "{line}").map_err(|e| ExportError::Io(e.to_string()))?;
+    }
     stats.exported += 1;
     *kinds.entry(rec.record_kind.clone()).or_insert(0) += 1;
     *outcomes.entry(rec.measurement.outcome.clone()).or_insert(0) += 1;
@@ -812,6 +1032,7 @@ fn mirror_record(
     hunks: &[rustsmith_store::HunkRow],
     decisions: &[rustsmith_store::DecisionRow],
     sessions: &SessionMap,
+    transcripts: &TranscriptIndex,
     home: &str,
     created_at: i64,
     version: &str,
@@ -824,6 +1045,10 @@ fn mirror_record(
         .map(|g| gate_summary(&g.gate, g.passed, &g.detail_json, home))
         .collect();
     let (session_id, trace_ids) = sessions.lookup(&ctx.run_id, &u.id, "");
+    // Transcript join wins for model/tokens/cost when present (gap 8);
+    // otherwise the store values stand ("template" + unit token sums).
+    let (model, tokens_spent, cost_usd) =
+        join_provenance(transcripts, &session_id, "template", u.tokens_in + u.tokens_out);
     let commit_sha = u.commit_sha.clone().unwrap_or_default();
     // Attribution-ledger refs when the grade-to-merge transaction recorded them.
     let mut before_ref = String::new();
@@ -845,15 +1070,16 @@ fn mirror_record(
         session_id,
         trace_ids,
         provenance: Provenance {
-            model: "template".to_string(),
+            model,
             prompt_version: String::new(),
             guidance_version: String::new(),
             proposal_text: String::new(),
             technique: String::new(),
             bound: String::new(),
             tier: 0,
-            tokens_spent: u.tokens_in + u.tokens_out,
-            wall_seconds: None,
+            tokens_spent,
+            cost_usd,
+            wall_seconds: wall_seconds(gates, Some(&u.id), ctx.run_wall),
             grade_count: unit_gates.len() as i64,
             upstream_review: None,
         },
@@ -889,17 +1115,25 @@ fn mirror_record(
             binary_delta_pct: None,
             compile_delta_pct: None,
             noise_floor_pct: None,
-            outcome: if unit_gates.iter().all(|g| g.passed) { "merged" } else { "gate_failed" }.to_string(),
+            outcome: if u.status == "passed" {
+                if unit_gates.iter().all(|g| g.passed) { "merged" } else { "gate_failed" }.to_string()
+            } else if u.status == "failed" {
+                "gate_failed".to_string()
+            } else {
+                // parked | abandoned: negative rows (gap 7); oracle.total == 0
+                // still drops them loudly below.
+                u.status.clone()
+            },
             gate: unit_gates.iter().find(|g| !g.passed).map(|g| g.gate.clone()),
             harvest_class: None,
         },
         review: Review {
             gate_verdicts: unit_gates,
             council_positions: council_positions(decisions, home, stats),
-            scope_verdict: None,
+            scope_verdict: scope_verdict_from_spec(&u.spec_json),
         },
         rights: Rights {
-            record_license: "MIT".to_string(),
+            record_license: ctx.record_license.clone(),
             upstream_repo: ctx.upstream_repo.clone(),
             upstream_license: ctx.upstream_license.clone(),
             upstream_commit: ctx.upstream_commit.clone(),
@@ -930,6 +1164,7 @@ fn optimization_record(
     gates: &[rustsmith_store::GateRow],
     decisions: &[rustsmith_store::DecisionRow],
     sessions: &SessionMap,
+    transcripts: &TranscriptIndex,
     home: &str,
     created_at: i64,
     version: &str,
@@ -937,6 +1172,8 @@ fn optimization_record(
 ) -> Option<ExportRecord> {
     let unit_id = format!("{}:{}", ctx.run_id, o.hotspot);
     let (session_id, trace_ids) = sessions.lookup(&ctx.run_id, &unit_id, &o.hotspot);
+    let (model, tokens_spent, cost_usd) =
+        join_provenance(transcripts, &session_id, &o.model, o.tokens_spent);
     let files_touched: Vec<String> =
         serde_json::from_str(&o.files_touched_json).unwrap_or_default();
     let run_gate_count = gates.len() as i64;
@@ -952,15 +1189,16 @@ fn optimization_record(
         session_id,
         trace_ids,
         provenance: Provenance {
-            model: o.model.clone(),
+            model,
             prompt_version: o.prompt_version.clone(),
             guidance_version: o.guidance_version.clone(),
             proposal_text: o.proposal_text.clone(),
             technique: o.technique.clone(),
             bound: o.bound.clone(),
             tier: o.tier,
-            tokens_spent: o.tokens_spent,
-            wall_seconds: None,
+            tokens_spent,
+            cost_usd,
+            wall_seconds: wall_seconds(gates, None, ctx.run_wall),
             grade_count: run_gate_count,
             upstream_review: None,
         },
@@ -1006,7 +1244,7 @@ fn optimization_record(
             scope_verdict: None,
         },
         rights: Rights {
-            record_license: "MIT".to_string(),
+            record_license: ctx.record_license.clone(),
             upstream_repo: ctx.upstream_repo.clone(),
             upstream_license: ctx.upstream_license.clone(),
             upstream_commit: ctx.upstream_commit.clone(),
@@ -1022,6 +1260,7 @@ fn failed_record(
     f: &rustsmith_store::FailedRow,
     decisions: &[rustsmith_store::DecisionRow],
     sessions: &SessionMap,
+    transcripts: &TranscriptIndex,
     home: &str,
     created_at: i64,
     version: &str,
@@ -1029,6 +1268,8 @@ fn failed_record(
 ) -> Option<ExportRecord> {
     let unit_id = format!("{}:{}", ctx.run_id, f.hotspot);
     let (session_id, trace_ids) = sessions.lookup(&ctx.run_id, &unit_id, &f.hotspot);
+    let (model, tokens_spent, cost_usd) =
+        join_provenance(transcripts, &session_id, &f.model, f.tokens_spent);
     let (detail_text, _) = scrub_field(&f.detail_json, home, stats);
     let mut detail = detail_text;
     detail.truncate(240);
@@ -1048,15 +1289,16 @@ fn failed_record(
         session_id,
         trace_ids,
         provenance: Provenance {
-            model: f.model.clone(),
+            model,
             prompt_version: f.prompt_version.clone(),
             guidance_version: f.guidance_version.clone(),
             proposal_text: f.proposal_text.clone(),
             technique: f.technique.clone(),
             bound: f.bound.clone(),
             tier: f.tier,
-            tokens_spent: f.tokens_spent,
-            wall_seconds: None,
+            tokens_spent,
+            cost_usd,
+            wall_seconds: ctx.run_wall,
             grade_count: 0,
             upstream_review: None,
         },
@@ -1102,7 +1344,7 @@ fn failed_record(
             scope_verdict: None,
         },
         rights: Rights {
-            record_license: "MIT".to_string(),
+            record_license: ctx.record_license.clone(),
             upstream_repo: ctx.upstream_repo.clone(),
             upstream_license: ctx.upstream_license.clone(),
             upstream_commit: ctx.upstream_commit.clone(),
@@ -1160,6 +1402,7 @@ fn quality_md(
     calib: &BTreeMap<String, (f64, usize)>,
     divergence_failures: usize,
     run_delivered: &[(String, bool)],
+    gpl_path: Option<PathBuf>,
     created_at: i64,
 ) -> String {
     let mut md = String::new();
@@ -1190,6 +1433,11 @@ fn quality_md(
         md.push_str(&format!("- {b}: {:.4} over {n} row(s)\n", sum / (*n as f64)));
     }
     md.push_str(&format!("\n## Soundness\n\n- heldout-divergence failures: {divergence_failures}\n"));
+    if let Some(p) = gpl_path {
+        md.push_str(&format!("\n## License split\n\n- GPL-licensed rows: {} (opt-in separate split: {})\n", stats.gpl_rows, p.display()));
+    } else if stats.gpl_rows > 0 {
+        md.push_str(&format!("\n## License split\n\n- GPL-licensed rows: {} (inline in main file; rights.attribution_text records the training-use permission)\n", stats.gpl_rows));
+    }
     if !run_delivered.is_empty() {
         md.push_str("\n## Runs (delivered artifact = bench/ACCEPTED.json present)\n\n");
         for (r, d) in run_delivered {
@@ -1247,6 +1495,7 @@ mod tests {
                 bound: "compute".to_string(),
                 tier: 8,
                 tokens_spent: 0,
+                cost_usd: None,
                 wall_seconds: None,
                 grade_count: 0,
                 upstream_review: None,
@@ -1399,5 +1648,120 @@ mod tests {
         assert_eq!(t.omp.as_deref(), Some("o"));
         let (s2, _) = m.lookup("r", "nope", "alsono");
         assert!(s2.is_none());
+    }
+    #[test]
+    fn gpl_detection_drives_split() {
+        assert!(is_gpl("GPL-2.0-or-later"));
+        assert!(is_gpl("GPL-3.0-only"));
+        assert!(!is_gpl("MIT"));
+        assert!(!is_gpl("BSD-3-Clause"));
+        assert!(!is_gpl(""));
+    }
+
+    #[test]
+    fn record_license_defaults_and_lane_override() {
+        let d = std::env::temp_dir().join(format!("rs-export-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        // No sidecar: MIT unless GPL upstream.
+        assert_eq!(record_license(&d, "BSD-3-Clause"), "MIT");
+        assert_eq!(record_license(&d, "GPL-2.0-or-later"), "GPL-2.0-or-later");
+        // lane.toml wins over everything.
+        std::fs::write(d.join("lane.toml"), "record_license = \"Apache-2.0\"\nupstream_license = \"GPL-2.0-or-later\"\n").unwrap();
+        assert_eq!(record_license(&d, "GPL-2.0-or-later"), "Apache-2.0");
+        assert_eq!(upstream_license(&d), "GPL-2.0-or-later");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn transcript_join_keeps_store_values_when_absent() {
+        let idx = TranscriptIndex::empty();
+        let (model, tokens, cost) = join_provenance(&idx, &None, "template", 42);
+        assert_eq!((model.as_str(), tokens, cost), ("template", 42, None));
+        let (model, tokens, cost) =
+            join_provenance(&idx, &Some("nope".to_string()), "template", 42);
+        assert_eq!((model.as_str(), tokens, cost), ("template", 42, None));
+    }
+
+    #[test]
+    fn wall_seconds_prefers_gate_detail_over_run_span() {
+        let gates = vec![rustsmith_store::GateRow {
+            unit_id: "u".to_string(),
+            gate: "oracle_parity".to_string(),
+            passed: true,
+            detail_json: r#"{"passed":80,"total":80,"wall_secs":12.7}"#.to_string(),
+        }];
+        assert_eq!(wall_seconds(&gates, Some("u"), Some(99)), Some(12));
+        assert_eq!(wall_seconds(&gates, Some("other"), Some(99)), Some(99));
+        assert_eq!(wall_seconds(&[], None, None), None);
+    }
+
+    #[test]
+    fn scope_verdict_comes_from_spec_json() {
+        assert_eq!(
+            scope_verdict_from_spec(r#"{"module":"x","scope_verdict":"admit"}"#).as_deref(),
+            Some("admit")
+        );
+        assert!(scope_verdict_from_spec(r#"{"module":"x"}"#).is_none());
+        assert!(scope_verdict_from_spec("not json").is_none());
+    }
+
+    fn lane_ctx() -> RunContext {
+        RunContext {
+            run_id: "r".to_string(),
+            source_lang: "python".to_string(),
+            package: "p".to_string(),
+            manifest_sha: None,
+            oracle_passed: None,
+            oracle_total: None,
+            upstream_repo: "https://github.com/x/y".to_string(),
+            upstream_commit: String::new(),
+            upstream_license: "MIT".to_string(),
+            record_license: "MIT".to_string(),
+            attribution_text: "x/y".to_string(),
+            delivered_artifact: false,
+            run_wall: Some(60),
+        }
+    }
+
+    #[test]
+    fn mirror_failed_unit_exports_negative_row() {
+        let ctx = lane_ctx();
+        let u = rustsmith_store::UnitRow {
+            id: "python:mod".to_string(),
+            kind: "mirror".to_string(),
+            spec_json: r#"{"module":"mod","scope_verdict":"admit"}"#.to_string(),
+            status: "failed".to_string(),
+            attempts: 1,
+            commit_sha: Some("ccc".to_string()),
+            tokens_in: 10,
+            tokens_out: 5,
+        };
+        let gates = vec![rustsmith_store::GateRow {
+            unit_id: "python:mod".to_string(),
+            gate: "oracle_parity".to_string(),
+            passed: false,
+            detail_json: r#"{"passed":70,"total":80,"wall_secs":9.0}"#.to_string(),
+        }];
+        let rec = mirror_record(
+            &ctx, &u, &gates, &[], &[], &SessionMap::empty(), &TranscriptIndex::empty(),
+            &test_home(), 0, "v", &mut ExportStats::default(),
+        )
+        .unwrap();
+        assert_eq!(rec.measurement.outcome, "gate_failed");
+        assert_eq!(rec.measurement.oracle.total, 80);
+        assert_eq!(rec.provenance.wall_seconds, Some(9));
+        assert_eq!(rec.provenance.model, "template");
+        assert_eq!(rec.review.scope_verdict.as_deref(), Some("admit"));
+        assert_eq!(rec.rights.record_license, "MIT");
+    }
+
+    #[test]
+    fn nan_cost_rejected() {
+        let mut r = minimal_record();
+        r.provenance.cost_usd = Some(f64::NAN);
+        assert!(validate(&r).is_err());
+        r.provenance.cost_usd = Some(0.02);
+        assert!(validate(&r).is_ok());
     }
 }
