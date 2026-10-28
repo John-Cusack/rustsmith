@@ -1,0 +1,83 @@
+{
+  "package": "sqlparse",
+  "version": "0.6.0",
+  "workload": {
+    "name": "split-parse-format",
+    "source": "doc-synthetic",
+    "iters": 4,
+    "detail": "sqlparse 0.6.0: split+parse+format(reindent upper)+format(light) over 121-statement mixed DDL/DML script (~13KB) x1 per iter"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 0.8681053180480376,
+  "tottime_secs": 0.8680974840000002,
+  "fractions": {
+    "pure_python": 0.8810136961530463,
+    "native": 0.0011292591190138733,
+    "io_wait": 2.2290123352091177e-6,
+    "regex": 0.117849818580974,
+    "overhead": 4.9971346305618366e-6
+  },
+  "concentration": {
+    "top1": 0.10897618152755754,
+    "top5": 0.4114237785303844,
+    "hot_modules": 7
+  },
+  "top": [
+    {
+      "file": "~",
+      "func": "<method 'match' of 're.Pattern' objects>",
+      "tottime_ms": 94.601949,
+      "ncalls": 545999
+    },
+    {
+      "file": "sqlparse/engine/grouping.py",
+      "func": "_group",
+      "tottime_ms": 71.46564300000001,
+      "ncalls": 28845
+    },
+    {
+      "file": "sqlparse/lexer.py",
+      "func": "get_tokens",
+      "tottime_ms": 70.304084,
+      "ncalls": 22124
+    },
+    {
+      "file": "sqlparse/utils.py",
+      "func": "imt",
+      "tottime_ms": 62.918241,
+      "ncalls": 197500
+    },
+    {
+      "file": "sqlparse/sql.py",
+      "func": "_token_matching",
+      "tottime_ms": 57.86603000000001,
+      "ncalls": 41528
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.isinstance>",
+      "tottime_ms": 39.55856300000001,
+      "ncalls": 411075
+    },
+    {
+      "file": "sqlparse/tokens.py",
+      "func": "__contains__",
+      "tottime_ms": 37.966464,
+      "ncalls": 187491
+    },
+    {
+      "file": "sqlparse/engine/grouping.py",
+      "func": "_group_matching",
+      "tottime_ms": 36.073741999999996,
+      "ncalls": 3666
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.7488616417300893,
+  "verdict": "rewrite",
+  "why": "88% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}
