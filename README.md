@@ -244,7 +244,7 @@ Standing rule (2026-10-11): a row counts as `ported` only with both (a) an insta
 | Package | Upstream | Accuracy proof | Measured speedup | Install |
 |---|---|---|---|---|
 | packaging | [pypa/packaging](https://github.com/pypa/packaging) | oracle 62483/62483, heldout 13/13 | 4.07x version.parse / 1.41x marker.eval / 2.21x resolver-filter (`bench/`, measured 2026-10-14) | — |
-| charset-normalizer | [Ousret/charset_normalizer](https://github.com/Ousret/charset_normalizer) | oracle 297/297, heldout 20/20 | 2.60x mixed detect / 0.33x ascii-logs / 0.57x bulk, slower rows honest (`bench/`, measured 2026-10-14) | — |
+| tabulate | [astanin/python-tabulate](https://github.com/astanin/python-tabulate) | upstream suite 318 passed / 1 intentional skip + equiv corpus 400/400 kernel-vs-pure (graded 2026-10-28) | 10.1x grid / 11.3x github / 11.9x rst / 11.6x plain 400-row (`benches/two_track.py`, measured 2026-10-28) | pending (TestPyPI/PyPI/crates.io blocked on credentials; [mirror](https://github.com/John-Cusack/tabulate-rust)) |
 
 ## Status and docs
 

@@ -1,0 +1,83 @@
+{
+  "package": "tabulate",
+  "version": "0.10.0",
+  "workload": {
+    "name": "grid-github-rst-400x5",
+    "source": "doc-synthetic",
+    "iters": 5,
+    "detail": "400-row mixed-type table x5 iters over grid/github/rst (type-sniff + _compile + width-measure + layout)"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 0.4186242469586432,
+  "tottime_secs": 0.41861763499999993,
+  "fractions": {
+    "pure_python": 0.9560256557275713,
+    "native": 0.0016249339328478127,
+    "io_wait": 0.0,
+    "regex": 0.042308884096581366,
+    "overhead": 0.00004052624299977234
+  },
+  "concentration": {
+    "top1": 0.09941730715668491,
+    "top5": 0.39255480481609434,
+    "hot_modules": 2
+  },
+  "top": [
+    {
+      "file": "tabulate/__init__.py",
+      "func": "_type",
+      "tottime_ms": 41.617838000000006,
+      "ncalls": 36000
+    },
+    {
+      "file": "tabulate/__init__.py",
+      "func": "_isconvertible",
+      "tottime_ms": 38.032633000000004,
+      "ncalls": 71280
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.isinstance>",
+      "tottime_ms": 34.496949,
+      "ncalls": 442000
+    },
+    {
+      "file": "__init__.py",
+      "func": "_compile",
+      "tottime_ms": 26.185615000000002,
+      "ncalls": 35295
+    },
+    {
+      "file": "tabulate/__init__.py",
+      "func": "_isint",
+      "tottime_ms": 23.997329,
+      "ncalls": 53640
+    },
+    {
+      "file": "tabulate/__init__.py",
+      "func": "_more_generic",
+      "tottime_ms": 23.376432,
+      "ncalls": 36000
+    },
+    {
+      "file": "tabulate/__init__.py",
+      "func": "_isnumber",
+      "tottime_ms": 23.079003,
+      "ncalls": 41640
+    },
+    {
+      "file": "tabulate/__init__.py",
+      "func": "_isnumber_with_thousands_separator",
+      "tottime_ms": 22.701239,
+      "ncalls": 35280
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.8126218073684356,
+  "verdict": "rewrite",
+  "why": "96% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}
