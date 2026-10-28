@@ -1,0 +1,83 @@
+{
+  "package": "pycparser",
+  "version": "3.12",
+  "workload": {
+    "name": "tu-parse-synth-398k",
+    "source": "doc-synthetic",
+    "iters": 3,
+    "detail": "parse synth-7KB-decl + synth-391KB-func TUs with fresh CParser legacy dialect (strings in, AST out)"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 2.0697255559498444,
+  "tottime_secs": 2.0504756559999993,
+  "fractions": {
+    "pure_python": 0.8737073789477852,
+    "native": 0.00018362910034958258,
+    "io_wait": 0.0,
+    "regex": 0.1258355631996833,
+    "overhead": 0.00027342875218217184
+  },
+  "concentration": {
+    "top1": 0.1355690954860086,
+    "top5": 0.43634756910276645,
+    "hot_modules": 4
+  },
+  "top": [
+    {
+      "file": "pycparser/c_lexer.py",
+      "func": "_match_token",
+      "tottime_ms": 277.98113,
+      "ncalls": 135481
+    },
+    {
+      "file": "~",
+      "func": "<method 'match' of 're.Pattern' objects>",
+      "tottime_ms": 247.17342,
+      "ncalls": 136991
+    },
+    {
+      "file": "pycparser/c_parser.py",
+      "func": "_peek",
+      "tottime_ms": 139.90086100000002,
+      "ncalls": 579262
+    },
+    {
+      "file": "pycparser/c_parser.py",
+      "func": "peek",
+      "tottime_ms": 136.982572,
+      "ncalls": 579262
+    },
+    {
+      "file": "pycparser/c_lexer.py",
+      "func": "token",
+      "tottime_ms": 92.68208500000001,
+      "ncalls": 135485
+    },
+    {
+      "file": "pycparser/c_parser.py",
+      "func": "_fill",
+      "tottime_ms": 91.595646,
+      "ncalls": 135485
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.len>",
+      "tottime_ms": 83.675924,
+      "ncalls": 1278700
+    },
+    {
+      "file": "pycparser/c_lexer.py",
+      "func": "_make_token",
+      "tottime_ms": 59.851259000000006,
+      "ncalls": 135483
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.7426512721056173,
+  "verdict": "rewrite",
+  "why": "87% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}
