@@ -83,7 +83,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 **Goal**: every slice ships with equivalence evidence; full suite stays the release gate.
 
 - [ ] T012 [US3] Per-slice equivalence tables (extends T007/T011 pattern to any new slice): identical verdicts, no sensitive test missed; smoke-fallback slices honestly pay full price. Non-goal: batching/`ctest -j`/probe-primary (future sessions).
-- [ ] T013 [US3] Full-suite backstop run per merged slice: exactly 479/482 with failures == K=3; any other failure fails the slice. Record `LastTest.log` location + wall seconds.
+- [ ] T013 [US3] [claimed fm/rs-elmer-t013] Full-suite backstop run per merged slice: matc 479/482 ✅, fhutiter 479/482 ✅, fem (18 whole-file ports) 479/482 ✅, meshgen2d N/A (no ports), elmergrid 463/482 ❌ FAIL (16 boundary-mesh failures, mesh-level cause recorded in `specs/elmer-campaign/t013-backstop.md`, not tuned); failures == K=3 everywhere else. Record `LastTest.log` location + wall seconds.
 
 ---
 
