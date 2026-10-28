@@ -3,6 +3,7 @@ mod candidate_finder;
 mod headroom;
 mod github;
 mod heldout;
+mod lane;
 mod mirror;
 mod optimize;
 mod porting;
@@ -64,6 +65,7 @@ fn run() -> Result<(), String> {
         "candidates" => candidate_finder::cmd_candidates(&args[2..]),
         "headroom" => headroom::cmd_headroom(&args[2..]),
         "export-records" => cmd_export_records(&args[2..]),
+        "lane-capture" => lane::cmd_lane_capture(&args[2..]),
         _ => Err(usage().into()),
     }
 }
@@ -1354,6 +1356,8 @@ fn cmd_export_records(args: &[String]) -> Result<(), String> {
     };
     let run_ids = flag(args, "--run-ids").map(|s| s.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect());
     let session_map = flag(args, "--session-map").map(PathBuf::from);
+    let transcripts = flag(args, "--transcripts").map(PathBuf::from);
+    let license_split = flag(args, "--license-split").map(PathBuf::from);
     let quality = PathBuf::from(&out).parent().map(|p| p.join("QUALITY.md")).unwrap_or_else(|| PathBuf::from("QUALITY.md"));
     fn loud(stats: &ExportStats) {
         if stats.dropped_invalid > 0 || stats.dropped_gutted > 0 {
@@ -1365,7 +1369,7 @@ fn cmd_export_records(args: &[String]) -> Result<(), String> {
             );
         }
     }
-    match rustsmith_report::export::export_records(&ExportOptions { store_path, out_path, since, run_ids, session_map }) {
+    match rustsmith_report::export::export_records(&ExportOptions { store_path, out_path, since, run_ids, session_map, transcripts, license_split }) {
         Ok(stats) => {
             loud(&stats);
             println!("{}", stats.summary_json(&PathBuf::from(&out), &quality));
