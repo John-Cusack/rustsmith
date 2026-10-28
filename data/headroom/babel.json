@@ -1,0 +1,83 @@
+{
+  "package": "babel",
+  "version": "2.18.0",
+  "workload": {
+    "name": "number-currency-date-6locale",
+    "source": "doc-synthetic",
+    "iters": 8,
+    "detail": "dec/currency/percent/date/datetime formatting x300 reps over en_US,de_DE,fr_FR,sv_SE,ar_EG,ja_JP + Locale.parse per call (per-request str-locale shape; setup warms locale pickle load)"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 0.7557552079670131,
+  "tottime_secs": 0.7508222069999999,
+  "fractions": {
+    "pure_python": 0.9268062871773852,
+    "native": 0.02899226181252255,
+    "io_wait": 0.009545512816724668,
+    "regex": 0.005630946928025533,
+    "overhead": 0.02902499126534227
+  },
+  "concentration": {
+    "top1": 0.08801447584248133,
+    "top5": 0.32655375096011247,
+    "hot_modules": 7
+  },
+  "top": [
+    {
+      "file": "babel/localedata.py",
+      "func": "__getitem__",
+      "tottime_ms": 66.083223,
+      "ncalls": 136500
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.isinstance>",
+      "tottime_ms": 63.149499999999996,
+      "ncalls": 601501
+    },
+    {
+      "file": "babel/numbers.py",
+      "func": "apply",
+      "tottime_ms": 48.601036,
+      "ncalls": 9000
+    },
+    {
+      "file": "babel/core.py",
+      "func": "parse_locale",
+      "tottime_ms": 35.624362,
+      "ncalls": 16200
+    },
+    {
+      "file": "babel/core.py",
+      "func": "parse",
+      "tottime_ms": 31.725687,
+      "ncalls": 65100
+    },
+    {
+      "file": "babel/core.py",
+      "func": "get_locale_identifier",
+      "tottime_ms": 29.746353000000003,
+      "ncalls": 34200
+    },
+    {
+      "file": "babel/numbers.py",
+      "func": "_quantize_value",
+      "tottime_ms": 22.664957000000005,
+      "ncalls": 9000
+    },
+    {
+      "file": "babel/dates.py",
+      "func": "__getitem__",
+      "tottime_ms": 18.521756,
+      "ncalls": 24000
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.7877853441007774,
+  "verdict": "rewrite",
+  "why": "93% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}
