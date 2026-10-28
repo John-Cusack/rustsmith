@@ -4,6 +4,9 @@ How to spend optimization effort on a port without wasting it. This is
 procedure, not machinery: the normative definitions live in `SPEC.md`
 and `SPEC_STAGE2.md` (gates, instruments, tables, thresholds). Where
 this page names a mechanism, the spec section it cites governs.
+What to build (the techniques, with before/after evidence and losers)
+is [`RUST_PATTERNS.md`](RUST_PATTERNS.md); how that guide is kept
+current after each port is [`PATTERN_REVIEW.md`](PATTERN_REVIEW.md).
 
 A port that ends with nothing merged is a complete result, not a
 failure — report it as `no_gain` with the numbers that closed each
