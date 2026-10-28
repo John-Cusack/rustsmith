@@ -246,6 +246,7 @@ Standing rule (2026-10-11): a row counts as `ported` only with both (a) an insta
 |---|---|---|---|---|
 | packaging | [pypa/packaging](https://github.com/pypa/packaging) | oracle 62483/62483, heldout 13/13 | 4.07x version.parse / 1.41x marker.eval / 2.21x resolver-filter (`bench/`, measured 2026-10-14) | — |
 | tabulate | [astanin/python-tabulate](https://github.com/astanin/python-tabulate) | upstream suite 318 passed / 1 intentional skip + equiv corpus 400/400 kernel-vs-pure (graded 2026-10-28) | 10.1x grid / 11.3x github / 11.9x rst / 11.6x plain 400-row (`benches/two_track.py`, measured 2026-10-28) | pending (TestPyPI/PyPI/crates.io blocked on credentials; [mirror](https://github.com/John-Cusack/tabulate-rust)) |
+| pycparser | [eliben/pycparser](https://github.com/eliben/pycparser) | upstream suite 451/451 + 500 subtests (3.12, graded 2026-10-28, Rust + fallback paths identical); port tests 14/14, core 13/13, clippy clean; heldout n/a (direct-PR lane, no control-plane held-out suite) | 4.0–6.8x parse / 2.8–4.6x roundtrip (`benches/two_track.py`, measured 2026-10-28) | parity-graded; install pending (release-prep green 0.1.0, TestPyPI blocked: missing TWINE_USERNAME) |
 
 ## Status and docs
 
