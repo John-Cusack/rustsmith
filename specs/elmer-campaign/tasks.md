@@ -105,7 +105,7 @@ plus `specs/elmer-campaign/{spec,plan,research}.md`, then:
 
 ## Phase 7: Release evidence
 
-- [ ] T018 Update POC-board row in `README.md` with measured numbers only (graded-run walls, per-unit costs, backstop 479/482+K); PR body carries run logs + equivalence tables. Non-goal: publishing (human-gated).
+- [x] T018 Update POC-board row in `README.md` with measured numbers only (graded-run walls, per-unit costs, backstop 479/482+K); PR body carries run logs + equivalence tables. Non-goal: publishing (human-gated).
 - [ ] T019 [P] Re-verify probe paths after any `CMAKE_RUNTIME_OUTPUT_DIRECTORY` change; re-run `tests/m*_acceptance.sh` (+ `tests/release_acceptance.sh` for release work), `cargo build --release`, full `cargo test`, `clippy -D warnings` green on the merge commit.
 
 ---
