@@ -95,11 +95,18 @@ impl UnitDag {
         for (dependent, dependency) in &self.edges {
             // dependent has one more prerequisite.
             *indeg.entry(dependent.as_str()).or_insert(0) += 1;
-            dependents.entry(dependency.as_str()).or_default().push(dependent.as_str());
+            dependents
+                .entry(dependency.as_str())
+                .or_default()
+                .push(dependent.as_str());
             indeg.entry(dependency.as_str()).or_insert(0);
         }
         // Deterministic: sort initial queue.
-        let mut queue: Vec<&str> = indeg.iter().filter(|(_, &d)| d == 0).map(|(&k, _)| k).collect();
+        let mut queue: Vec<&str> = indeg
+            .iter()
+            .filter(|(_, &d)| d == 0)
+            .map(|(&k, _)| k)
+            .collect();
         queue.sort_unstable();
         let mut order = Vec::new();
         while let Some(n) = queue.pop() {
@@ -123,14 +130,20 @@ impl UnitDag {
                 .filter(|(_, &d)| d > 0)
                 .map(|(&k, _)| k.to_string())
                 .collect();
-            return Err(AdapterError::Parse(format!("cycle detected: {}", cycle.join(" -> "))));
+            return Err(AdapterError::Parse(format!(
+                "cycle detected: {}",
+                cycle.join(" -> ")
+            )));
         }
         Ok(order)
     }
 
     pub fn verify_order(&self, order: &[String]) -> bool {
-        let pos: HashMap<&str, usize> =
-            order.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
+        let pos: HashMap<&str, usize> = order
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.as_str(), i))
+            .collect();
         for (dependent, dependency) in &self.edges {
             match (pos.get(dependent.as_str()), pos.get(dependency.as_str())) {
                 (Some(&a), Some(&b)) => {
@@ -210,24 +223,33 @@ fn python_test_inventory(repo: &Path) -> Result<TestInventory, AdapterError> {
     let mut config_refs = Vec::new();
     let mut fixture_globs = Vec::new();
     let mut ci_invokers = Vec::new();
-    for entry in walkdir::WalkDir::new(repo)
-        .into_iter()
-        .filter_entry(|e| {
-            let p = e.path();
-            for seg in [".git", "__pycache__", ".pytest_cache", ".venv", "venv", "dist", "target"] {
-                if p.components().any(|c| c.as_os_str() == seg) {
-                    return false;
-                }
+    for entry in walkdir::WalkDir::new(repo).into_iter().filter_entry(|e| {
+        let p = e.path();
+        for seg in [
+            ".git",
+            "__pycache__",
+            ".pytest_cache",
+            ".venv",
+            "venv",
+            "dist",
+            "target",
+        ] {
+            if p.components().any(|c| c.as_os_str() == seg) {
+                return false;
             }
-            true
-        })
-    {
+        }
+        true
+    }) {
         let entry = entry.map_err(|e| AdapterError::Parse(e.to_string()))?;
         let p = entry.path();
         if !p.is_file() {
             continue;
         }
-        let rel = p.strip_prefix(repo).unwrap().to_string_lossy().replace('\\', "/");
+        let rel = p
+            .strip_prefix(repo)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         if rel.contains("bench") {
             continue;
         }
@@ -235,7 +257,10 @@ fn python_test_inventory(repo: &Path) -> Result<TestInventory, AdapterError> {
         if name.starts_with("test_") || name.ends_with("_test.py") || name == "conftest.py" {
             test_files.push(rel.clone());
         }
-        if matches!(rel.as_str(), "pytest.ini" | "tox.ini" | "setup.cfg" | "pyproject.toml" | "tasks.py") {
+        if matches!(
+            rel.as_str(),
+            "pytest.ini" | "tox.ini" | "setup.cfg" | "pyproject.toml" | "tasks.py"
+        ) {
             config_refs.push(rel.clone());
         }
         if rel.contains("fixture") || rel.contains("data") {
@@ -287,13 +312,28 @@ impl Adapter for PythonAdapter {
 /// stdlib -> keep; third-party test-only -> keep; runtime third-party -> port/bind.
 fn classify_python_dep(dep: &str) -> DepClass {
     const STDLIB: &[&str] = &[
-        "abc", "argparse", "dataclasses", "enum", "functools", "numbers", "sys", "typing",
-        "math", "re", "collections", "itertools", "pathlib",
+        "abc",
+        "argparse",
+        "dataclasses",
+        "enum",
+        "functools",
+        "numbers",
+        "sys",
+        "typing",
+        "math",
+        "re",
+        "collections",
+        "itertools",
+        "pathlib",
     ];
     if STDLIB.contains(&dep) || dep.starts_with('_') {
         return DepClass::Keep;
     }
-    if ["pytest", "invoke", "hatch", "mypy", "pylint", "black", "isort"].contains(&dep) {
+    if [
+        "pytest", "invoke", "hatch", "mypy", "pylint", "black", "isort",
+    ]
+    .contains(&dep)
+    {
         return DepClass::Keep;
     }
     // No known C-extension/dynamic deps in fixtures; default port.
@@ -499,21 +539,29 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     // Collect candidate source files (exclude tests, bench, docs) with the
     // legacy walk, then run the frontend over them so behavior stays identical.
     let mut sources: Vec<PathBuf> = Vec::new();
-    for entry in walkdir::WalkDir::new(repo)
-        .into_iter()
-        .filter_entry(|e| {
-            let p = e.path();
-            for seg in [".git", "__pycache__", ".pytest_cache", ".venv", "venv", "dist", "docs", "target"] {
-                if p.components().any(|c| c.as_os_str() == seg) {
-                    return false;
-                }
-            }
-            if p.components().any(|c| c.as_os_str() == "test" || c.as_os_str() == "tests" || c.as_os_str() == "bench") {
+    for entry in walkdir::WalkDir::new(repo).into_iter().filter_entry(|e| {
+        let p = e.path();
+        for seg in [
+            ".git",
+            "__pycache__",
+            ".pytest_cache",
+            ".venv",
+            "venv",
+            "dist",
+            "docs",
+            "target",
+        ] {
+            if p.components().any(|c| c.as_os_str() == seg) {
                 return false;
             }
-            true
-        })
-    {
+        }
+        if p.components().any(|c| {
+            c.as_os_str() == "test" || c.as_os_str() == "tests" || c.as_os_str() == "bench"
+        }) {
+            return false;
+        }
+        true
+    }) {
         let entry = entry.map_err(|e| AdapterError::Parse(e.to_string()))?;
         let p = entry.path();
         if p.is_file() && p.extension().map(|x| x == "py").unwrap_or(false) {
@@ -537,11 +585,17 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     for u in &fragment.units {
         if let Some(stem) = u.exports.first().map(|s| s.linkage.as_str()) {
             id_to_stem.insert(u.id.0.as_str(), stem);
-            modules.insert(stem.to_string(), u.files.first().cloned().unwrap_or_default());
+            modules.insert(
+                stem.to_string(),
+                u.files.first().cloned().unwrap_or_default(),
+            );
             module_langs.insert(stem.to_string(), "python".to_string());
             module_exports.insert(
                 stem.to_string(),
-                u.exports.iter().map(|e| (e.linkage.clone(), export_bind_c(&e.abi))).collect(),
+                u.exports
+                    .iter()
+                    .map(|e| (e.linkage.clone(), export_bind_c(&e.abi)))
+                    .collect(),
             );
         }
     }
@@ -556,7 +610,12 @@ fn python_call_graph(repo: &Path) -> Result<CallGraph, AdapterError> {
     }
     edges.sort();
     edges.dedup();
-    Ok(CallGraph { modules, module_langs, module_exports, edges })
+    Ok(CallGraph {
+        modules,
+        module_langs,
+        module_exports,
+        edges,
+    })
 }
 
 /// Python fragment engine: filter claimed files, parse imports via stdlib
@@ -571,12 +630,21 @@ fn python_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
     let mut sources: Vec<(&Path, String, String)> = Vec::new();
     for src in cx.files {
         if src.extension().map(|x| x == "py").unwrap_or(false) {
-            let rel = src.strip_prefix(cx.repo).unwrap_or(src).to_string_lossy().replace('\\', "/");
+            let rel = src
+                .strip_prefix(cx.repo)
+                .unwrap_or(src)
+                .to_string_lossy()
+                .replace('\\', "/");
             let rel_path = Path::new(&rel);
             if rel_path.components().any(|c| {
                 matches!(
                     c.as_os_str().to_str(),
-                    Some("test") | Some("tests") | Some("bench") | Some("docs") | Some("example") | Some("examples")
+                    Some("test")
+                        | Some("tests")
+                        | Some("bench")
+                        | Some("docs")
+                        | Some("example")
+                        | Some("examples")
                 )
             }) {
                 continue;
@@ -588,7 +656,11 @@ fn python_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
             if name == "tasks.py" || name == "setup.py" || name == "noxfile.py" {
                 continue;
             }
-            let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            let stem = src
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
             if stem == "__init__" {
                 continue;
             }
@@ -681,7 +753,10 @@ print(json.dumps(mods))
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .map(|linkage| Symbol { linkage, abi: Abi::Python })
+            .map(|linkage| Symbol {
+                linkage,
+                abi: Abi::Python,
+            })
             .collect::<Vec<_>>();
         for imp in &imports {
             let dep_rel = &modules[&imp.linkage];
@@ -691,13 +766,20 @@ print(json.dumps(mods))
             id,
             files: vec![rel.clone()],
             generated_from: None,
-            exports: vec![Symbol { linkage: stem.clone(), abi: Abi::Python }],
+            exports: vec![Symbol {
+                linkage: stem.clone(),
+                abi: Abi::Python,
+            }],
             imports,
         });
     }
     edges.sort();
     edges.dedup();
-    Ok(Fragment { units, edges, diagnostics })
+    Ok(Fragment {
+        units,
+        edges,
+        diagnostics,
+    })
 }
 
 /// Representative linkage for scaffolding/substitution: the unit's first
@@ -826,7 +908,11 @@ pub fn probe(repo: &Path) -> Result<ProbeReport, AdapterError> {
     let mut fortran_claims = 0usize;
     let mut cxx_claims = 0usize;
     for path in walk_probe_files(repo)? {
-        let rel = path.strip_prefix(repo).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+        let rel = path
+            .strip_prefix(repo)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if name == "CMakeLists.txt" {
             if let Ok(text) = std::fs::read_to_string(&path) {
@@ -839,7 +925,8 @@ pub fn probe(repo: &Path) -> Result<ProbeReport, AdapterError> {
             }
             continue;
         }
-        if name.starts_with("CTestTestfile") && path.extension().map(|x| x == "cmake").unwrap_or(false)
+        if name.starts_with("CTestTestfile")
+            && path.extension().map(|x| x == "cmake").unwrap_or(false)
         {
             report.has_ctest = true;
             continue;
@@ -907,7 +994,11 @@ pub fn probe(repo: &Path) -> Result<ProbeReport, AdapterError> {
     report.unclaimed.sort();
     report.unclaimed.dedup();
     let total = claimed + report.unclaimed.len();
-    report.unclaimed_share = if total == 0 { 0.0 } else { report.unclaimed.len() as f64 / total as f64 };
+    report.unclaimed_share = if total == 0 {
+        0.0
+    } else {
+        report.unclaimed.len() as f64 / total as f64
+    };
     Ok(report)
 }
 
@@ -941,7 +1032,8 @@ pub trait Profiler: Send + Sync {
     fn timed(&self, w: &Workload) -> TestCommand;
     /// Hotspot baseline. `perf_available` gates perf-dependent tools only;
     /// the Python path never needs perf (reconciles ADR-003).
-    fn hotspots(&self, w: &Workload, perf_available: bool) -> Result<HotspotBaseline, AdapterError>;
+    fn hotspots(&self, w: &Workload, perf_available: bool)
+        -> Result<HotspotBaseline, AdapterError>;
 }
 
 /// A link dependency discovered from the build. The composite classifies it;
@@ -1086,8 +1178,9 @@ impl BuildBridge for MaturinBridge {
             return Ok(Vec::new());
         }
         let text = std::fs::read_to_string(&pp)?;
-        let parsed: toml::Value =
-            text.parse().map_err(|e| AdapterError::Parse(format!("pyproject.toml: {e}")))?;
+        let parsed: toml::Value = text
+            .parse()
+            .map_err(|e| AdapterError::Parse(format!("pyproject.toml: {e}")))?;
         let mut deps = Vec::new();
         if let Some(list) = parsed
             .get("project")
@@ -1102,7 +1195,10 @@ impl BuildBridge for MaturinBridge {
                         .unwrap_or(req)
                         .trim();
                     if !name.is_empty() {
-                        deps.push(LinkDep { name: name.to_string(), path: None });
+                        deps.push(LinkDep {
+                            name: name.to_string(),
+                            path: None,
+                        });
                     }
                 }
             }
@@ -1122,7 +1218,9 @@ impl BuildBridge for MaturinBridge {
                 .filter_entry(|e| {
                     let p = e.path();
                     !p.components().any(|c| {
-                        c.as_os_str() == ".git" || c.as_os_str() == "target" || c.as_os_str() == ".cargo"
+                        c.as_os_str() == ".git"
+                            || c.as_os_str() == "target"
+                            || c.as_os_str() == ".cargo"
                     })
                 })
                 .flatten()
@@ -1200,9 +1298,7 @@ impl PytestRunner {
         // config, and the filter is a no-op on older pytest versions that
         // never emit the message.
         args.push("-W".to_string());
-        args.push(
-            "ignore:Passing a non-Collection iterable to parametrize".to_string(),
-        );
+        args.push("ignore:Passing a non-Collection iterable to parametrize".to_string());
         args.extend(extra.iter().cloned());
         args.extend(verbose_flags.iter().map(|s| s.to_string()));
         let mut env_set = vec![("PY_COLORS".to_string(), "0".to_string())];
@@ -1254,9 +1350,6 @@ impl PytestRunner {
             .collect()
     }
 
-
-
-
     /// Test-relevant sections of pyproject.toml, normalized (ADR-002, ported
     /// from the oracle which no longer owns it): packaging metadata
     /// ([build-system], [project] name/version) is owned by the Stage-1 port,
@@ -1278,7 +1371,11 @@ impl PytestRunner {
         if let Some(tool) = v.get("tool").and_then(|t| t.as_table()) {
             for (key, val) in tool {
                 let k = key.to_lowercase();
-                if k.starts_with("pytest") || k.starts_with("coverage") || k.starts_with("tox") || k.starts_with("hypothesis") {
+                if k.starts_with("pytest")
+                    || k.starts_with("coverage")
+                    || k.starts_with("tox")
+                    || k.starts_with("hypothesis")
+                {
                     picked.insert(key.clone(), val.clone());
                 }
             }
@@ -1494,29 +1591,39 @@ print(json.dumps(out))
         // Same selection as the legacy discovery: tests + configs +
         // fixture/data + CI workflows; bench/ never oracle.
         let mut out = Vec::new();
-        for entry in walkdir::WalkDir::new(repo)
-            .into_iter()
-            .filter_entry(|e| {
-                let p = e.path();
-                for seg in [".git", "__pycache__", ".pytest_cache", ".venv", "venv", "dist", ".eggs", "target"] {
-                    if p.components().any(|c| c.as_os_str() == seg) {
-                        return false;
-                    }
-                }
-                if p.components().any(|c| c.as_os_str() == "bench")
-                    && p.extension().map(|x| x == "py").unwrap_or(false)
-                {
+        for entry in walkdir::WalkDir::new(repo).into_iter().filter_entry(|e| {
+            let p = e.path();
+            for seg in [
+                ".git",
+                "__pycache__",
+                ".pytest_cache",
+                ".venv",
+                "venv",
+                "dist",
+                ".eggs",
+                "target",
+            ] {
+                if p.components().any(|c| c.as_os_str() == seg) {
                     return false;
                 }
-                true
-            })
-        {
+            }
+            if p.components().any(|c| c.as_os_str() == "bench")
+                && p.extension().map(|x| x == "py").unwrap_or(false)
+            {
+                return false;
+            }
+            true
+        }) {
             let entry = entry.map_err(|e| AdapterError::Parse(e.to_string()))?;
             let p = entry.path();
             if !p.is_file() {
                 continue;
             }
-            let rel = p.strip_prefix(repo).unwrap().to_string_lossy().replace('\\', "/");
+            let rel = p
+                .strip_prefix(repo)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
             let is_test = rel.contains("test_")
                 || rel.ends_with("_test.py")
                 || rel.ends_with("conftest.py")
@@ -1537,7 +1644,11 @@ print(json.dumps(out))
             }
             // Test sources are the frozen spec content; configs/CI/data are
             // fixture material the suite consumes.
-            let kind = if is_test { OracleKind::Fixture } else { OracleKind::Spec };
+            let kind = if is_test {
+                OracleKind::Fixture
+            } else {
+                OracleKind::Spec
+            };
             out.push(OracleFile { path: rel, kind });
         }
         out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -1602,7 +1713,12 @@ fn summary_counts(text: &str) -> (u32, u32, u32, u32, u32) {
     let mut found = (0u32, 0u32, 0u32, 0u32, 0u32);
     for line in text.lines() {
         let t = line.trim();
-        if !(t.contains("passed") || t.contains("failed") || t.contains("skipped") || t.contains("xfailed") || t.contains("deselected")) {
+        if !(t.contains("passed")
+            || t.contains("failed")
+            || t.contains("skipped")
+            || t.contains("xfailed")
+            || t.contains("deselected"))
+        {
             continue;
         }
         for chunk in t.split(',') {
@@ -1611,22 +1727,29 @@ fn summary_counts(text: &str) -> (u32, u32, u32, u32, u32) {
             // items / 427 deselected / 62483 selected") must not attach 62483
             // to "deselected" via a stale kind.
             let mut num: Option<u32> = None;
-            let mut record = |n: u32, k: &str| {
-                match k {
-                    "passed" => found.0 = found.0.max(n),
-                    "failed" => found.1 = found.1.max(n),
-                    "skipped" => found.2 = found.2.max(n),
-                    "xfailed" | "xpass" => found.3 = found.3.max(n),
-                    "deselected" => found.4 = found.4.max(n),
-                    _ => {}
-                }
+            let mut record = |n: u32, k: &str| match k {
+                "passed" => found.0 = found.0.max(n),
+                "failed" => found.1 = found.1.max(n),
+                "skipped" => found.2 = found.2.max(n),
+                "xfailed" | "xpass" => found.3 = found.3.max(n),
+                "deselected" => found.4 = found.4.max(n),
+                _ => {}
             };
             for tok in chunk.split_whitespace() {
                 if let Ok(n) = tok.parse::<u32>() {
                     num = Some(n);
                 } else {
                     let k = tok.trim_matches(|c| c == '.' || c == 's');
-                    if ["passed", "failed", "skipped", "xfailed", "deselected", "xpass"].contains(&k) {
+                    if [
+                        "passed",
+                        "failed",
+                        "skipped",
+                        "xfailed",
+                        "deselected",
+                        "xpass",
+                    ]
+                    .contains(&k)
+                    {
                         if let Some(n) = num.take() {
                             record(n, k);
                         }
@@ -1693,7 +1816,11 @@ impl Profiler for PyProfiler {
         cmd
     }
 
-    fn hotspots(&self, w: &Workload, perf_available: bool) -> Result<HotspotBaseline, AdapterError> {
+    fn hotspots(
+        &self,
+        w: &Workload,
+        perf_available: bool,
+    ) -> Result<HotspotBaseline, AdapterError> {
         // The Python path never needs perf; the flag only gates perf-based
         // tools, which this stack does not use.
         let _ = perf_available;
@@ -1711,38 +1838,35 @@ impl Profiler for PyProfiler {
 /// before any codegen frontend (`.src` → `.F90`) exists.
 fn walk_source_files(tree: &Path, build_dir: Option<&Path>) -> Result<Vec<PathBuf>, AdapterError> {
     let mut files: Vec<PathBuf> = Vec::new();
-    for entry in walkdir::WalkDir::new(tree)
-        .into_iter()
-        .filter_entry(|e| {
-            let p = e.path();
-            if let Some(bd) = build_dir {
-                if bd != tree && p.starts_with(bd) {
-                    return false;
-                }
+    for entry in walkdir::WalkDir::new(tree).into_iter().filter_entry(|e| {
+        let p = e.path();
+        if let Some(bd) = build_dir {
+            if bd != tree && p.starts_with(bd) {
+                return false;
             }
-            for seg in [
-                ".git",
-                "__pycache__",
-                ".pytest_cache",
-                ".venv",
-                "venv",
-                "dist",
-                ".eggs",
-                "target",
-                "build",
-                "_build",
-                "docs",
-                "test",
-                "tests",
-                "bench",
-            ] {
-                if p.components().any(|c| c.as_os_str() == seg) {
-                    return false;
-                }
+        }
+        for seg in [
+            ".git",
+            "__pycache__",
+            ".pytest_cache",
+            ".venv",
+            "venv",
+            "dist",
+            ".eggs",
+            "target",
+            "build",
+            "_build",
+            "docs",
+            "test",
+            "tests",
+            "bench",
+        ] {
+            if p.components().any(|c| c.as_os_str() == seg) {
+                return false;
             }
-            true
-        })
-    {
+        }
+        true
+    }) {
         let entry = entry.map_err(|e| AdapterError::Parse(e.to_string()))?;
         if entry.path().is_file() {
             files.push(entry.path().to_path_buf());
@@ -1765,7 +1889,12 @@ fn collect_fragments(
     compile_db: Option<&Path>,
 ) -> Result<(Vec<UnitDecl>, HashSet<(UnitId, UnitId)>, Vec<String>), AdapterError> {
     let compiler_ids: BTreeMap<String, String> = BTreeMap::new();
-    let fcx = FragmentCtx { repo: tree, files, compile_db, compiler_ids: &compiler_ids };
+    let fcx = FragmentCtx {
+        repo: tree,
+        files,
+        compile_db,
+        compiler_ids: &compiler_ids,
+    };
     let mut units: Vec<UnitDecl> = Vec::new();
     let mut seen_ids: HashSet<String> = HashSet::new();
     let mut edges: HashSet<(UnitId, UnitId)> = HashSet::new();
@@ -1830,7 +1959,10 @@ fn stems_to_call_graph(
         let stem: &str = if let Some(export) = unit.exports.first() {
             export.linkage.as_str()
         } else if let Some(rel) = unit.files.first() {
-            Path::new(rel).file_stem().and_then(|s| s.to_str()).unwrap_or(&unit.id.0)
+            Path::new(rel)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&unit.id.0)
         } else {
             &unit.id.0
         };
@@ -1839,7 +1971,10 @@ fn stems_to_call_graph(
             stem_to_rel.insert(stem, unit.files.first().map(|s| s.as_str()).unwrap_or(""))
         {
             if stem_to_rel[stem] != prev_rel && !prev_rel.is_empty() {
-                diagnostics.push(format!("stem collision '{stem}': unit '{}' keeps the node", unit.id));
+                diagnostics.push(format!(
+                    "stem collision '{stem}': unit '{}' keeps the node",
+                    unit.id
+                ));
             }
         }
         // First unit wins a stem collision (same rule as the rel entry):
@@ -1854,7 +1989,10 @@ fn stems_to_call_graph(
         if !stem_to_exports.contains_key(stem) {
             stem_to_exports.insert(
                 stem,
-                unit.exports.iter().map(|e| (e.linkage.clone(), export_bind_c(&e.abi))).collect(),
+                unit.exports
+                    .iter()
+                    .map(|e| (e.linkage.clone(), export_bind_c(&e.abi)))
+                    .collect(),
             );
         }
     }
@@ -1872,15 +2010,24 @@ fn stems_to_call_graph(
     }
     let mut stem_edges: Vec<(String, String)> = Vec::new();
     for (dependent, dependency) in edges {
-        match (id_to_stem.get(dependent.0.as_str()), id_to_stem.get(dependency.0.as_str())) {
+        match (
+            id_to_stem.get(dependent.0.as_str()),
+            id_to_stem.get(dependency.0.as_str()),
+        ) {
             (Some(a), Some(b)) => stem_edges.push((a.to_string(), b.to_string())),
-            _ => diagnostics
-                .push(format!("edge to unknown unit: '{dependent}' -> '{dependency}'")),
+            _ => diagnostics.push(format!(
+                "edge to unknown unit: '{dependent}' -> '{dependency}'"
+            )),
         }
     }
     stem_edges.sort();
     stem_edges.dedup();
-    CallGraph { modules, module_langs, module_exports, edges: stem_edges }
+    CallGraph {
+        modules,
+        module_langs,
+        module_exports,
+        edges: stem_edges,
+    }
 }
 
 /// Run every frontend over `files`, union the fragments, resolve imports
@@ -1924,7 +2071,12 @@ pub fn fragment_unit_exports(repo: &Path, rel: &str) -> Result<Vec<Symbol>, Adap
     let abs = repo.join(rel);
     let files = vec![abs];
     let compiler_ids = BTreeMap::new();
-    let cx = FragmentCtx { repo, files: &files, compile_db: None, compiler_ids: &compiler_ids };
+    let cx = FragmentCtx {
+        repo,
+        files: &files,
+        compile_db: None,
+        compiler_ids: &compiler_ids,
+    };
     let fragment = frontend.fragment(&cx)?;
     let mut exports = Vec::new();
     for unit in &fragment.units {
@@ -1947,8 +2099,7 @@ pub struct CompositeAdapter {
 impl CompositeAdapter {
     /// Language ids of the active frontends (e.g. `["python"]`).
     pub fn languages(&self) -> Vec<String> {
-        let mut langs: Vec<String> =
-            self.frontends.iter().map(|f| f.id().to_string()).collect();
+        let mut langs: Vec<String> = self.frontends.iter().map(|f| f.id().to_string()).collect();
         langs.sort();
         langs.dedup();
         langs
@@ -1984,10 +2135,7 @@ impl CompositeAdapter {
     /// (`<lang>:<repo-rel>[#<symbol>]`). Callers that freeze UnitId-addressed
     /// topology (non-Python recon) build their DAG from these directly.
     /// Units come out sorted by id for determinism.
-    pub fn declared_units(
-        &self,
-        cx: &BuildCtx,
-    ) -> Result<DeclaredTopology, AdapterError> {
+    pub fn declared_units(&self, cx: &BuildCtx) -> Result<DeclaredTopology, AdapterError> {
         let files = walk_source_files(cx.tree, Some(cx.build_dir))?;
         // The compile DB is picked up when the build dir provides one: the
         // C/C++ frontend refines its claims against it (Track I).
@@ -2024,7 +2172,10 @@ impl CompositeAdapter {
         if self.languages() == vec!["python".to_string()] {
             return Ok(vec![python_license_terms(repo)?]);
         }
-        generic_license_terms(repo, self.frontends.iter().any(|f| f.id() == PythonFrontend.id()))
+        generic_license_terms(
+            repo,
+            self.frontends.iter().any(|f| f.id() == PythonFrontend.id()),
+        )
     }
 
     pub fn image(&self) -> ImageSpec {
@@ -2080,7 +2231,11 @@ impl Adapter for CompositeAdapter {
         }
         // CMake/CTest trees: runner-derived invocation; build system is cmake.
         if self.runner_id() == CtestRunner::RUNNER_ID {
-            let cx = BuildCtx { tree: repo, build_dir: repo, release: false };
+            let cx = BuildCtx {
+                tree: repo,
+                build_dir: repo,
+                release: false,
+            };
             return Ok(BuildInfo {
                 language: self.language().to_string(),
                 build_system: "cmake".to_string(),
@@ -2094,7 +2249,11 @@ impl Adapter for CompositeAdapter {
             });
         }
         // Mixed trees: runner-derived invocation; layout/build-system unknown.
-        let cx = BuildCtx { tree: repo, build_dir: repo, release: false };
+        let cx = BuildCtx {
+            tree: repo,
+            build_dir: repo,
+            release: false,
+        };
         Ok(BuildInfo {
             language: self.language().to_string(),
             build_system: "mixed".to_string(),
@@ -2135,7 +2294,10 @@ impl Adapter for CompositeAdapter {
     }
 
     fn classify_dep(&self, dep: &str) -> DepClass {
-        self.classify_dep(&LinkDep { name: dep.to_string(), path: None })
+        self.classify_dep(&LinkDep {
+            name: dep.to_string(),
+            path: None,
+        })
     }
 
     fn license_terms(&self, repo: &Path) -> Result<Attribution, AdapterError> {
@@ -2151,7 +2313,6 @@ impl Adapter for CompositeAdapter {
             }))
     }
 }
-
 
 /// Choose the composite for `repo` by probing it: extension census +
 /// `PROJECT()` langs + CTestTestfile presence. Halts above
@@ -2202,7 +2363,9 @@ pub fn select_composite(repo: &Path) -> Result<(CompositeAdapter, ProbeReport), 
             frontends,
             runner: Box::new(CtestRunner),
             bridge: Box::new(CmakeBridge),
-            profiler: Box::new(PerfProfiler { tree: repo.to_path_buf() }),
+            profiler: Box::new(PerfProfiler {
+                tree: repo.to_path_buf(),
+            }),
         }
     } else {
         CompositeAdapter {
@@ -2275,9 +2438,21 @@ mod tests {
     fn topo_orders_leaves_first_and_detects_cycle() {
         let dag = UnitDag {
             units: vec![
-                Unit { id: "a".into(), module: "a".into(), depends_on: vec!["b".into()] },
-                Unit { id: "b".into(), module: "b".into(), depends_on: vec![] },
-                Unit { id: "c".into(), module: "c".into(), depends_on: vec!["a".into()] },
+                Unit {
+                    id: "a".into(),
+                    module: "a".into(),
+                    depends_on: vec!["b".into()],
+                },
+                Unit {
+                    id: "b".into(),
+                    module: "b".into(),
+                    depends_on: vec![],
+                },
+                Unit {
+                    id: "c".into(),
+                    module: "c".into(),
+                    depends_on: vec!["a".into()],
+                },
             ],
             edges: vec![("a".into(), "b".into()), ("c".into(), "a".into())],
         };
@@ -2286,8 +2461,16 @@ mod tests {
         assert_eq!(order, vec!["b", "a", "c"]);
         let cyclic = UnitDag {
             units: vec![
-                Unit { id: "x".into(), module: "x".into(), depends_on: vec!["y".into()] },
-                Unit { id: "y".into(), module: "y".into(), depends_on: vec!["x".into()] },
+                Unit {
+                    id: "x".into(),
+                    module: "x".into(),
+                    depends_on: vec!["y".into()],
+                },
+                Unit {
+                    id: "y".into(),
+                    module: "y".into(),
+                    depends_on: vec!["x".into()],
+                },
             ],
             edges: vec![("x".into(), "y".into()), ("y".into(), "x".into())],
         };
@@ -2305,7 +2488,10 @@ mod tests {
     fn python_only_tree() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         write_tmp_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
-        write_tmp_file(&dir.path().join("pkg/b.py"), "import a\n\nassert a.VALUE == 1\n");
+        write_tmp_file(
+            &dir.path().join("pkg/b.py"),
+            "import a\n\nassert a.VALUE == 1\n",
+        );
         write_tmp_file(
             &dir.path().join("pyproject.toml"),
             "[project]\nname = \"pkg\"\n",
@@ -2346,15 +2532,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write_tmp_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
         write_tmp_file(&dir.path().join("tests/data/spec.zzz"), "opaque\n");
-        write_tmp_file(&dir.path().join("tests/test_data/http/req.http"), "GET / HTTP/1.0\n\n");
-        write_tmp_file(&dir.path().join("tests/hello-world.c"), "int main(void){return 0;}\n");
+        write_tmp_file(
+            &dir.path().join("tests/test_data/http/req.http"),
+            "GET / HTTP/1.0\n\n",
+        );
+        write_tmp_file(
+            &dir.path().join("tests/hello-world.c"),
+            "int main(void){return 0;}\n",
+        );
         write_tmp_file(
             &dir.path().join("pyproject.toml"),
             "[project]\nname = \"pkg\"\n",
         );
         let report = probe(dir.path()).unwrap();
         assert_eq!(report.frontends, vec!["python"]);
-        assert!(report.unclaimed.is_empty(), "unclaimed: {:?}", report.unclaimed);
+        assert!(
+            report.unclaimed.is_empty(),
+            "unclaimed: {:?}",
+            report.unclaimed
+        );
         assert_eq!(report.unclaimed_share, 0.0);
     }
 
@@ -2400,8 +2596,12 @@ mod tests {
             .collect();
         edge_set.sort();
         // Only a -> b (top-level); b -> a would close a false cycle.
-        assert!(edge_set.iter().any(|(f, t)| f.ends_with("a.py") && t.ends_with("b.py")));
-        assert!(!edge_set.iter().any(|(f, t)| f.ends_with("b.py") && t.ends_with("a.py")));
+        assert!(edge_set
+            .iter()
+            .any(|(f, t)| f.ends_with("a.py") && t.ends_with("b.py")));
+        assert!(!edge_set
+            .iter()
+            .any(|(f, t)| f.ends_with("b.py") && t.ends_with("a.py")));
     }
 
     #[test]
@@ -2416,8 +2616,7 @@ mod tests {
             compiler_ids: &compiler_ids,
         };
         let fragment = PythonFrontend.fragment(&cx).unwrap();
-        let mut ids: Vec<&str> =
-            fragment.units.iter().map(|u| u.id.0.as_str()).collect();
+        let mut ids: Vec<&str> = fragment.units.iter().map(|u| u.id.0.as_str()).collect();
         ids.sort();
         assert_eq!(ids, vec!["python:pkg/a.py", "python:pkg/b.py"]);
         for unit in &fragment.units {
@@ -2431,7 +2630,10 @@ mod tests {
             UnitId("python:pkg/a.py".into())
         )));
         for (from, to) in &fragment.edges {
-            assert!(ids.contains(&from.0.as_str()), "edge from unknown unit {from}");
+            assert!(
+                ids.contains(&from.0.as_str()),
+                "edge from unknown unit {from}"
+            );
             assert!(ids.contains(&to.0.as_str()), "edge to unknown unit {to}");
         }
     }
@@ -2444,7 +2646,10 @@ mod tests {
         // oracle's example tests still run it).
         let dir = tempfile::tempdir().unwrap();
         write_tmp_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
-        write_tmp_file(&dir.path().join("examples/demo.py"), "import pkg.a\nprint(pkg.a.VALUE)\n");
+        write_tmp_file(
+            &dir.path().join("examples/demo.py"),
+            "import pkg.a\nprint(pkg.a.VALUE)\n",
+        );
         write_tmp_file(&dir.path().join("example/other.py"), "import pkg.a\n");
         let files = vec![
             dir.path().join("pkg/a.py"),
@@ -2477,8 +2682,7 @@ mod tests {
         let files = vec![dir.path().join("src/m.F90"), dir.path().join("lib/u.c")];
         let frontends: Vec<Box<dyn Frontend>> =
             vec![Box::new(FortranFrontend), Box::new(CxxFrontend)];
-        let (units, _, _) =
-            collect_fragments(dir.path(), &files, &frontends, None).unwrap();
+        let (units, _, _) = collect_fragments(dir.path(), &files, &frontends, None).unwrap();
         let mut unit_ids: Vec<&str> = units.iter().map(|u| u.id.0.as_str()).collect();
         unit_ids.sort();
         assert_eq!(unit_ids, vec!["c:lib/u.c", "fortran:src/m.F90"]);
@@ -2487,9 +2691,15 @@ mod tests {
             frontends: vec![Box::new(FortranFrontend), Box::new(CxxFrontend)],
             runner: Box::new(CtestRunner),
             bridge: Box::new(CmakeBridge),
-            profiler: Box::new(PerfProfiler { tree: dir.path().to_path_buf() }),
+            profiler: Box::new(PerfProfiler {
+                tree: dir.path().to_path_buf(),
+            }),
         };
-        let cx = BuildCtx { tree: dir.path(), build_dir: &build, release: false };
+        let cx = BuildCtx {
+            tree: dir.path(),
+            build_dir: &build,
+            release: false,
+        };
         let (dag_a, diag_a) = composite.partition(&cx).unwrap();
         let (dag_b, diag_b) = composite.partition(&cx).unwrap();
         assert_eq!(dag_a.units.len(), 2);
@@ -2506,7 +2716,10 @@ mod tests {
         let text = "collecting ... collected 62910 items / 427 deselected / 62483 selected\n\
                     ==== 62483 passed, 427 deselected in 27.93s ====";
         assert_eq!(summary_counts(text), (62483, 0, 0, 0, 427));
-        assert_eq!(summary_counts("80 passed, 28 subtests passed in 0.18s"), (80, 0, 0, 0, 0));
+        assert_eq!(
+            summary_counts("80 passed, 28 subtests passed in 0.18s"),
+            (80, 0, 0, 0, 0)
+        );
         assert_eq!(summary_counts("1 failed, 79 passed"), (79, 1, 0, 0, 0));
     }
 
@@ -2522,7 +2735,11 @@ mod tests {
         assert!(image.writable.is_empty());
         let build = dir.path().join("build");
         std::fs::create_dir_all(&build).unwrap();
-        let cx = BuildCtx { tree: dir.path(), build_dir: &build, release: false };
+        let cx = BuildCtx {
+            tree: dir.path(),
+            build_dir: &build,
+            release: false,
+        };
         let invocation = composite.runner.invocation(&cx);
         assert_eq!(invocation.len(), 1);
         assert_eq!(invocation[0].program, "python3");
@@ -2542,9 +2759,12 @@ mod tests {
         let (composite, _) = select_composite(dir.path()).unwrap();
         let build = dir.path().join("build");
         std::fs::create_dir_all(&build).unwrap();
-        let cx = BuildCtx { tree: dir.path(), build_dir: &build, release: false };
-        let firewall =
-            "ignore:Passing a non-Collection iterable to parametrize".to_string();
+        let cx = BuildCtx {
+            tree: dir.path(),
+            build_dir: &build,
+            release: false,
+        };
+        let firewall = "ignore:Passing a non-Collection iterable to parametrize".to_string();
         for cmd in composite
             .runner
             .invocation(&cx)
@@ -2655,15 +2875,21 @@ struct GateProc {
 struct GateScope {
     name: String,
     module: bool,
+    submodule: bool,
     procs: Vec<GateProc>,
 }
 
 /// A parsed Fortran file for the T014 gate: scopes plus file-level
-/// whole-program coupling (`COMMON`, `BLOCK DATA`).
+/// whole-program coupling (`COMMON`, `BLOCK DATA`). `nonglobal` names the
+/// procedures the parse proves emit no global symbol — `CONTAINS`
+/// internals of non-module scopes and `INTERFACE` bodies (T020) — so the
+/// verdict can tell their stale recon linkages from genuinely missing
+/// procedures (which still refuse, fail closed).
 struct GateFile {
     scopes: Vec<GateScope>,
     common: bool,
     blockdata: bool,
+    nonglobal: Vec<(String, String)>,
 }
 
 /// A procedure defined in a Fortran scope.
@@ -2673,13 +2899,17 @@ struct FortranProc {
     bind_name: Option<String>,
 }
 
-/// One `MODULE`/`SUBMODULE`/`PROGRAM` scope in a Fortran file.
+/// One `MODULE`/`SUBMODULE`/`PROGRAM` scope in a Fortran file. `module` is
+/// true for `MODULE`- and `SUBMODULE`-opened scopes (T020): only those own
+/// global `CONTAINS` procedures (submodule implementations emit under the
+/// parent's symbol); every other scope's post-`CONTAINS` procedures are
+/// internal (no global symbol).
 struct FortranScope {
     name: String,
+    module: bool,
     uses: Vec<String>,
     procs: Vec<FortranProc>,
 }
-
 /// A parsed Fortran file: scopes plus `USE`s outside any scope.
 struct FortranFile {
     scopes: Vec<FortranScope>,
@@ -2715,6 +2945,49 @@ fn strip_fortran_comment(line: &str) -> &str {
     }
     line.trim_end()
 }
+/// T020: mask string-literal spans for the recon procedure-keyword scan:
+/// every non-whitespace byte inside `'...'`/`"..."` becomes `x`, so a bare
+/// `function`/`subroutine` word inside a message literal (e.g. a
+/// `FATAL('... Function should ...')` text) is never minted as an export.
+/// Whitespace is preserved, so masked words align 1:1 with the line's
+/// words; doubled quotes are escapes, mirroring `strip_fortran_comment`
+/// (infallible: only ASCII bytes are rewritten). The gate scanner
+/// deliberately stays unmasked: stale frozen linkages minted from literal
+/// text must still resolve to the same hallucinated procs (fail-closed
+/// merits verdicts); only fresh recon output is literal-clean.
+fn mask_string_literals(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let mut out = bytes.to_vec();
+    let mut in_squote = false;
+    let mut in_dquote = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'\'' && !in_dquote {
+            if in_squote && i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                out[i] = b'x';
+                out[i + 1] = b'x';
+                i += 2;
+                continue;
+            }
+            in_squote = !in_squote;
+            out[i] = b'x';
+        } else if c == b'"' && !in_squote {
+            if in_dquote && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                out[i] = b'x';
+                out[i + 1] = b'x';
+                i += 2;
+                continue;
+            }
+            in_dquote = !in_dquote;
+            out[i] = b'x';
+        } else if (in_squote || in_dquote) && !c.is_ascii_whitespace() {
+            out[i] = b'x';
+        }
+        i += 1;
+    }
+    String::from_utf8(out).expect("masking only writes ASCII x")
+}
 
 /// Join free-form `&` continuations. Fixed-form continuation (column 6) is not
 /// reconstructed: an approximation, documented here; `USE`/scope statements
@@ -2745,20 +3018,29 @@ fn join_fortran_continuations(lines: Vec<String>, fixed: bool) -> Vec<String> {
 
 /// First identifier characters of `s` (already lowercased).
 fn clean_ident(s: &str) -> String {
-    s.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect()
+    s.chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect()
 }
 
 /// Parse `use [attrs ::] module [, only: ...]`; `None` when no module name.
 fn parse_use_module(lower: &str) -> Option<String> {
     // Caller guarantees a leading `use` keyword (ASCII; byte indexing safe).
-    let rest = lower["use".len()..].trim_start().trim_start_matches(',').trim_start();
+    let rest = lower["use".len()..]
+        .trim_start()
+        .trim_start_matches(',')
+        .trim_start();
     // `use, intrinsic :: iso_c_binding` and `use :: x` resolve after `::`;
     // `use x, only: y` resolves to the first token before any comma/space.
     let after = match rest.find("::") {
         Some(idx) => &rest[idx + 2..],
         None => rest,
     };
-    let first = after.trim_start().split([',', ' ', '\t', '(', ':']).next()?.trim();
+    let first = after
+        .trim_start()
+        .split([',', ' ', '\t', '(', ':'])
+        .next()?
+        .trim();
     let name = clean_ident(first);
     if name.is_empty() {
         None
@@ -2777,7 +3059,10 @@ fn parse_bind_c(lower: &str, orig: &str) -> Option<Option<String>> {
         // Byte offset of `after` within the whole line (ASCII throughout).
         let skipped = offset + bi + 4 + (search[bi + 4..].len() - after.len());
         if let Some(inner) = after.strip_prefix('(') {
-            let head: String = inner.chars().take_while(|c| *c != ',' && *c != ')').collect();
+            let head: String = inner
+                .chars()
+                .take_while(|c| *c != ',' && *c != ')')
+                .collect();
             if head.trim() == "c" {
                 let rest = &inner[head.len()..];
                 if let Some(ni) = rest.find("name") {
@@ -2787,11 +3072,16 @@ fn parse_bind_c(lower: &str, orig: &str) -> Option<Option<String>> {
                         if let Some(q) = quoted.chars().next() {
                             if q == '\'' || q == '"' {
                                 // Same byte range in the original line (ASCII).
-                                let base = skipped + 1 + head.len() + ni + 4 + eq + 1
+                                let base = skipped
+                                    + 1
+                                    + head.len()
+                                    + ni
+                                    + 4
+                                    + eq
+                                    + 1
                                     + (after_eq[eq + 1..].len() - quoted.len());
                                 let tail = &orig[base + 1..];
-                                let name: String =
-                                    tail.chars().take_while(|c| *c != q).collect();
+                                let name: String = tail.chars().take_while(|c| *c != q).collect();
                                 if !name.is_empty() {
                                     return Some(Some(name));
                                 }
@@ -2828,11 +3118,29 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
         }
         logical.push(raw.to_string());
     }
-    let mut file = FortranFile { scopes: Vec::new(), global_uses: Vec::new(), directives };
+    let mut file = FortranFile {
+        scopes: Vec::new(),
+        global_uses: Vec::new(),
+        directives,
+    };
     // Open-scope stack (indexes into `scopes`): `end module` closes the top
     // without deleting history, so completed scopes still become units while
     // later lines attach to the right scope (or to file-global).
     let mut open: Vec<usize> = Vec::new();
+    // T020 phantom-export state (twin of the gate scanner's): `interface`
+    // counts open `INTERFACE` blocks; `contains_seen` marks the internal
+    // region of a non-module scope (hosted by `contains_host`, `None` for
+    // a `PROGRAM` with no procedures yet); `nested_floor` marks a nested
+    // `CONTAINS` inside a module-procedure body (stack depth at entry).
+    // `proc_stack` names every defined procedure (emitted or skipped) so
+    // `END SUBROUTINE|FUNCTION` lines close the right region; state resets
+    // at every scope open/close, so later procedures emit (and refuse
+    // downstream) rather than vanish.
+    let mut interface = 0usize;
+    let mut contains_seen = false;
+    let mut contains_host: Option<String> = None;
+    let mut nested_floor: Option<usize> = None;
+    let mut proc_stack: Vec<String> = Vec::new();
     for orig in join_fortran_continuations(logical, fixed) {
         let line = strip_fortran_comment(&orig);
         let t = line.trim();
@@ -2844,20 +3152,72 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
         if words.is_empty() {
             continue;
         }
+        // T020: procedure ends (`END SUBROUTINE|FUNCTION [name]` and the
+        // glued fixed-form twins) close the tracked procedure but never
+        // the scope; a host end closes its `CONTAINS` region so a later
+        // external subprogram is checked on its own merits.
+        if let Some(end_name) = proc_end_name(&words) {
+            pop_proc_end(&mut proc_stack, &end_name);
+            if contains_host
+                .as_ref()
+                .is_some_and(|h| !proc_stack.contains(h))
+            {
+                contains_seen = false;
+                contains_host = None;
+            }
+            if nested_floor.is_some_and(|f| proc_stack.len() <= f) {
+                nested_floor = None;
+            }
+            continue;
+        }
+        // T020: `INTERFACE` blocks (twin of the gate scanner). Interface
+        // bodies emit no symbols.
+        if words[0] == "interface" || lower.starts_with("abstract interface") {
+            interface += 1;
+            continue;
+        }
+        if words[0] == "endinterface" || (words[0] == "end" && words.get(1) == Some(&"interface")) {
+            interface = interface.saturating_sub(1);
+            continue;
+        }
+        // T020: `CONTAINS` opens the internal region of a non-module scope
+        // (hosted by the innermost defined procedure, if any); inside a
+        // module it opens the module procedures — real globals — unless
+        // already inside a procedure body (nested `CONTAINS`: internals).
+        if words[0] == "contains" {
+            if let Some(&s) = open.last() {
+                if file.scopes[s].module {
+                    if !proc_stack.is_empty() && nested_floor.is_none() {
+                        nested_floor = Some(proc_stack.len());
+                    }
+                } else {
+                    contains_seen = true;
+                    contains_host = proc_stack.last().cloned();
+                }
+            }
+            continue;
+        }
         match words[0] {
             // `module procedure` (interface bodies) and `module
             // function/subroutine` (separate module subprograms) are not scope
             // opens; the latter falls through to the procedure scanner below.
-            "module" if words.get(1) != Some(&"procedure")
-                && !matches!(words.get(1), Some(&"function") | Some(&"subroutine")) => {
+            "module"
+                if words.get(1) != Some(&"procedure")
+                    && !matches!(words.get(1), Some(&"function") | Some(&"subroutine")) =>
+            {
                 if let Some(name) = words.get(1).map(|s| clean_ident(s)) {
                     if !name.is_empty() {
                         file.scopes.push(FortranScope {
                             name,
+                            module: true,
                             uses: Vec::new(),
                             procs: Vec::new(),
                         });
                         open.push(file.scopes.len() - 1);
+                        contains_seen = false;
+                        contains_host = None;
+                        nested_floor = None;
+                        proc_stack.clear();
                     }
                 }
                 continue;
@@ -2867,10 +3227,19 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
                     if !last.is_empty() {
                         file.scopes.push(FortranScope {
                             name: last,
+                            // T020: submodule procedures are real globals
+                            // (emitted under the parent's symbol), so a
+                            // submodule owns global `CONTAINS` procedures
+                            // like a module does.
+                            module: true,
                             uses: Vec::new(),
                             procs: Vec::new(),
                         });
                         open.push(file.scopes.len() - 1);
+                        contains_seen = false;
+                        contains_host = None;
+                        nested_floor = None;
+                        proc_stack.clear();
                     }
                 }
                 continue;
@@ -2880,21 +3249,25 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
                     if !name.is_empty() {
                         file.scopes.push(FortranScope {
                             name,
+                            module: false,
                             uses: Vec::new(),
                             procs: Vec::new(),
                         });
                         open.push(file.scopes.len() - 1);
+                        contains_seen = false;
+                        contains_host = None;
+                        nested_floor = None;
+                        proc_stack.clear();
                     }
                 }
                 continue;
             }
             "end" => {
                 // `end module/program/submodule` (or bare `end`) closes the
-                // top scope; every other `end ...` line is ignored here so
-                // the procedure scanner below never double-counts
-                // `end subroutine <name>` as a definition. A bare `end`
-                // closing a contained procedure is an accepted
-                // approximation (free-form code ends them explicitly).
+                // top scope and its regions. Procedure ends are matched
+                // above and never pop the scope. A bare `end` closing a
+                // contained procedure is an accepted approximation
+                // (free-form code ends them explicitly).
                 if words.len() == 1
                     || matches!(
                         words.get(1),
@@ -2902,11 +3275,19 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
                     )
                 {
                     open.pop();
+                    contains_seen = false;
+                    contains_host = None;
+                    nested_floor = None;
+                    proc_stack.clear();
                 }
                 continue;
             }
             "endmodule" | "endprogram" | "endsubmodule" => {
                 open.pop();
+                contains_seen = false;
+                contains_host = None;
+                nested_floor = None;
+                proc_stack.clear();
                 continue;
             }
             "use" => {
@@ -2923,7 +3304,10 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
         // Procedure definition: a `subroutine`/`function` keyword outside an
         // `end` line and outside `module procedure` interface bodies.
         let mut keyword_at: Option<usize> = None;
-        for (i, w) in words.iter().enumerate() {
+        // T020: string literals are text, not code (mask aligns 1:1).
+        let masked = mask_string_literals(&lower);
+        let scan_words: Vec<&str> = masked.split_whitespace().collect();
+        for (i, w) in scan_words.iter().enumerate() {
             if *w == "subroutine" || *w == "function" {
                 keyword_at = Some(i);
                 break;
@@ -2933,11 +3317,26 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
             if let Some(raw_name) = words.get(i + 1) {
                 let proc = clean_ident(raw_name);
                 if !proc.is_empty() {
+                    // T020: `CONTAINS` internals and `INTERFACE` bodies emit
+                    // no global symbol, so they are not exports; every other
+                    // procedure still emits (fail closed). The name is pushed
+                    // either way so ends match the right region.
+                    let skip = interface > 0
+                        || contains_seen
+                        || nested_floor.is_some_and(|f| proc_stack.len() >= f);
+                    proc_stack.push(proc.clone());
+                    if skip {
+                        continue;
+                    }
                     let (bind_c, bind_name) = match parse_bind_c(&lower, t) {
                         Some(named) => (true, named),
                         None => (false, None),
                     };
-                    let proc = FortranProc { name: proc, bind_c, bind_name };
+                    let proc = FortranProc {
+                        name: proc,
+                        bind_c,
+                        bind_name,
+                    };
                     match open.last().copied() {
                         Some(i) => file.scopes[i].procs.push(proc),
                         None => {
@@ -2945,6 +3344,7 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
                             // model as its own single-procedure scope.
                             file.scopes.push(FortranScope {
                                 name: proc.name.clone(),
+                                module: false,
                                 uses: Vec::new(),
                                 procs: vec![proc],
                             });
@@ -2966,10 +3366,16 @@ fn parse_fortran_file(text: &str, fixed: bool) -> FortranFile {
 /// dummies. `None` = admitted; `Some` = refusal reason (the gate maps
 /// every refusal to the pinned message, never to this string).
 fn gate_dummy_refusal(dtype: &str, shape: Option<&str>, is_result: bool) -> Option<&'static str> {
-    let l: String =
-        dtype.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+    let l: String = dtype
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     let l = l.as_str();
-    let has = |w: &str| l.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|t| t == w);
+    let has = |w: &str| {
+        l.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .any(|t| t == w)
+    };
     if l.contains("type(") || l.contains("class(") {
         return Some("derived-type dummy (needs whole-program layout)");
     }
@@ -3008,7 +3414,11 @@ fn gate_dummy_refusal(dtype: &str, shape: Option<&str>, is_result: bool) -> Opti
         }
         Some(s) => s,
     };
-    let s: String = shape.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+    let s: String = shape
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     // T017 shape B: an assumed-size (`x(*)`) or explicit-shape (`x(n)`,
     // `x(3,3)`) array dummy travels as a raw base address (ADR-027 §3:
     // measured `s = 10` for assumed-size, raw base address for
@@ -3042,7 +3452,11 @@ fn gate_dummy_refusal(dtype: &str, shape: Option<&str>, is_result: bool) -> Opti
             return None; // DOUBLE PRECISION is always 8 bytes.
         }
         if l.contains("real*") {
-            return if l.contains("real*8") { None } else { Some("non-8-byte REAL") };
+            return if l.contains("real*8") {
+                None
+            } else {
+                Some("non-8-byte REAL")
+            };
         }
         if let Some(ki) = l.find("kind=") {
             let kind: String = l[ki + 5..]
@@ -3081,7 +3495,10 @@ fn gate_dummy_refusal(dtype: &str, shape: Option<&str>, is_result: bool) -> Opti
 /// tails yield empty names and refuse downstream.
 fn split_gate_proc(tail: &str, is_function: bool) -> (String, Vec<String>, String) {
     let mut rest = tail.trim_start();
-    let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
     rest = rest[name.len()..].trim_start();
     let mut args = Vec::new();
     if let Some(inner) = rest.strip_prefix('(') {
@@ -3093,7 +3510,11 @@ fn split_gate_proc(tail: &str, is_function: bool) -> (String, Vec<String>, Strin
                 .collect();
         }
     }
-    let mut result = if is_function { name.clone() } else { String::new() };
+    let mut result = if is_function {
+        name.clone()
+    } else {
+        String::new()
+    };
     // Token-start `result(` only, so a dummy named `myresult` never matches.
     let bytes = tail.as_bytes();
     let mut i = 0;
@@ -3138,6 +3559,46 @@ fn split_top_level(s: &str) -> Vec<&str> {
     items.push(&s[start..]);
     items
 }
+/// T020: match a procedure-`END` line. `Some(name)` for
+/// `END SUBROUTINE|FUNCTION [name]` (empty name when the end is nameless
+/// and closes the innermost) and for the glued fixed-form twins
+/// (`ENDSUBROUTINE`, `ENDFUNCTION`, optionally name-glued); `None` for
+/// anything else. The glued form only counts as a bare single word: a
+/// longer line starting with those letters is an (unusual but legal)
+/// assignment to a variable of that name, never an end.
+fn proc_end_name(words: &[&str]) -> Option<String> {
+    if words.first() == Some(&"end") {
+        if matches!(words.get(1), Some(&"subroutine") | Some(&"function")) {
+            return Some(words.get(2).map(|s| clean_ident(s)).unwrap_or_default());
+        }
+        return None;
+    }
+    if words.len() == 1 {
+        if let Some(rest) = words[0]
+            .strip_prefix("endsubroutine")
+            .or_else(|| words[0].strip_prefix("endfunction"))
+        {
+            return Some(clean_ident(rest));
+        }
+    }
+    None
+}
+
+/// T020: pop `stack` through a procedure end. A nameless end closes the
+/// innermost; a named end pops until the name matches. Draining the stack
+/// on a mismatch is deliberate: malformed input then behaves as if the
+/// region closed, so later procedures emit (and refuse downstream) rather
+/// than vanish silently.
+fn pop_proc_end(stack: &mut Vec<String>, name: &str) {
+    if name.is_empty() {
+        stack.pop();
+    } else {
+        while stack.last().is_some_and(|top| *top != name) {
+            stack.pop();
+        }
+        stack.pop();
+    }
+}
 
 /// One old-style declaration item: the declared name and its inline
 /// array shape (`None` for a scalar).
@@ -3146,6 +3607,22 @@ type LegacyItem = (String, Option<String>);
 /// An old-style declaration: the type spec and the declared items.
 type LegacyDecl = (String, Vec<LegacyItem>);
 
+/// Top-level `=` scan: true when `s` carries an `=` at parenthesis depth 0
+/// (after quote stripping is unnecessary — entity lists never carry string
+/// literals except initializers, which always have a top-level `=`).
+fn has_top_level_eq(s: &str) -> bool {
+    let mut depth = 0usize;
+    for c in s.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            '=' if depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// T017 shape A: parse an old-style (pre-`::`) F77 declaration — a type
 /// keyword followed by a comma-separated name list. Returns the type spec
 /// and the declared names with their inline array shapes. `None` when the
@@ -3153,27 +3630,40 @@ type LegacyDecl = (String, Vec<LegacyItem>);
 /// undeclared and the gate refuses (fail closed).
 fn parse_legacy_decl(stmt: &str) -> Option<LegacyDecl> {
     let s = stmt.trim();
-    // `::` forms are handled by the modern path; an `=` means an
-    // initialization (never a dummy declaration).
-    if s.is_empty() || s.contains("::") || s.contains('=') {
+    // `::` forms are handled by the modern path.
+    if s.is_empty() || s.contains("::") {
         return None;
     }
     let low = s.to_ascii_lowercase();
     let (ts, rest) = if low.starts_with("double precision") || low.starts_with("double complex") {
         let after = &low["double ".len()..];
-        let cut = after.find(' ').map(|i| "double ".len() + i).unwrap_or(low.len());
+        let cut = after
+            .find(' ')
+            .map(|i| "double ".len() + i)
+            .unwrap_or(low.len());
         (low[..cut].to_string(), low[cut..].trim().to_string())
     } else {
         let mut it = low.splitn(2, char::is_whitespace);
         let w = it.next()?.to_string();
         let rest = it.next().unwrap_or("").trim().to_string();
         let kind = w.split(['(', '*']).next().unwrap_or(&w);
-        if !matches!(kind, "real" | "integer" | "logical" | "complex" | "character") {
+        if !matches!(
+            kind,
+            "real" | "integer" | "logical" | "complex" | "character"
+        ) {
             return None;
         }
         (w, rest)
     };
     if rest.is_empty() {
+        return None;
+    }
+    // T020: only a top-level `=` in the entity list (paren-depth 0, after
+    // the type spec) counts as initialization. A `=` inside the type spec
+    // (`COMPLEX(KIND=dp)`) or nested in parens is a kind selector, not an
+    // initializer — the old whole-statement guard mistook
+    // `COMPLEX(KIND=dp) A(n*n), x(n)` (solve_cmplx.F90) for one.
+    if has_top_level_eq(&rest) {
         return None;
     }
     let mut names = Vec::new();
@@ -3188,13 +3678,12 @@ fn parse_legacy_decl(stmt: &str) -> Option<LegacyDecl> {
                 let sh = rest2.split(')').next().map(|s| format!("({s})"))?;
                 (n.trim().to_string(), Some(sh))
             }
-            None => (
-                it.split('*').next().unwrap_or(it).trim().to_string(),
-                None,
-            ),
+            None => (it.split('*').next().unwrap_or(it).trim().to_string(), None),
         };
-        let nm: String =
-            nm.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let nm: String = nm
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
         if nm.is_empty() {
             return None;
         }
@@ -3214,8 +3703,11 @@ fn parse_legacy_dimension(stmt: &str) -> Option<Vec<(String, String)>> {
     for item in split_top_level(rest) {
         let (n, sh) = item.trim().split_once('(')?;
         let shape = format!("({}", sh.split(')').next()?);
-        let nm: String =
-            n.trim().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let nm: String = n
+            .trim()
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
         if nm.is_empty() {
             return None;
         }
@@ -3247,15 +3739,25 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
         }
         logical.push(raw.to_string());
     }
-    let mut file = GateFile { scopes: Vec::new(), common: false, blockdata: false };
+    let mut file = GateFile {
+        scopes: Vec::new(),
+        common: false,
+        blockdata: false,
+        nonglobal: Vec::new(),
+    };
     let mut open: Vec<usize> = Vec::new();
     let mut interface = 0usize;
     // (scope, proc) receiving declarations; cleared on scope close.
     let mut cur: Option<(usize, usize)> = None;
-    // T017 shape A: `CONTAINS` inside an external (non-module) scope opens
-    // the internal-procedure region. Internal procedures emit no global
-    // symbol, so they are not part of the F77-global set.
+    // T020 phantom-export state (twin of the recon's): `contains_seen`
+    // marks the internal region of a non-module scope (hosted by
+    // `contains_host`); `proc_stack` names every defined procedure so
+    // `END SUBROUTINE|FUNCTION` lines close the host region. State resets
+    // at every scope open/close, so later procedures are checked (and
+    // refuse downstream) rather than vanish.
     let mut contains_seen = false;
+    let mut contains_host: Option<String> = None;
+    let mut proc_stack: Vec<String> = Vec::new();
     for orig in join_fortran_continuations(logical, fixed) {
         let line = strip_fortran_comment(&orig);
         let t = line.trim();
@@ -3276,13 +3778,19 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
         if words[0] == "block" && words.get(1) == Some(&"data") {
             file.blockdata = true;
         }
-        // T017 shape A: `CONTAINS` inside an external scope starts the
+        // T020: `CONTAINS` inside an external scope starts the
         // internal-procedure region (no global symbols); inside a module
-        // it starts the module procedures, which are real globals.
+        // it starts the module procedures, which are real globals. A
+        // nested `CONTAINS` inside a module-procedure body is recorded as
+        // a module procedure (fail-closed twin of the recon skip).
         if words[0] == "contains" {
             if let Some(&s) = open.last() {
-                if !file.scopes[s].module {
+                // T020: submodule procedures are real globals (emitted under
+                // the parent's symbol), so only a plain non-module scope
+                // opens an internal region here.
+                if !file.scopes[s].module && !file.scopes[s].submodule {
                     contains_seen = true;
+                    contains_host = proc_stack.last().cloned();
                 }
             }
             cur = None;
@@ -3292,49 +3800,85 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
             interface += 1;
             continue;
         }
-        if words[0] == "endinterface"
-            || (words[0] == "end" && words.get(1) == Some(&"interface"))
-        {
+        if words[0] == "endinterface" || (words[0] == "end" && words.get(1) == Some(&"interface")) {
             interface = interface.saturating_sub(1);
             continue;
         }
+        // T020: procedure ends (`END SUBROUTINE|FUNCTION [name]` and the
+        // glued fixed-form twins) close the tracked procedure but never
+        // the scope; a host end closes its `CONTAINS` region so a later
+        // external subprogram is checked on its own merits.
+        if let Some(end_name) = proc_end_name(&words) {
+            pop_proc_end(&mut proc_stack, &end_name);
+            if contains_host
+                .as_ref()
+                .is_some_and(|h| !proc_stack.contains(h))
+            {
+                contains_seen = false;
+                contains_host = None;
+            }
+            continue;
+        }
         match words[0] {
-            "module" if words.get(1) != Some(&"procedure")
-                && !matches!(words.get(1), Some(&"function") | Some(&"subroutine")) =>
+            "module"
+                if words.get(1) != Some(&"procedure")
+                    && !matches!(words.get(1), Some(&"function") | Some(&"subroutine")) =>
             {
                 if let Some(name) = words.get(1).map(|s| clean_ident(s)) {
                     if !name.is_empty() {
-                        file.scopes.push(GateScope { name, module: true, procs: Vec::new() });
+                        file.scopes.push(GateScope {
+                            name,
+                            module: true,
+                            submodule: false,
+                            procs: Vec::new(),
+                        });
                         open.push(file.scopes.len() - 1);
                     }
                 }
                 cur = None;
                 contains_seen = false;
-                continue;
+                contains_host = None;
+                proc_stack.clear();
             }
             "submodule" => {
                 if let Some(last) = words.last().map(|s| clean_ident(s)) {
                     if !last.is_empty() {
-                        file.scopes.push(GateScope { name: last, module: false, procs: Vec::new() });
+                        file.scopes.push(GateScope {
+                            name: last,
+                            module: false,
+                            submodule: true,
+                            procs: Vec::new(),
+                        });
                         open.push(file.scopes.len() - 1);
                     }
                 }
                 cur = None;
                 contains_seen = false;
+                contains_host = None;
+                proc_stack.clear();
                 continue;
             }
             "program" => {
                 if let Some(name) = words.get(1).map(|s| clean_ident(s)) {
                     if !name.is_empty() {
-                        file.scopes.push(GateScope { name, module: false, procs: Vec::new() });
+                        file.scopes.push(GateScope {
+                            name,
+                            module: false,
+                            submodule: false,
+                            procs: Vec::new(),
+                        });
                         open.push(file.scopes.len() - 1);
                     }
                 }
                 cur = None;
                 contains_seen = false;
+                contains_host = None;
+                proc_stack.clear();
                 continue;
             }
             "end" => {
+                // Scope-closing ends only; procedure ends are matched above
+                // and never pop the scope.
                 if words.len() == 1
                     || matches!(
                         words.get(1),
@@ -3344,6 +3888,8 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                     open.pop();
                     cur = None;
                     contains_seen = false;
+                    contains_host = None;
+                    proc_stack.clear();
                 }
                 continue;
             }
@@ -3351,12 +3897,36 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                 open.pop();
                 cur = None;
                 contains_seen = false;
+                contains_host = None;
+                proc_stack.clear();
                 continue;
             }
             _ => {}
         }
         if interface > 0 {
-            continue; // Interface bodies emit no symbols; skip, never admit.
+            // T020: interface bodies emit no symbols (nm-proven); record
+            // them so the verdict tells phantoms from genuinely missing
+            // procedures. The name is pushed either way so ends match.
+            // (unmasked: stale frozen linkages minted from literal text must
+            // still resolve to the same hallucinated procs — fail-closed
+            // merits verdicts. Only fresh recon output is literal-masked.)
+            for (i, w) in words.iter().enumerate() {
+                if *w == "subroutine" || *w == "function" {
+                    if let Some(raw) = words.get(i + 1) {
+                        let nm = clean_ident(raw);
+                        if !nm.is_empty() {
+                            let scope = open
+                                .last()
+                                .map(|&s| file.scopes[s].name.clone())
+                                .unwrap_or_default();
+                            file.nonglobal.push((scope, nm.clone()));
+                            proc_stack.push(nm);
+                        }
+                    }
+                    break;
+                }
+            }
+            continue;
         }
         let mut keyword_at: Option<(usize, bool)> = None;
         for (i, w) in words.iter().enumerate() {
@@ -3373,7 +3943,11 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
             let tail: String = words[i + 1..].join(" ");
             // Reparse name/args off the joined tail (whitespace split may
             // have separated `foo (a, b)`); RESULT comes from the raw tail.
-            let kw = if is_function { "function" } else { "subroutine" };
+            let kw = if is_function {
+                "function"
+            } else {
+                "subroutine"
+            };
             let raw_tail = match lower.find(kw) {
                 Some(at) => lower[at + kw.len()..].to_string(),
                 None => tail.clone(),
@@ -3392,10 +3966,16 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                 None
             };
             if !name.is_empty() {
-                // T017 shape A: an internal procedure of an external
-                // subprogram emits no global symbol. The recon models it
-                // as an export, so the unit keeps refusing (fail closed).
+                // T020: an internal procedure of an external subprogram
+                // emits no global symbol (nm-proven): record it for the
+                // verdict, push it for end-matching, never check it.
                 if contains_seen {
+                    let scope = open
+                        .last()
+                        .map(|&s| file.scopes[s].name.clone())
+                        .unwrap_or_default();
+                    file.nonglobal.push((scope, name.clone()));
+                    proc_stack.push(name);
                     cur = None;
                     continue;
                 }
@@ -3417,6 +3997,7 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                         file.scopes.push(GateScope {
                             name: name.clone(),
                             module: false,
+                            submodule: false,
                             procs: vec![proc],
                         });
                         open.push(file.scopes.len() - 1);
@@ -3424,6 +4005,7 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                         contains_seen = false;
                     }
                 }
+                proc_stack.push(name.clone());
             }
             continue;
         }
@@ -3432,10 +4014,13 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
         // procedure locals sit between their procedure line and the next.
         if let Some((s, p)) = cur {
             if let Some((left, right)) = t.split_once("::") {
-                let dim = left.to_ascii_lowercase().split_once("dimension").and_then(|(_, d)| {
-                    let d = d.trim_start().strip_prefix('(')?;
-                    d.split(')').next().map(str::to_string)
-                });
+                let dim = left
+                    .to_ascii_lowercase()
+                    .split_once("dimension")
+                    .and_then(|(_, d)| {
+                        let d = d.trim_start().strip_prefix('(')?;
+                        d.split(')').next().map(str::to_string)
+                    });
                 // Comma split at paren depth 0: `a(:,:), b` must not split
                 // inside the shape (a naive split would misread the rank).
                 let mut items = Vec::new();
@@ -3464,12 +4049,20 @@ fn parse_gate_file(text: &str, fixed: bool) -> GateFile {
                             let shape = shape.or_else(|| dim.as_deref().map(|d| format!("({d})")));
                             (n.trim().to_ascii_lowercase(), shape)
                         }
-                        None => (item.to_ascii_lowercase(), dim.as_deref().map(|d| format!("({d})"))),
+                        None => (
+                            item.to_ascii_lowercase(),
+                            dim.as_deref().map(|d| format!("({d})")),
+                        ),
                     };
-                    let vname: String =
-                        vname.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+                    let vname: String = vname
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect();
                     if vname.is_empty()
-                        || file.scopes[s].procs[p].decls.iter().any(|(n, _, _)| *n == vname)
+                        || file.scopes[s].procs[p]
+                            .decls
+                            .iter()
+                            .any(|(n, _, _)| *n == vname)
                     {
                         continue;
                     }
@@ -3519,7 +4112,9 @@ fn split_mod_linkage(linkage: &str) -> Option<(&str, &str)> {
     let tail = linkage.strip_prefix("__")?;
     let (scope, proc) = tail.split_once("_MOD_")?;
     let ident = |s: &str| {
-        !s.is_empty() && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
     };
     if ident(scope) && ident(proc) {
         Some((scope, proc))
@@ -3528,13 +4123,47 @@ fn split_mod_linkage(linkage: &str) -> Option<(&str, &str)> {
     }
 }
 
+/// T020: true when `(scope, proc)` is a proven non-global — a `CONTAINS`
+/// internal or an `INTERFACE` body the parse saw. Such linkages are stale
+/// recon exports (the compiler emits no such symbol), so the verdict
+/// skips them instead of refusing. Anything else still refuses.
+fn is_nonglobal(file: &GateFile, scope: &str, proc: &str) -> bool {
+    file.nonglobal.iter().any(|(s, p)| s == scope && p == proc)
+}
+
 /// T014 allowlist verdict over one parsed file: every linkage in `bad`
 /// is either a real module's bookkeeping export (no symbol), a module
 /// procedure whose dummies (and function result) all fit the admitted
 /// profile, or (T017 shape A) an F77 global external subprogram.
 /// `Err(reasons)` refuses (fail closed, pinned message) and names, per
 /// offending export, why the shape is not admitted; `Ok(())` admits.
+///
+/// T020: `GateMode::PluginEntry` is the solver-entry (plugin-boundary)
+/// shape (§8 item 3) — same verdict, except F77-global entries admit
+/// derived-type dummies as opaque addresses under the accessor contract
+/// (component access exclusively through same-gfortran-compiled `BIND(C)`
+/// accessors; the port, not this pure function, proves the contract, the
+/// `nm` symbol equality, and the tripwire). Module procedures keep the
+/// existing profiles in both modes; `COMMON`/`BLOCK DATA` refuses in both.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GateMode {
+    Substitution,
+    PluginEntry,
+}
 fn gate_file_verdict(file: &GateFile, bad: &[String]) -> Result<(), Vec<String>> {
+    gate_file_verdict_impl(file, bad, GateMode::Substitution)
+}
+
+/// T020 solver-entry verdict core (see `GateMode::PluginEntry`).
+fn gate_plugin_entry_verdict(file: &GateFile, bad: &[String]) -> Result<(), Vec<String>> {
+    gate_file_verdict_impl(file, bad, GateMode::PluginEntry)
+}
+
+fn gate_file_verdict_impl(
+    file: &GateFile,
+    bad: &[String],
+    mode: GateMode,
+) -> Result<(), Vec<String>> {
     if file.common || file.blockdata {
         return Err(vec!["COMMON/BLOCK DATA coupling (ADR-027)".to_string()]);
     }
@@ -3569,6 +4198,12 @@ fn gate_file_verdict(file: &GateFile, bad: &[String]) -> Result<(), Vec<String>>
             let p = match s.procs.iter().find(|p| p.name == proc) {
                 Some(x) => x,
                 None => {
+                    // T020: proven non-global (`CONTAINS` internal or
+                    // `INTERFACE` body) — a stale recon export for a symbol
+                    // the compiler never emits. Anything else still refuses.
+                    if is_nonglobal(file, scope, proc) {
+                        continue;
+                    }
                     reasons.push(format!("{link}: procedure-not-found-in-gate-parse"));
                     continue;
                 }
@@ -3616,11 +4251,22 @@ fn gate_file_verdict(file: &GateFile, bad: &[String]) -> Result<(), Vec<String>>
             let p = match s.procs.iter().find(|p| p.name == proc) {
                 Some(x) => x,
                 None => {
+                    // T020: proven non-global — a stale recon export for a
+                    // symbol the compiler never emits. Anything else still
+                    // refuses.
+                    if is_nonglobal(file, scope, proc) {
+                        continue;
+                    }
                     reasons.push(format!("{link}: procedure-not-found-in-gate-parse"));
                     continue;
                 }
             };
-            if let Some(r) = gate_f77_external_reason(p) {
+            let reason = if mode == GateMode::PluginEntry {
+                gate_f77_entry_opaque_reason(p)
+            } else {
+                gate_f77_external_reason(p)
+            };
+            if let Some(r) = reason {
                 reasons.push(format!("{link}: {r}"));
                 continue;
             }
@@ -3685,6 +4331,71 @@ fn gate_f77_external_reason(p: &GateProc) -> Option<&'static str> {
     }
     None
 }
+/// T020: true when a dummy dtype is a derived (`TYPE(...)`) or polymorphic
+/// (`CLASS(...)`) type — the same test the substitution gate uses to
+/// refuse, here marking opacity instead.
+fn dtype_is_derived(dtype: &str) -> bool {
+    let l: String = dtype
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    l.contains("type(") || l.contains("class(")
+}
+
+/// T020 solver-entry dummy profile for an F77 global: identical to the
+/// proven shape-A profile, except derived-type dummies are admitted as
+/// opaque addresses under the accessor contract. The port may read or
+/// write their components only through generated `BIND(C)` accessors
+/// compiled against the built `.mod` files of the target configure —
+/// never through pinned offsets — so no layout is assumed here. Function
+/// results keep the shape-A rule (a derived result would have to be
+/// constructed callee-side, which opacity does not cover).
+/// `Some(reason)` names the first dummy (or result) that leaves the entry
+/// profile.
+fn gate_f77_entry_opaque_reason(p: &GateProc) -> Option<&'static str> {
+    for a in &p.args {
+        let decl = p
+            .decls
+            .iter()
+            .find(|(n, _, _)| n == a)
+            .or_else(|| p.legacy_decls.iter().find(|(n, _, _)| n == a));
+        let decl = match decl {
+            Some(x) => x,
+            // Undeclared dummy: implicit typing, unprovable.
+            None => return Some("undeclared dummy (implicit typing)"),
+        };
+        if dtype_is_derived(&decl.1) {
+            continue; // Opaque address under the accessor contract.
+        }
+        if let Some(r) = gate_f77_dummy_refusal(&decl.1, decl.2.as_deref(), false) {
+            return Some(r);
+        }
+    }
+    if p.is_function {
+        let decl = p
+            .decls
+            .iter()
+            .find(|(n, _, _)| *n == p.result)
+            .or_else(|| p.legacy_decls.iter().find(|(n, _, _)| *n == p.result));
+        let (dtype, shape) = match decl {
+            Some((_, d, s)) => (d.as_str(), s.as_deref()),
+            // The function's own type prefix types the result.
+            None => match p.fn_type.as_deref() {
+                Some(t) => (t, None),
+                None => return Some("untyped function result (no type prefix)"),
+            },
+        };
+        if shape.is_some() {
+            // Array result: hidden result pointer, not admitted.
+            return Some("array function result (hidden result pointer)");
+        }
+        if let Some(r) = gate_dummy_refusal(dtype, shape, true) {
+            return Some(r);
+        }
+    }
+    None
+}
 
 /// T017 shape A dummy profile for an F77 global: an explicit-shape or
 /// assumed-size array dummy travels as a raw base address (ADR-027 §3,
@@ -3704,8 +4415,7 @@ fn gate_f77_dummy_refusal(
     let inner = s.strip_prefix('(').and_then(|t| t.strip_suffix(')'));
     // Assumed-size `(*)` and explicit-shape `(n)` travel raw; assumed-shape
     // `(:)` travels as a descriptor and keeps the T014 profile.
-    let raw_array =
-        shape.is_some() && inner.is_some_and(|i| !i.is_empty() && !i.contains(':'));
+    let raw_array = shape.is_some() && inner.is_some_and(|i| !i.is_empty() && !i.contains(':'));
     if raw_array {
         return gate_dummy_refusal(dtype, None, false);
     }
@@ -3721,7 +4431,11 @@ fn fortran_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
         if !FortranFrontend.claims(src, None) {
             continue;
         }
-        let rel = src.strip_prefix(cx.repo).unwrap_or(src).to_string_lossy().replace('\\', "/");
+        let rel = src
+            .strip_prefix(cx.repo)
+            .unwrap_or(src)
+            .to_string_lossy()
+            .replace('\\', "/");
         if Path::new(&rel).components().any(|c| {
             matches!(
                 c.as_os_str().to_str(),
@@ -3746,15 +4460,27 @@ fn fortran_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
             .map(|e| e.to_lowercase())
             .unwrap_or_default();
         let fixed = matches!(ext_lower.as_str(), "f" | "for");
-        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+        let stem = src
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
         // One unit per authoritative source: a checked-in generated `.F90`
         // beside its `.src` template is skipped (the build-dir copy is
         // excluded by origin and never reaches this filter).
-        let src_sib = src.parent().unwrap_or(Path::new("")).join(format!("{stem}.src"));
+        let src_sib = src
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join(format!("{stem}.src"));
         if ext_lower != "src" && src_sib.is_file() {
-            let sib_rel =
-                src_sib.strip_prefix(cx.repo).unwrap_or(&src_sib).to_string_lossy().replace('\\', "/");
-            diagnostics.push(format!("generated: '{rel}' skipped (authoritative source is '{sib_rel}')"));
+            let sib_rel = src_sib
+                .strip_prefix(cx.repo)
+                .unwrap_or(&src_sib)
+                .to_string_lossy()
+                .replace('\\', "/");
+            diagnostics.push(format!(
+                "generated: '{rel}' skipped (authoritative source is '{sib_rel}')"
+            ));
             continue;
         }
         let authoritative = rel.clone();
@@ -3785,7 +4511,10 @@ fn fortran_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
                 imports: parsed
                     .global_uses
                     .into_iter()
-                    .map(|linkage| Symbol { linkage, abi: Abi::Fortran { bind_c: false } })
+                    .map(|linkage| Symbol {
+                        linkage,
+                        abi: Abi::Fortran { bind_c: false },
+                    })
                     .collect(),
             });
             continue;
@@ -3806,7 +4535,9 @@ fn fortran_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
             let unit_bind_c = scope.procs.iter().all(|p| p.bind_c);
             let mut exports = vec![Symbol {
                 linkage: scope.name.clone(),
-                abi: Abi::Fortran { bind_c: unit_bind_c },
+                abi: Abi::Fortran {
+                    bind_c: unit_bind_c,
+                },
             }];
             for proc in &scope.procs {
                 if proc.bind_c {
@@ -3852,7 +4583,11 @@ fn fortran_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
     units.sort_by(|a, b| a.id.cmp(&b.id));
     edges.sort();
     edges.dedup();
-    Ok(Fragment { units, edges, diagnostics })
+    Ok(Fragment {
+        units,
+        edges,
+        diagnostics,
+    })
 }
 
 /// C/C++ frontend: claims via the compile DB. Extension gate first; when a
@@ -3919,8 +4654,11 @@ fn compile_db_index(db: &Path) -> Option<HashMap<String, String>> {
         let Some(file) = entry.get("file").and_then(|f| f.as_str()) else {
             continue;
         };
-        let lang =
-            entry.get("language").and_then(|l| l.as_str()).unwrap_or("").to_string();
+        let lang = entry
+            .get("language")
+            .and_then(|l| l.as_str())
+            .unwrap_or("")
+            .to_string();
         map.insert(file.to_string(), lang.clone());
         if let Some(dir) = entry.get("directory").and_then(|d| d.as_str()) {
             if !file.starts_with('/') {
@@ -4011,7 +4749,11 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
         if !cxx_claimed(src, db_index.as_ref()) {
             continue;
         }
-        let rel = src.strip_prefix(cx.repo).unwrap_or(src).to_string_lossy().replace('\\', "/");
+        let rel = src
+            .strip_prefix(cx.repo)
+            .unwrap_or(src)
+            .to_string_lossy()
+            .replace('\\', "/");
         if Path::new(&rel).components().any(|c| {
             matches!(
                 c.as_os_str().to_str(),
@@ -4042,7 +4784,11 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
             }
         };
         let id = UnitId(format!("{lang}:{rel}"));
-        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+        let stem = src
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
         let header = cxx_is_header(src);
         let export_linkage = if header { format!("{stem}_h") } else { stem };
         let abi = if lang == "cxx" { Abi::Cxx } else { Abi::C };
@@ -4067,9 +4813,7 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
             } else {
                 sources
                     .iter()
-                    .find(|(p, _)| {
-                        p.file_name().and_then(|n| n.to_str()) == Some(inc.as_str())
-                    })
+                    .find(|(p, _)| p.file_name().and_then(|n| n.to_str()) == Some(inc.as_str()))
                     .map(|(_, r)| r.clone())
             };
             match hit {
@@ -4097,8 +4841,9 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
                         base.to_string()
                     });
                 }
-                None => diagnostics
-                    .push(format!("unresolved-include: '{rel}' includes '{inc}' (no such claimed file)")),
+                None => diagnostics.push(format!(
+                    "unresolved-include: '{rel}' includes '{inc}' (no such claimed file)"
+                )),
             }
         }
         resolved.sort();
@@ -4109,7 +4854,10 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
             id,
             files: vec![rel.clone()],
             generated_from: None,
-            exports: vec![Symbol { linkage: export_linkage, abi }],
+            exports: vec![Symbol {
+                linkage: export_linkage,
+                abi,
+            }],
             imports: Vec::new(),
         });
     }
@@ -4118,7 +4866,9 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
     let mut linkage_to_unit: HashMap<String, UnitId> = HashMap::new();
     for unit in &units {
         for export in &unit.exports {
-            linkage_to_unit.entry(export.linkage.clone()).or_insert_with(|| unit.id.clone());
+            linkage_to_unit
+                .entry(export.linkage.clone())
+                .or_insert_with(|| unit.id.clone());
         }
     }
     let mut edges: HashSet<(UnitId, UnitId)> = HashSet::new();
@@ -4127,8 +4877,13 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
             continue;
         };
         let abi = unit.exports.first().map(|e| e.abi).unwrap_or(Abi::C);
-        unit.imports =
-            linkages.iter().map(|linkage| Symbol { linkage: linkage.clone(), abi }).collect();
+        unit.imports = linkages
+            .iter()
+            .map(|linkage| Symbol {
+                linkage: linkage.clone(),
+                abi,
+            })
+            .collect();
         for import in &unit.imports {
             if let Some(target) = linkage_to_unit.get(import.linkage.as_str()) {
                 if *target != unit.id {
@@ -4140,7 +4895,11 @@ fn cxx_fragment(cx: &FragmentCtx) -> Result<Fragment, AdapterError> {
     let mut edge_list: Vec<(UnitId, UnitId)> = edges.into_iter().collect();
     edge_list.sort();
     units.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(Fragment { units, edges: edge_list, diagnostics })
+    Ok(Fragment {
+        units,
+        edges: edge_list,
+        diagnostics,
+    })
 }
 
 // --- Track I: runtime-loaded solvers via LD_DEBUG + the CMake File API ---
@@ -4188,7 +4947,11 @@ pub fn parse_cmake_file_api_reply(
     let index: serde_json::Value =
         serde_json::from_str(&index_text).map_err(|e| AdapterError::Parse(e.to_string()))?;
     let mut targets = Vec::new();
-    let objects = index.get("objects").and_then(|o| o.as_array()).cloned().unwrap_or_default();
+    let objects = index
+        .get("objects")
+        .and_then(|o| o.as_array())
+        .cloned()
+        .unwrap_or_default();
     for object in &objects {
         if object.get("kind").and_then(|k| k.as_str()) != Some("target") {
             continue;
@@ -4203,8 +4966,14 @@ pub fn parse_cmake_file_api_reply(
             continue;
         };
         let empty = Vec::new();
-        let sources = target.get("sources").and_then(|s| s.as_array()).unwrap_or(&empty);
-        let groups = target.get("compileGroups").and_then(|g| g.as_array()).unwrap_or(&empty);
+        let sources = target
+            .get("sources")
+            .and_then(|s| s.as_array())
+            .unwrap_or(&empty);
+        let groups = target
+            .get("compileGroups")
+            .and_then(|g| g.as_array())
+            .unwrap_or(&empty);
         let mut lang_of: Vec<Option<String>> = vec![None; sources.len()];
         for group in groups {
             let lang = group.get("language").and_then(|l| l.as_str()).unwrap_or("");
@@ -4240,11 +5009,17 @@ pub fn parse_cmake_file_api_reply(
                 Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
                 Err(_) => continue,
             };
-            target_sources.push(FileApiSource { language: lang, path: rel });
+            target_sources.push(FileApiSource {
+                language: lang,
+                path: rel,
+            });
         }
         target_sources.sort_by(|a, b| a.path.cmp(&b.path));
         target_sources.dedup_by(|a, b| a.path == b.path);
-        targets.push(FileApiTarget { name: name.to_string(), sources: target_sources });
+        targets.push(FileApiTarget {
+            name: name.to_string(),
+            sources: target_sources,
+        });
     }
     targets.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(targets)
@@ -4256,11 +5031,11 @@ pub fn parse_cmake_file_api_reply(
 pub fn parse_ld_debug_files(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in text.lines() {
-        let Some(fi) = line.find("file=") else { continue };
+        let Some(fi) = line.find("file=") else {
+            continue;
+        };
         let rest = &line[fi + "file=".len()..];
-        let end = rest
-            .find([' ', '\t', ';', ']'])
-            .unwrap_or(rest.len());
+        let end = rest.find([' ', '\t', ';', ']']).unwrap_or(rest.len());
         let candidate = rest[..end].trim().trim_matches('"');
         if candidate.contains(".so") {
             out.push(candidate.to_string());
@@ -4274,14 +5049,13 @@ pub fn parse_ld_debug_files(text: &str) -> Vec<String> {
 /// Map loaded `.so` paths to units through File API targets: `lib<Name>.so*`
 /// (version suffixes stripped) matches target `Name`, whose sources become
 /// unit ids. Unmapped objects (system runtimes) are dropped.
-pub fn map_loaded_objects_to_units(
-    so_paths: &[String],
-    targets: &[FileApiTarget],
-) -> Vec<UnitId> {
+pub fn map_loaded_objects_to_units(so_paths: &[String], targets: &[FileApiTarget]) -> Vec<UnitId> {
     let mut out = Vec::new();
     for so in so_paths {
         let base = so.rsplit('/').next().unwrap_or(so);
-        let Some(so_pos) = base.find(".so") else { continue };
+        let Some(so_pos) = base.find(".so") else {
+            continue;
+        };
         let mut stem = &base[..so_pos];
         stem = stem.strip_prefix("lib").unwrap_or(stem);
         let stem_lower = stem.to_lowercase();
@@ -4332,7 +5106,9 @@ pub fn file_api_target_for_source(targets: &[FileApiTarget], rel: &str) -> Optio
     let mut fallback: Vec<&str> = targets
         .iter()
         .filter(|t| {
-            t.sources.iter().any(|s| s.path.rsplit('/').next().unwrap_or(&s.path) == base)
+            t.sources
+                .iter()
+                .any(|s| s.path.rsplit('/').next().unwrap_or(&s.path) == base)
         })
         .map(|t| t.name.as_str())
         .collect();
@@ -4388,17 +5164,17 @@ impl CtestRunner {
         for line in ctest_n_output.lines() {
             let t = line.trim();
             if let Some(right) = ctest_test_rhs(t) {
-                    if let Some(name) = current.take() {
-                        out.push((name, launcher.take()));
-                    }
-                    let name = right
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("")
-                        .trim_matches('.')
-                        .to_string();
-                    current = if name.is_empty() { None } else { Some(name) };
-                    continue;
+                if let Some(name) = current.take() {
+                    out.push((name, launcher.take()));
+                }
+                let name = right
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .trim_matches('.')
+                    .to_string();
+                current = if name.is_empty() { None } else { Some(name) };
+                continue;
             }
             if let Some(rest) = t.strip_prefix("Test command:") {
                 launcher = parse_test_command(rest);
@@ -4475,7 +5251,9 @@ fn parse_add_tests(text: &str) -> Vec<(String, Option<u16>)> {
                 continue;
             }
         }
-        let Some(open_rel) = text[start..].find('(') else { break };
+        let Some(open_rel) = text[start..].find('(') else {
+            break;
+        };
         let mut depth = 0;
         let mut close = None;
         for (k, c) in text[start + open_rel..].char_indices() {
@@ -4548,9 +5326,10 @@ fn ctest_add_tests_in_dir(build_dir: &Path) -> Vec<(String, Option<u16>)> {
         return out;
     }
     let mut files = Vec::new();
-    for entry in walkdir::WalkDir::new(build_dir).into_iter().filter_entry(|e| {
-        !e.path().components().any(|c| c.as_os_str() == ".git")
-    }) {
+    for entry in walkdir::WalkDir::new(build_dir)
+        .into_iter()
+        .filter_entry(|e| !e.path().components().any(|c| c.as_os_str() == ".git"))
+    {
         let Ok(entry) = entry else { continue };
         let p = entry.path();
         if !p.is_file() {
@@ -4594,9 +5373,10 @@ pub fn ctest_enumerate(build_dir: &Path, repo: &Path) -> Vec<CtestCase> {
         return out;
     }
     let mut files = Vec::new();
-    for entry in walkdir::WalkDir::new(build_dir).into_iter().filter_entry(|e| {
-        !e.path().components().any(|c| c.as_os_str() == ".git")
-    }) {
+    for entry in walkdir::WalkDir::new(build_dir)
+        .into_iter()
+        .filter_entry(|e| !e.path().components().any(|c| c.as_os_str() == ".git"))
+    {
         let Ok(entry) = entry else { continue };
         let p = entry.path();
         if !p.is_file() {
@@ -4610,7 +5390,9 @@ pub fn ctest_enumerate(build_dir: &Path, repo: &Path) -> Vec<CtestCase> {
     }
     files.sort();
     for file in files {
-        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
         let build_rel = file
             .parent()
             .and_then(|d| d.strip_prefix(build_dir).ok())
@@ -4622,7 +5404,11 @@ pub fn ctest_enumerate(build_dir: &Path, repo: &Path) -> Vec<CtestCase> {
             repo.join(&build_rel).is_dir().then(|| build_rel.clone())
         };
         for (name, _) in parse_add_tests(&text) {
-            out.push(CtestCase { name, build_rel: build_rel.clone(), source_rel: source_rel.clone() });
+            out.push(CtestCase {
+                name,
+                build_rel: build_rel.clone(),
+                source_rel: source_rel.clone(),
+            });
         }
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -4668,12 +5454,16 @@ pub fn ctest_test_texts(repo: &Path, cases: &[CtestCase]) -> HashMap<String, Cte
     let mut out = HashMap::new();
     let mut seen_dirs: HashSet<String> = HashSet::new();
     for case in cases {
-        let Some(source_rel) = case.source_rel.as_deref() else { continue };
+        let Some(source_rel) = case.source_rel.as_deref() else {
+            continue;
+        };
         if !seen_dirs.insert(source_rel.to_string()) {
             continue;
         }
         let dir = repo.join(source_rel);
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         let mut texts = CtestTexts::default();
         // Deterministic order so the blob (and any downstream selection) is
         // stable across runs and filesystems.
@@ -4683,7 +5473,11 @@ pub fn ctest_test_texts(repo: &Path, cases: &[CtestCase]) -> HashMap<String, Cte
             if !path.is_file() {
                 continue;
             }
-            if path.metadata().map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+            if path
+                .metadata()
+                .map(|m| m.len() > MAX_FILE_BYTES)
+                .unwrap_or(true)
+            {
                 continue;
             }
             if let Ok(bytes) = std::fs::read(&path) {
@@ -4702,7 +5496,10 @@ pub fn ctest_test_texts(repo: &Path, cases: &[CtestCase]) -> HashMap<String, Cte
             }
         }
         // One entry per test name (several tests can share a directory).
-        for c in cases.iter().filter(|c| c.source_rel.as_deref() == Some(source_rel)) {
+        for c in cases
+            .iter()
+            .filter(|c| c.source_rel.as_deref() == Some(source_rel))
+        {
             out.insert(c.name.clone(), texts.clone());
         }
     }
@@ -4713,7 +5510,6 @@ pub fn ctest_test_texts(repo: &Path, cases: &[CtestCase]) -> HashMap<String, Cte
 /// is anything but ASCII alphanumeric or `_`, so `eval` matches `eval(` but
 /// never `evaluation`, and `lu` never matches `value`.
 fn stem_hit(blob: &str, stem: &str) -> bool {
-
     if stem.is_empty() {
         return false;
     }
@@ -4783,7 +5579,10 @@ pub fn affected_ctest_tests(
     let mut out = Vec::new();
     for case in cases {
         let colocated = match case.source_rel.as_deref() {
-            Some(dir) => !subsystem.is_empty() && (dir == subsystem || dir.starts_with(&format!("{subsystem}/"))),
+            Some(dir) => {
+                !subsystem.is_empty()
+                    && (dir == subsystem || dir.starts_with(&format!("{subsystem}/")))
+            }
             None => false,
         };
         let Some(texts) = texts.get(&case.name) else {
@@ -4852,8 +5651,10 @@ pub fn matc_smoke_ok(run: &RunOutput) -> bool {
 fn regex_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        if matches!(c, '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\')
-        {
+        if matches!(
+            c,
+            '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\'
+        ) {
             out.push('\\');
         }
         out.push(c);
@@ -4867,7 +5668,10 @@ fn regex_escape(s: &str) -> String {
 /// escaped). Empty input is a caller error: grading zero tests is a vacuous
 /// pass, so holders must fall back to the full invocation instead.
 pub fn scoped_ctest_command(base: &TestCommand, test_names: &[String]) -> TestCommand {
-    assert!(!test_names.is_empty(), "scoped grading needs a non-empty affected set");
+    assert!(
+        !test_names.is_empty(),
+        "scoped grading needs a non-empty affected set"
+    );
     let mut alts: Vec<String> = test_names.iter().map(|n| regex_escape(n)).collect();
     alts.sort();
     alts.dedup();
@@ -4888,7 +5692,9 @@ fn cmake_cache_features(build_dir: &Path) -> Vec<String> {
         if line.is_empty() || line.starts_with("//") || line.starts_with('#') {
             continue;
         }
-        let Some((key, value)) = line.split_once('=') else { continue };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
         let name = key.split(':').next().unwrap_or(key);
         if name.starts_with("WITH_")
             || name.starts_with("ENABLE_")
@@ -4947,14 +5753,25 @@ fn ctest_grade_text(text: &str, outcomes: &mut BTreeMap<String, Outcome>) {
             }
             continue;
         }
-        let Some(right) = ctest_test_rhs(t) else { continue };
+        let Some(right) = ctest_test_rhs(t) else {
+            continue;
+        };
         let right = right.trim();
-        let name = right.split_whitespace().next().unwrap_or("").trim_matches('.');
+        let name = right
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_matches('.');
         if name.is_empty() {
             continue;
         }
-        let verbs =
-            [("Passed", Outcome::Pass), ("Failed", Outcome::Fail), ("Timeout", Outcome::Timeout), ("Not Run", Outcome::NotRun), ("Disabled", Outcome::Skip)];
+        let verbs = [
+            ("Passed", Outcome::Pass),
+            ("Failed", Outcome::Fail),
+            ("Timeout", Outcome::Timeout),
+            ("Not Run", Outcome::NotRun),
+            ("Disabled", Outcome::Skip),
+        ];
         let mut best: Option<(usize, Outcome)> = None;
         for (verb, outcome) in verbs {
             if let Some(pos) = right.rfind(verb) {
@@ -5000,7 +5817,13 @@ fn ctest_summary_counts(text: &str) -> (u32, u32, u32, u32) {
                         .trim_matches(|c| c == '.' || c == ',')
                         .to_ascii_lowercase();
                     let word = if word == "not"
-                        && toks.get(next + 1).map(|s| s.trim_matches(|c: char| c == '.' || c == ',').to_ascii_lowercase()).as_deref()
+                        && toks
+                            .get(next + 1)
+                            .map(|s| {
+                                s.trim_matches(|c: char| c == '.' || c == ',')
+                                    .to_ascii_lowercase()
+                            })
+                            .as_deref()
                             == Some("run")
                     {
                         "notrun".to_string()
@@ -5055,8 +5878,7 @@ fn scan_floats(line: &str) -> Vec<(f64, String)> {
     let mut i = 0;
     while i < bytes.len() {
         let c = bytes[i] as char;
-        let next_is_digit =
-            i + 1 < bytes.len() && (bytes[i + 1] as char).is_ascii_digit();
+        let next_is_digit = i + 1 < bytes.len() && (bytes[i + 1] as char).is_ascii_digit();
         let starts = c.is_ascii_digit() || ((c == '+' || c == '-' || c == '.') && next_is_digit);
         if !starts {
             i += 1;
@@ -5179,7 +6001,11 @@ impl TestRunner for CtestRunner {
         // dir and collects the machine-readable log plus any JUnit output.
         vec![Self::command(
             Self::ctest_program(),
-            vec!["--output-on-failure".to_string(), "-L".to_string(), "quick".to_string()],
+            vec![
+                "--output-on-failure".to_string(),
+                "-L".to_string(),
+                "quick".to_string(),
+            ],
             Some(1800),
             vec![
                 "Testing/Temporary/LastTest.log".to_string(),
@@ -5199,8 +6025,9 @@ impl TestRunner for CtestRunner {
             // Summary fallback/top-up, mirroring the pytest runner: count-only
             // output synthesizes stable ids so `from_outcomes` derives counts.
             let (s_passed, s_failed, s_timeout, s_notrun) = ctest_summary_counts(&text);
-            let count =
-                |m: &BTreeMap<String, Outcome>, o: Outcome| m.values().filter(|v| **v == o).count() as u32;
+            let count = |m: &BTreeMap<String, Outcome>, o: Outcome| {
+                m.values().filter(|v| **v == o).count() as u32
+            };
             for i in count(&outcomes, Outcome::Pass)..s_passed {
                 outcomes.insert(format!("summary-ctest-passed-{i}"), Outcome::Pass);
             }
@@ -5262,7 +6089,16 @@ impl TestRunner for CtestRunner {
         let mut candidates: Vec<(PathBuf, String)> = Vec::new();
         for entry in walkdir::WalkDir::new(repo).into_iter().filter_entry(|e| {
             let p = e.path();
-            for seg in [".git", "__pycache__", "target", "build", "_build", ".venv", "venv", "Testing"] {
+            for seg in [
+                ".git",
+                "__pycache__",
+                "target",
+                "build",
+                "_build",
+                ".venv",
+                "venv",
+                "Testing",
+            ] {
                 if p.components().any(|c| c.as_os_str() == seg) {
                     return false;
                 }
@@ -5291,7 +6127,9 @@ impl TestRunner for CtestRunner {
             if !is_fortran && !is_cxx {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(abs) else { continue };
+            let Ok(text) = std::fs::read_to_string(abs) else {
+                continue;
+            };
             if is_fortran {
                 let ext = abs
                     .extension()
@@ -5311,15 +6149,25 @@ impl TestRunner for CtestRunner {
         for (abs, rel) in &candidates {
             let name = abs.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if rel.starts_with(".github/workflows/") {
-                out.push(OracleFile { path: rel.clone(), kind: OracleKind::Spec });
+                out.push(OracleFile {
+                    path: rel.clone(),
+                    kind: OracleKind::Spec,
+                });
                 continue;
             }
             if name == "CMakeLists.txt"
                 || (name.starts_with("CTestTestfile")
                     && abs.extension().map(|x| x == "cmake").unwrap_or(false))
-                || abs.extension().and_then(|x| x.to_str()).map(|e| e.eq_ignore_ascii_case("cmake")).unwrap_or(false)
+                || abs
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|e| e.eq_ignore_ascii_case("cmake"))
+                    .unwrap_or(false)
             {
-                out.push(OracleFile { path: rel.clone(), kind: OracleKind::Spec });
+                out.push(OracleFile {
+                    path: rel.clone(),
+                    kind: OracleKind::Spec,
+                });
                 continue;
             }
             if !is_ctest_test_dir(rel) {
@@ -5327,13 +6175,18 @@ impl TestRunner for CtestRunner {
             }
             let is_source = FortranFrontend.claims(abs, None) || CxxFrontend.claims(abs, None);
             if !is_source {
-                out.push(OracleFile { path: rel.clone(), kind: OracleKind::Fixture });
+                out.push(OracleFile {
+                    path: rel.clone(),
+                    kind: OracleKind::Fixture,
+                });
                 continue;
             }
             // Test-local source: Harness when it compiles against SUT units
             // (`USE` of a provided module / include of a provided header),
             // else Fixture.
-            let Ok(text) = std::fs::read_to_string(abs) else { continue };
+            let Ok(text) = std::fs::read_to_string(abs) else {
+                continue;
+            };
             let mut harness = false;
             if FortranFrontend.claims(abs, None) {
                 let ext = abs
@@ -5373,7 +6226,11 @@ impl TestRunner for CtestRunner {
             }
             out.push(OracleFile {
                 path: rel.clone(),
-                kind: if harness { OracleKind::Harness } else { OracleKind::Fixture },
+                kind: if harness {
+                    OracleKind::Harness
+                } else {
+                    OracleKind::Fixture
+                },
             });
         }
         out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -5386,7 +6243,8 @@ impl TestRunner for CtestRunner {
         // source-tree cmake files hash, and only whitespace-normalized
         // (line endings, trailing space) so configure noise never perturbs
         // the frozen hash.
-        let is_cmake = Path::new(rel).file_name().and_then(|n| n.to_str()) == Some("CMakeLists.txt")
+        let is_cmake = Path::new(rel).file_name().and_then(|n| n.to_str())
+            == Some("CMakeLists.txt")
             || rel.starts_with("CTestTestfile")
             || rel.ends_with(".cmake");
         if !is_cmake {
@@ -5417,8 +6275,11 @@ impl TestRunner for CtestRunner {
                 .collect();
             return Some(kept.join("\n").into_bytes());
         }
-        let normalized =
-            text.lines().map(|line| line.trim_end()).collect::<Vec<_>>().join("\n");
+        let normalized = text
+            .lines()
+            .map(|line| line.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n");
         Some(normalized.into_bytes())
     }
 
@@ -5485,7 +6346,10 @@ impl TestRunner for CtestRunner {
 /// a directory that configures CTest (holds a `CTestTestfile`).
 fn is_ctest_test_dir(rel: &str) -> bool {
     Path::new(rel).components().any(|c| {
-        matches!(c.as_os_str().to_str(), Some("test") | Some("tests") | Some("Testing"))
+        matches!(
+            c.as_os_str().to_str(),
+            Some("test") | Some("tests") | Some("Testing")
+        )
     })
 }
 
@@ -5497,7 +6361,16 @@ fn ctest_test_inventory(repo: &Path) -> Result<TestInventory, AdapterError> {
     let mut ci_invokers = Vec::new();
     for entry in walkdir::WalkDir::new(repo).into_iter().filter_entry(|e| {
         let p = e.path();
-        for seg in [".git", "__pycache__", "target", "build", "_build", ".venv", "venv", "Testing"] {
+        for seg in [
+            ".git",
+            "__pycache__",
+            "target",
+            "build",
+            "_build",
+            ".venv",
+            "venv",
+            "Testing",
+        ] {
             if p.components().any(|c| c.as_os_str() == seg) {
                 return false;
             }
@@ -5509,14 +6382,17 @@ fn ctest_test_inventory(repo: &Path) -> Result<TestInventory, AdapterError> {
         if !p.is_file() {
             continue;
         }
-        let rel = p.strip_prefix(repo).unwrap_or(p).to_string_lossy().replace('\\', "/");
+        let rel = p
+            .strip_prefix(repo)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .replace('\\', "/");
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if rel.starts_with(".github/workflows/") {
             ci_invokers.push(rel);
             continue;
         }
-        if name.starts_with("CTestTestfile")
-            && p.extension().map(|x| x == "cmake").unwrap_or(false)
+        if name.starts_with("CTestTestfile") && p.extension().map(|x| x == "cmake").unwrap_or(false)
         {
             test_files.push(rel);
             continue;
@@ -5529,7 +6405,11 @@ fn ctest_test_inventory(repo: &Path) -> Result<TestInventory, AdapterError> {
             }
             continue;
         }
-        if p.extension().and_then(|x| x.to_str()).map(|e| e.eq_ignore_ascii_case("cmake")).unwrap_or(false) {
+        if p.extension()
+            .and_then(|x| x.to_str())
+            .map(|e| e.eq_ignore_ascii_case("cmake"))
+            .unwrap_or(false)
+        {
             config_refs.push(rel);
         }
     }
@@ -5676,10 +6556,15 @@ impl CmakeBridge {
         let cmake_files = build_dir.join("CMakeFiles");
         if cmake_files.is_dir() {
             let want = format!(".dir/{rel}.o");
-            for entry in walkdir::WalkDir::new(&cmake_files).into_iter().filter_map(Result::ok) {
+            for entry in walkdir::WalkDir::new(&cmake_files)
+                .into_iter()
+                .filter_map(Result::ok)
+            {
                 let p = entry.path();
                 if p.is_file()
-                    && p.to_string_lossy().replace('\\', "/").ends_with(want.as_str())
+                    && p.to_string_lossy()
+                        .replace('\\', "/")
+                        .ends_with(want.as_str())
                 {
                     objects.push(p.to_string_lossy().into_owned());
                 }
@@ -5698,10 +6583,14 @@ impl CmakeBridge {
                     .filter_map(Result::ok)
                 {
                     let p = entry.path();
-                    if !p.is_file() || p.file_name().and_then(|n| n.to_str()) != Some("DependInfo.cmake") {
+                    if !p.is_file()
+                        || p.file_name().and_then(|n| n.to_str()) != Some("DependInfo.cmake")
+                    {
                         continue;
                     }
-                    let Ok(text) = std::fs::read_to_string(p) else { continue };
+                    let Ok(text) = std::fs::read_to_string(p) else {
+                        continue;
+                    };
                     for obj_rel in Self::depinfo_objects_for(&text, &want_src) {
                         let obj = build_dir.join(&obj_rel);
                         if obj.is_file() {
@@ -5768,6 +6657,42 @@ pub fn fortran_substitution_verdict(unit: &UnitDecl, tree: &Path) -> Result<(), 
         Ok(())
     } else {
         Err(reasons)
+    }
+}
+/// T020: the reason-carrying form of the solver-entry (plugin-boundary)
+/// gate: `Ok(())` admits the file at the plugin boundary, `Err(reasons)`
+/// refuses it (fail closed). Unlike [`fortran_substitution_verdict`],
+/// F77-global entries admit derived-type dummies as opaque addresses under
+/// the accessor contract — and there is no vacuous early-`Ok`: the file is
+/// always parsed, so `COMMON`/`BLOCK DATA` refuses even for zero-export
+/// units (closing the §4.6 blind spot within this shape; the legacy
+/// substitution path is unchanged).
+pub fn fortran_plugin_entry_verdict(unit: &UnitDecl, tree: &Path) -> Result<(), Vec<String>> {
+    let mut bad: Vec<String> = unit
+        .exports
+        .iter()
+        .filter(|e| matches!(e.abi, Abi::Fortran { bind_c: false }))
+        .map(|e| e.linkage.clone())
+        .collect();
+    bad.sort();
+    bad.dedup();
+    let rel = match unit.files.first() {
+        Some(r) if !r.is_empty() => r,
+        _ => return Err(vec!["unit declares no source file".to_string()]),
+    };
+    let text = match std::fs::read_to_string(tree.join(rel)) {
+        Ok(t) => t,
+        Err(_) => return Err(vec![format!("source unreadable (fail closed): {rel}")]),
+    };
+    let ext = Path::new(rel)
+        .extension()
+        .and_then(|x| x.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    let fixed = matches!(ext.as_str(), "f" | "for");
+    match gate_plugin_entry_verdict(&parse_gate_file(&text, fixed), &bad) {
+        Ok(()) => Ok(()),
+        Err(reasons) => Err(reasons),
     }
 }
 
@@ -5933,11 +6858,7 @@ impl BuildBridge for CmakeBridge {
         });
         cmds.push(TestCommand {
             program: CtestRunner::ctest_program(),
-            args: vec![
-                "--output-on-failure".to_string(),
-                "-R".to_string(),
-                stem,
-            ],
+            args: vec!["--output-on-failure".to_string(), "-R".to_string(), stem],
             cwd: Cwd::BuildDir,
             env_set: vec![("CTEST_OUTPUT_ON_FAILURE".to_string(), "1".to_string())],
             env_remove: Vec::new(),
@@ -6007,11 +6928,14 @@ impl BuildBridge for CmakeBridge {
         let mut deps: Vec<LinkDep> = Vec::new();
         if cx.build_dir.is_dir() {
             let mut link_files = Vec::new();
-            for entry in walkdir::WalkDir::new(cx.build_dir).into_iter().filter_entry(|e| {
-                !e.path().components().any(|c| c.as_os_str() == ".git")
-            }) {
+            for entry in walkdir::WalkDir::new(cx.build_dir)
+                .into_iter()
+                .filter_entry(|e| !e.path().components().any(|c| c.as_os_str() == ".git"))
+            {
                 let Ok(entry) = entry else { continue };
-                if entry.path().is_file() && entry.path().file_name().and_then(|n| n.to_str()) == Some("link.txt") {
+                if entry.path().is_file()
+                    && entry.path().file_name().and_then(|n| n.to_str()) == Some("link.txt")
+                {
                     link_files.push(entry.path().to_path_buf());
                 }
             }
@@ -6021,10 +6945,15 @@ impl BuildBridge for CmakeBridge {
                     for token in text.split_whitespace() {
                         if let Some(name) = token.strip_prefix("-l") {
                             if !name.is_empty() {
-                                deps.push(LinkDep { name: name.to_string(), path: None });
+                                deps.push(LinkDep {
+                                    name: name.to_string(),
+                                    path: None,
+                                });
                             }
                         } else if token.starts_with('/')
-                            && (token.contains(".so") || token.ends_with(".a") || token.contains(".dylib"))
+                            && (token.contains(".so")
+                                || token.ends_with(".a")
+                                || token.contains(".dylib"))
                         {
                             let base = token.rsplit('/').next().unwrap_or(token);
                             let end = base
@@ -6050,7 +6979,9 @@ impl BuildBridge for CmakeBridge {
             if let Ok(text) = std::fs::read_to_string(&cache) {
                 for line in text.lines() {
                     let line = line.trim();
-                    let Some((key, value)) = line.split_once('=') else { continue };
+                    let Some((key, value)) = line.split_once('=') else {
+                        continue;
+                    };
                     let name = key.split(':').next().unwrap_or(key);
                     if !(name.contains("LIBRARY") || name.contains("LIB")) || value.is_empty() {
                         continue;
@@ -6069,7 +7000,10 @@ impl BuildBridge for CmakeBridge {
                         stem = stripped.to_string();
                     }
                     if !stem.is_empty() {
-                        deps.push(LinkDep { name: stem, path: Some(value.to_string()) });
+                        deps.push(LinkDep {
+                            name: stem,
+                            path: Some(value.to_string()),
+                        });
                     }
                 }
             }
@@ -6083,9 +7017,10 @@ impl BuildBridge for CmakeBridge {
         // Built libraries that must survive for grading, by suffix.
         let mut out = Vec::new();
         if cx.build_dir.is_dir() {
-            for entry in walkdir::WalkDir::new(cx.build_dir).into_iter().filter_entry(|e| {
-                !e.path().components().any(|c| c.as_os_str() == ".git")
-            }) {
+            for entry in walkdir::WalkDir::new(cx.build_dir)
+                .into_iter()
+                .filter_entry(|e| !e.path().components().any(|c| c.as_os_str() == ".git"))
+            {
                 let Ok(entry) = entry else { continue };
                 let p = entry.path();
                 if !p.is_file() {
@@ -6107,9 +7042,20 @@ impl BuildBridge for CmakeBridge {
 fn sanitize_crate_name(s: &str) -> String {
     let mut ident: String = s
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
-    if ident.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+    if ident
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
         ident.insert(0, '_');
     }
     ident.trim_end_matches('_').to_string()
@@ -6166,7 +7112,11 @@ impl Profiler for PerfProfiler {
         }
     }
 
-    fn hotspots(&self, w: &Workload, perf_available: bool) -> Result<HotspotBaseline, AdapterError> {
+    fn hotspots(
+        &self,
+        w: &Workload,
+        perf_available: bool,
+    ) -> Result<HotspotBaseline, AdapterError> {
         if !perf_available {
             return Err(AdapterError::Parse(
                 "hotspots: perf unavailable (perf_event_paranoid blocks perf; ADR-003): PerfProfiler has no fallback sampler".into(),
@@ -6197,7 +7147,11 @@ impl Profiler for PerfProfiler {
         }
         // No symbolization pipeline: functions stay empty until a DWARF unwind
         // reader lands; the wall time is measured, never fabricated.
-        Ok(HotspotBaseline { tool: "perf".into(), functions: Vec::new(), wall_secs })
+        Ok(HotspotBaseline {
+            tool: "perf".into(),
+            functions: Vec::new(),
+            wall_secs,
+        })
     }
 }
 
@@ -6207,8 +7161,14 @@ impl Profiler for PerfProfiler {
 /// targets (they come from the build, not the language): vendored sources
 /// and project-built absolutes port, system paths and bare `-l` names keep.
 fn classify_link_dep(dep: &LinkDep) -> DepClass {
-    const VENDORED_SEGS: &[&str] =
-        &["third_party", "thirdparty", "external", "vendor", "contrib", "submodules"];
+    const VENDORED_SEGS: &[&str] = &[
+        "third_party",
+        "thirdparty",
+        "external",
+        "vendor",
+        "contrib",
+        "submodules",
+    ];
     if let Some(path) = &dep.path {
         let lower = path.to_ascii_lowercase();
         if lower.split('/').any(|seg| VENDORED_SEGS.contains(&seg)) {
@@ -6260,7 +7220,11 @@ fn generic_license_terms(
         if !file_hit && !dir_hit {
             continue;
         }
-        let rel = p.strip_prefix(repo).unwrap_or(p).to_string_lossy().replace('\\', "/");
+        let rel = p
+            .strip_prefix(repo)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .replace('\\', "/");
         // License sniffing is best-effort: repos carry legacy encodings
         // (e.g. ISO-8859) and unreadable files must never halt recon. Read
         // bytes and sniff lossily; skip files that cannot be read at all.
@@ -6322,7 +7286,9 @@ fn sniff_license_text(text: &str) -> String {
 /// Whether a Fortran unit is `BIND(C)`-clean: every exported procedure
 /// carries `BIND(C)` (vacuously true with no procedures).
 fn fortran_unit_bind_c(unit: &UnitDecl) -> bool {
-    unit.exports.iter().all(|e| !matches!(e.abi, Abi::Fortran { bind_c: false }))
+    unit.exports
+        .iter()
+        .all(|e| !matches!(e.abi, Abi::Fortran { bind_c: false }))
 }
 
 /// Coarsen non-`BIND(C)` Fortran units to file granularity: multi-symbol
@@ -6335,7 +7301,10 @@ fn coarsen_fortran_units(
     diagnostics: &mut Vec<String>,
 ) {
     for unit in units.iter() {
-        if unit.id.0.starts_with("fortran:") && !unit.id.0.contains('#') && !fortran_unit_bind_c(unit) {
+        if unit.id.0.starts_with("fortran:")
+            && !unit.id.0.contains('#')
+            && !fortran_unit_bind_c(unit)
+        {
             diagnostics.push(format!(
                 "coarsen: '{}' is non-BIND(C) Fortran; substitutes only at file granularity with an ABI shim",
                 unit.id
@@ -6374,8 +7343,10 @@ fn coarsen_fortran_units(
             exports: Vec::new(),
             imports: Vec::new(),
         };
-        let mut generated: Vec<Option<String>> =
-            members.iter().map(|i| units[*i].generated_from.clone()).collect();
+        let mut generated: Vec<Option<String>> = members
+            .iter()
+            .map(|i| units[*i].generated_from.clone())
+            .collect();
         generated.sort();
         generated.dedup();
         if generated.len() == 1 {
@@ -6387,15 +7358,22 @@ fn coarsen_fortran_units(
             remove.insert(*i);
         }
         file_unit.exports.sort_by(|a, b| a.linkage.cmp(&b.linkage));
-        file_unit.exports.dedup_by(|a, b| a.linkage == b.linkage && a.abi == b.abi);
+        file_unit
+            .exports
+            .dedup_by(|a, b| a.linkage == b.linkage && a.abi == b.abi);
         file_unit.imports.sort_by(|a, b| a.linkage.cmp(&b.linkage));
-        file_unit.imports.dedup_by(|a, b| a.linkage == b.linkage && a.abi == b.abi);
+        file_unit
+            .imports
+            .dedup_by(|a, b| a.linkage == b.linkage && a.abi == b.abi);
         diagnostics.push(format!(
             "coarsen: '{file}' merges {} Fortran units: non-BIND(C) ({}) has no stable C ABI; partition at file granularity",
             members.len(),
             unstable.join(", ")
         ));
-        merged_groups.push((file.clone(), members.iter().map(|i| units[*i].id.clone()).collect()));
+        merged_groups.push((
+            file.clone(),
+            members.iter().map(|i| units[*i].id.clone()).collect(),
+        ));
         merged_units.push(file_unit);
     }
     if remove.is_empty() {
@@ -6409,13 +7387,21 @@ fn coarsen_fortran_units(
     }
     kept.extend(merged_units);
     *units = kept;
-    let remap: HashMap<&str, &str> =
-        merged_groups.iter().flat_map(|(file, ids)| ids.iter().map(|id| (id.0.as_str(), file.as_str()))).collect();
+    let remap: HashMap<&str, &str> = merged_groups
+        .iter()
+        .flat_map(|(file, ids)| ids.iter().map(|id| (id.0.as_str(), file.as_str())))
+        .collect();
     let rewired: HashSet<(UnitId, UnitId)> = edges
         .drain()
         .filter_map(|(a, b)| {
-            let a2 = remap.get(a.0.as_str()).map(|s| UnitId((*s).to_string())).unwrap_or(a);
-            let b2 = remap.get(b.0.as_str()).map(|s| UnitId((*s).to_string())).unwrap_or(b);
+            let a2 = remap
+                .get(a.0.as_str())
+                .map(|s| UnitId((*s).to_string()))
+                .unwrap_or(a);
+            let b2 = remap
+                .get(b.0.as_str())
+                .map(|s| UnitId((*s).to_string()))
+                .unwrap_or(b);
             if a2 == b2 {
                 None
             } else {
@@ -6444,7 +7430,9 @@ fn mark_out_of_scope(units: &[UnitDecl], diagnostics: &mut Vec<String>, build_di
     if !coverage_path.is_file() {
         return;
     }
-    let Ok(text) = std::fs::read_to_string(&coverage_path) else { return };
+    let Ok(text) = std::fs::read_to_string(&coverage_path) else {
+        return;
+    };
     let Ok(counts) = serde_json::from_str::<BTreeMap<String, u64>>(&text) else {
         diagnostics.push(
             "coverage: '.rustsmith-coverage.json' unparseable; skipping coverage marks".to_string(),
@@ -6464,10 +7452,17 @@ fn mark_out_of_scope(units: &[UnitDecl], diagnostics: &mut Vec<String>, build_di
 /// [`out_of_scope_ids`] (frozen scope): path segments naming third-party
 /// sinks. Single owner so the two never disagree.
 fn unit_vendored(unit: &UnitDecl) -> bool {
-    const VENDORED_SEGS: &[&str] =
-        &["third_party", "thirdparty", "external", "vendor", "contrib", "submodules"];
+    const VENDORED_SEGS: &[&str] = &[
+        "third_party",
+        "thirdparty",
+        "external",
+        "vendor",
+        "contrib",
+        "submodules",
+    ];
     unit.files.iter().any(|f| {
-        f.split('/').any(|seg| VENDORED_SEGS.contains(&seg.to_ascii_lowercase().as_str()))
+        f.split('/')
+            .any(|seg| VENDORED_SEGS.contains(&seg.to_ascii_lowercase().as_str()))
     })
 }
 
@@ -6476,9 +7471,10 @@ fn unit_vendored(unit: &UnitDecl) -> bool {
 /// units with no baseline coverage (absent/unparseable coverage file means
 /// no coverage marks, same rule). Sorted, deduped, deterministic.
 pub fn out_of_scope_ids(units: &[UnitDecl], build_dir: &Path) -> Vec<String> {
-    let counts: Option<BTreeMap<String, u64>> = std::fs::read_to_string(build_dir.join(".rustsmith-coverage.json"))
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok());
+    let counts: Option<BTreeMap<String, u64>> =
+        std::fs::read_to_string(build_dir.join(".rustsmith-coverage.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok());
     let mut ids: Vec<String> = units
         .iter()
         .filter(|unit| {
@@ -6494,7 +7490,6 @@ pub fn out_of_scope_ids(units: &[UnitDecl], build_dir: &Path) -> Vec<String> {
     ids.dedup();
     ids
 }
-
 
 #[cfg(test)]
 mod track_i_tests {
@@ -6540,7 +7535,10 @@ mod track_i_tests {
             &tree.join("cmake/runtest.cmake"),
             "# transcript-shaped runner at the pin: a SUT-written verdict is a cross-check only\nif(EXISTS \"TEST.PASSED\")\n  message(STATUS \"solver verdict present\")\nendif()\n",
         );
-        write_file(&tree.join("LICENSE"), "MIT License\n\nPermission is hereby granted.\n");
+        write_file(
+            &tree.join("LICENSE"),
+            "MIT License\n\nPermission is hereby granted.\n",
+        );
         write_file(
             &tree.join("src/solver.F90"),
             "#include \"defs.h\"\n#ifdef USE_MPI\n#define SOLVER_MPI 1\n#endif\nmodule solver_mod\n  use iso_c_binding\n  implicit none\ncontains\n  subroutine init_solver(n) bind(c, name=\"solver_init\")\n    integer(c_int), value :: n\n  end subroutine init_solver\n  subroutine step_solver(a)\n    real(8) :: a(:)\n  end subroutine step_solver\nend module solver_mod\n",
@@ -6567,9 +7565,18 @@ mod track_i_tests {
             "#include \"util.h\"\n#include \"missing.h\"\nint main() { return 0; }\n",
         );
         write_file(&tree.join("tools/helper.py"), "VALUE = 1\n");
-        write_file(&tree.join("tools/check.py"), "import helper\n\nassert helper.VALUE == 1\n");
-        write_file(&tree.join("third_party/vendored.f90"), "module vend_mod\nend module vend_mod\n");
-        write_file(&tree.join("tests/CMakeLists.txt"), "add_test(solver_unit solver_test)\n");
+        write_file(
+            &tree.join("tools/check.py"),
+            "import helper\n\nassert helper.VALUE == 1\n",
+        );
+        write_file(
+            &tree.join("third_party/vendored.f90"),
+            "module vend_mod\nend module vend_mod\n",
+        );
+        write_file(
+            &tree.join("tests/CMakeLists.txt"),
+            "add_test(solver_unit solver_test)\n",
+        );
         write_file(
             &tree.join("tests/test_solver.F90"),
             "program test_solver\n  use solver_mod\nend program test_solver\n",
@@ -6633,14 +7640,19 @@ mod track_i_tests {
             &build.join(".rustsmith-coverage.json"),
             &serde_json::to_string(&coverage).unwrap(),
         );
-        MockTree { _dir: dir, tree, build }
+        MockTree {
+            _dir: dir,
+            tree,
+            build,
+        }
     }
 
     fn claimed_fortran_files(mock: &MockTree) -> Vec<PathBuf> {
         let mut files = Vec::new();
-        for entry in walkdir::WalkDir::new(&mock.tree).into_iter().filter_entry(|e| {
-            !e.path().components().any(|c| c.as_os_str() == "build")
-        }) {
+        for entry in walkdir::WalkDir::new(&mock.tree)
+            .into_iter()
+            .filter_entry(|e| !e.path().components().any(|c| c.as_os_str() == "build"))
+        {
             let entry = entry.unwrap();
             if entry.path().is_file() && FortranFrontend.claims(entry.path(), None) {
                 files.push(entry.path().to_path_buf());
@@ -6658,8 +7670,17 @@ mod track_i_tests {
                 "claims .{ext}"
             );
         }
-        for name in ["solver.py", "solver.cpp", "solver.c", "CMakeLists.txt", "run.cmake"] {
-            assert!(!FortranFrontend.claims(Path::new(name), None), "rejects {name}");
+        for name in [
+            "solver.py",
+            "solver.cpp",
+            "solver.c",
+            "CMakeLists.txt",
+            "run.cmake",
+        ] {
+            assert!(
+                !FortranFrontend.claims(Path::new(name), None),
+                "rejects {name}"
+            );
         }
     }
 
@@ -6668,8 +7689,12 @@ mod track_i_tests {
         let mock = mock_tree();
         let files = claimed_fortran_files(&mock);
         let compiler_ids = BTreeMap::new();
-        let cx =
-            FragmentCtx { repo: &mock.tree, files: &files, compile_db: None, compiler_ids: &compiler_ids };
+        let cx = FragmentCtx {
+            repo: &mock.tree,
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
         let fragment = FortranFrontend.fragment(&cx).unwrap();
         let ids: Vec<&str> = fragment.units.iter().map(|u| u.id.0.as_str()).collect();
         // One unit per authoritative source: the checked-in generated copy is
@@ -6693,8 +7718,7 @@ mod track_i_tests {
             .iter()
             .find(|u| u.id.0 == "fortran:src/multi.F90#beta_mod")
             .unwrap();
-        let imports: Vec<&str> =
-            beta.imports.iter().map(|s| s.linkage.as_str()).collect();
+        let imports: Vec<&str> = beta.imports.iter().map(|s| s.linkage.as_str()).collect();
         assert!(imports.contains(&"alpha_mod"));
         assert!(imports.contains(&"gen_mod"));
         // BIND(C): named linkage kept, plain procedures mangled representatives.
@@ -6703,16 +7727,18 @@ mod track_i_tests {
             .iter()
             .find(|u| u.id.0 == "fortran:src/solver.F90")
             .unwrap();
-        let linkages: Vec<&str> =
-            solver.exports.iter().map(|s| s.linkage.as_str()).collect();
+        let linkages: Vec<&str> = solver.exports.iter().map(|s| s.linkage.as_str()).collect();
         assert!(linkages.contains(&"solver_mod"));
         assert!(linkages.contains(&"solver_init"));
         assert!(linkages.contains(&"__solver_mod_MOD_step_solver"));
         assert!(solver.imports.iter().any(|s| s.linkage == "iso_c_binding"));
         // Preprocess + codegen diagnostics.
-        assert!(fragment.diagnostics.iter().any(|d| d.contains("preprocessed")
-            && d.contains("src/solver.F90")
-            && d.contains('4')));
+        assert!(fragment
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("preprocessed")
+                && d.contains("src/solver.F90")
+                && d.contains('4')));
         assert!(fragment.diagnostics.iter().any(|d| d.contains("generated")
             && d.contains("src/gen.F90")
             && d.contains("src/gen.src")));
@@ -6776,10 +7802,9 @@ mod track_i_tests {
         assert!(ids.contains(&"c:lib/util.h"));
         assert!(ids.contains(&"cxx:app/main.cpp"));
         // Headers export `<stem>_h`; both sources attach to the header unit.
-        assert!(fragment.edges.contains(&(
-            UnitId("c:lib/util.c".into()),
-            UnitId("c:lib/util.h".into())
-        )));
+        assert!(fragment
+            .edges
+            .contains(&(UnitId("c:lib/util.c".into()), UnitId("c:lib/util.h".into()))));
         assert!(fragment.edges.contains(&(
             UnitId("cxx:app/main.cpp".into()),
             UnitId("c:lib/util.h".into())
@@ -6805,7 +7830,10 @@ mod track_i_tests {
     fn probe_stays_single_frontend_on_python_fixture() {
         let dir = tempfile::tempdir().unwrap();
         write_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
-        write_file(&dir.path().join("pyproject.toml"), "[project]\nname = \"a\"\n");
+        write_file(
+            &dir.path().join("pyproject.toml"),
+            "[project]\nname = \"a\"\n",
+        );
         let report = probe(dir.path()).unwrap();
         assert_eq!(report.frontends, vec!["python"]);
         assert_eq!(report.unclaimed_share, 0.0);
@@ -6818,8 +7846,14 @@ mod track_i_tests {
         let dir = tempfile::tempdir().unwrap();
         write_file(&dir.path().join("src/pkg/__init__.py"), "");
         write_file(&dir.path().join("src/pkg/a.py"), "VALUE = 1\n");
-        write_file(&dir.path().join("pyproject.toml"), "[project]\nname = \"a\"\n");
-        write_file(&dir.path().join("tests/hello-world.c"), "int main(void) { return 0; }\n");
+        write_file(
+            &dir.path().join("pyproject.toml"),
+            "[project]\nname = \"a\"\n",
+        );
+        write_file(
+            &dir.path().join("tests/hello-world.c"),
+            "int main(void) { return 0; }\n",
+        );
         let report = probe(dir.path()).unwrap();
         assert_eq!(report.frontends, vec!["python"]);
         assert!(report.unclaimed.is_empty());
@@ -6835,9 +7869,15 @@ mod track_i_tests {
         let dir = tempfile::tempdir().unwrap();
         write_file(&dir.path().join("pkg/__init__.py"), "");
         write_file(&dir.path().join("pkg/a.py"), "VALUE = 1\n");
-        write_file(&dir.path().join("pyproject.toml"), "[project]\nname = \"a\"\n");
+        write_file(
+            &dir.path().join("pyproject.toml"),
+            "[project]\nname = \"a\"\n",
+        );
         write_file(&dir.path().join("examples/demo.py"), "import pkg.a\n");
-        write_file(&dir.path().join("examples/snmp_api.h"), "int snmp_get(void);\n");
+        write_file(
+            &dir.path().join("examples/snmp_api.h"),
+            "int snmp_get(void);\n",
+        );
         let report = probe(dir.path()).unwrap();
         assert_eq!(report.frontends, vec!["python"]);
         assert!(report.unclaimed.is_empty());
@@ -6894,8 +7934,11 @@ mod track_i_tests {
     #[test]
     fn ctest_invocation_is_quick_subset_in_build_dir() {
         let mock = mock_tree();
-        let cx =
-            BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        let cx = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &mock.build,
+            release: false,
+        };
         let cmds = CtestRunner.invocation(&cx);
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].program, "ctest");
@@ -6957,7 +8000,10 @@ mod track_i_tests {
         // Subsystem reference (`matc`) + whole-word stem reference (`lists`)
         // select; the unrelated test is out (`list` singular never matches
         // stem `lists`, and it names no subsystem).
-        assert_eq!(affected, vec!["UsesLists".to_string(), "UsesMatc".to_string()]);
+        assert_eq!(
+            affected,
+            vec!["UsesLists".to_string(), "UsesMatc".to_string()]
+        );
     }
 
     #[test]
@@ -7052,10 +8098,19 @@ mod track_i_tests {
         assert!(cmd.args.is_empty());
         assert_eq!(cmd.timeout_secs, Some(30));
         let stdin = cmd.stdin.clone().unwrap();
-        assert!(stdin.contains("function _s6s__"), "prelude-shaped definition");
+        assert!(
+            stdin.contains("function _s6s__"),
+            "prelude-shaped definition"
+        );
         assert!(stdin.contains("_s6a__ = 43"), "first list-sharing variable");
-        assert!(stdin.contains("_s6b__ = 44"), "second list-sharing variable");
-        assert!(stdin.contains("_s6s__(424242)"), "over-min-args builtin call");
+        assert!(
+            stdin.contains("_s6b__ = 44"),
+            "second list-sharing variable"
+        );
+        assert!(
+            stdin.contains("_s6s__(424242)"),
+            "over-min-args builtin call"
+        );
         assert!(stdin.contains("exit"), "REPL terminates");
         let ok = |code: i32, out: &str, err: &str| {
             matc_smoke_ok(&RunOutput {
@@ -7082,7 +8137,11 @@ mod track_i_tests {
         // exact-match `-R` alternation with metacharacters escaped.
         let base = TestCommand {
             program: "ctest".to_string(),
-            args: vec!["--output-on-failure".to_string(), "-L".to_string(), "quick".to_string()],
+            args: vec![
+                "--output-on-failure".to_string(),
+                "-L".to_string(),
+                "quick".to_string(),
+            ],
             cwd: Cwd::BuildDir,
             env_set: vec![("CTEST_OUTPUT_ON_FAILURE".to_string(), "1".to_string())],
             env_remove: Vec::new(),
@@ -7093,7 +8152,11 @@ mod track_i_tests {
         };
         let scoped = scoped_ctest_command(
             &base,
-            &["b-test".to_string(), "a+test".to_string(), "b-test".to_string()],
+            &[
+                "b-test".to_string(),
+                "a+test".to_string(),
+                "b-test".to_string(),
+            ],
         );
         assert_eq!(scoped.program, "ctest");
         assert_eq!(scoped.cwd, Cwd::BuildDir);
@@ -7103,7 +8166,6 @@ mod track_i_tests {
         assert_eq!(scoped.args[3], "-R");
         assert_eq!(scoped.args[4], "^(a\\+test|b-test)$");
     }
-
 
     #[test]
     fn ctest_launchers_record_mpi_ranks() {
@@ -7183,7 +8245,8 @@ mod track_i_tests {
     fn ctest_observe_extracts_norm_observable() {
         let runs = vec![RunOutput {
             exit_code: 0,
-            stdout: "solver_unit: Reference Norm = 1.234e-05\nsolver_unit: TEST.PASSED\n".to_string(),
+            stdout: "solver_unit: Reference Norm = 1.234e-05\nsolver_unit: TEST.PASSED\n"
+                .to_string(),
             stderr: String::new(),
             artifacts: BTreeMap::new(),
         }];
@@ -7205,7 +8268,10 @@ mod track_i_tests {
         let mock = mock_tree();
         let files = CtestRunner.oracle_files(&mock.tree).unwrap();
         let kind_of = |suffix: &str| {
-            files.iter().find(|f| f.path.ends_with(suffix)).map(|f| f.kind)
+            files
+                .iter()
+                .find(|f| f.path.ends_with(suffix))
+                .map(|f| f.kind)
         };
         assert_eq!(kind_of("CMakeLists.txt"), Some(OracleKind::Spec));
         assert_eq!(kind_of("CTestTestfile.cmake"), Some(OracleKind::Spec));
@@ -7222,8 +8288,11 @@ mod track_i_tests {
     #[test]
     fn ctest_normalize_and_config_hash() {
         let mock = mock_tree();
-        let cx =
-            BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        let cx = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &mock.build,
+            release: false,
+        };
         // `CMakeLists.txt` hashes test-defining lines only (ADR-002): target
         // sources and link lines never perturb the frozen hash.
         assert_eq!(
@@ -7246,7 +8315,10 @@ mod track_i_tests {
             CtestRunner.normalize_for_hash("CMakeLists.txt", before),
             CtestRunner.normalize_for_hash("CMakeLists.txt", tampered)
         );
-        assert_eq!(CtestRunner.normalize_for_hash("tools/helper.py", b"a"), None);
+        assert_eq!(
+            CtestRunner.normalize_for_hash("tools/helper.py", b"a"),
+            None
+        );
         let first = CtestRunner.config_hash(&cx).unwrap();
         assert_eq!(first.len(), 16);
         assert_eq!(first, CtestRunner.config_hash(&cx).unwrap());
@@ -7261,19 +8333,28 @@ mod track_i_tests {
             &build2.join("CTestTestfile.cmake"),
             "add_test(solver_unit \"/b/solver_test\")\n",
         );
-        let cx2 =
-            BuildCtx { tree: &mock.tree, build_dir: &build2, release: false };
+        let cx2 = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &build2,
+            release: false,
+        };
         assert_ne!(first, CtestRunner.config_hash(&cx2).unwrap());
         // MPI ranks come from the CTestTestfile text without spawning.
         let text = std::fs::read_to_string(mock.build.join("CTestTestfile.cmake")).unwrap();
         assert_eq!(
             CtestRunner::add_tests_in_text(&text),
-            vec![("solver_unit".to_string(), None), ("mpi_solver".to_string(), Some(4)),]
+            vec![
+                ("solver_unit".to_string(), None),
+                ("mpi_solver".to_string(), Some(4)),
+            ]
         );
         assert_eq!(
             CtestRunner::cache_features_in_dir(&mock.build),
             // Found-feature set only; library paths are link_deps, not features.
-            vec!["CMAKE_BUILD_TYPE=Release".to_string(), "WITH_MPI=ON".to_string(),]
+            vec![
+                "CMAKE_BUILD_TYPE=Release".to_string(),
+                "WITH_MPI=ON".to_string(),
+            ]
         );
     }
 
@@ -7281,14 +8362,20 @@ mod track_i_tests {
     fn cmake_prepare_build_and_substitution_spike() {
         let mock = mock_tree();
         let (composite, _) = select_composite(&mock.tree).unwrap();
-        let cx =
-            BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        let cx = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &mock.build,
+            release: false,
+        };
         let prepare = composite.bridge.prepare(&cx);
         assert_eq!(prepare.len(), 1);
         assert_eq!(prepare[0].program, "cmake");
         assert!(prepare[0].args.contains(&"-S".to_string()));
         assert!(prepare[0].args.contains(&"-B".to_string()));
-        assert!(prepare[0].args.iter().any(|a| a.contains("CMAKE_BUILD_TYPE=Debug")));
+        assert!(prepare[0]
+            .args
+            .iter()
+            .any(|a| a.contains("CMAKE_BUILD_TYPE=Debug")));
         assert_eq!(prepare[0].cwd, Cwd::Tree);
         let build = composite.bridge.build(&cx);
         assert_eq!(build[0].args[0], "--build");
@@ -7298,8 +8385,14 @@ mod track_i_tests {
             files: vec!["src/gen.src".into()],
             generated_from: None,
             exports: vec![
-                Symbol { linkage: "gen_mod".into(), abi: Abi::Fortran { bind_c: true } },
-                Symbol { linkage: "gen_init".into(), abi: Abi::Fortran { bind_c: true } },
+                Symbol {
+                    linkage: "gen_mod".into(),
+                    abi: Abi::Fortran { bind_c: true },
+                },
+                Symbol {
+                    linkage: "gen_init".into(),
+                    abi: Abi::Fortran { bind_c: true },
+                },
             ],
             imports: Vec::new(),
         };
@@ -7308,17 +8401,30 @@ mod track_i_tests {
         // Built object the splice overwrites (any target dir qualifies).
         let obj = mock.build.join("CMakeFiles/gen.dir/src/gen.src.o");
         write_file(&obj, "mock object");
-        let cmds = composite.bridge.substitute(&cx, &bind_c_unit, &rust_lib).unwrap();
+        let cmds = composite
+            .bridge
+            .substitute(&cx, &bind_c_unit, &rust_lib)
+            .unwrap();
         assert_eq!(cmds.len(), 3);
         assert_eq!(cmds[0].program, "ld");
         assert!(cmds[0].args.contains(&"-r".to_string()));
         assert!(cmds[0].args.contains(&"--whole-archive".to_string()));
         assert!(
-            cmds[0].args.iter().any(|a| a.ends_with("gen.dir/src/gen.src.o")),
+            cmds[0]
+                .args
+                .iter()
+                .any(|a| a.ends_with("gen.dir/src/gen.src.o")),
             "splice must overwrite the built object: {:?}",
             cmds[0].args
         );
-        assert_eq!(cmds[1].args, vec!["--build".to_string(), ".".to_string(), "--parallel".to_string()]);
+        assert_eq!(
+            cmds[1].args,
+            vec![
+                "--build".to_string(),
+                ".".to_string(),
+                "--parallel".to_string()
+            ]
+        );
         assert_eq!(cmds[1].cwd, Cwd::BuildDir);
         assert_eq!(cmds[2].program, "ctest");
         assert_eq!(cmds[2].args, vec!["--output-on-failure", "-R", "gen"]);
@@ -7338,8 +8444,14 @@ mod track_i_tests {
             }],
             imports: Vec::new(),
         };
-        let err = composite.bridge.substitute(&cx, &mixed_unit, &rust_lib).unwrap_err();
-        assert!(err.to_string().contains("no built object"), "unexpected: {err}");
+        let err = composite
+            .bridge
+            .substitute(&cx, &mixed_unit, &rust_lib)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("no built object"),
+            "unexpected: {err}"
+        );
         write_file(
             &mock.tree.join("src/legacy.F90"),
             "module legacy_mod\n  implicit none\ncontains\n  subroutine legacy_step(model, dt)\n    type(model_t) :: model\n    real(kind=dp) :: dt\n  end subroutine legacy_step\nend module legacy_mod\n",
@@ -7349,7 +8461,10 @@ mod track_i_tests {
             files: vec!["src/legacy.F90".into()],
             generated_from: None,
             exports: vec![
-                Symbol { linkage: "legacy_mod".into(), abi: Abi::Fortran { bind_c: false } },
+                Symbol {
+                    linkage: "legacy_mod".into(),
+                    abi: Abi::Fortran { bind_c: false },
+                },
                 Symbol {
                     linkage: "__legacy_mod_MOD_legacy_step".into(),
                     abi: Abi::Fortran { bind_c: false },
@@ -7357,7 +8472,10 @@ mod track_i_tests {
             ],
             imports: Vec::new(),
         };
-        let err = composite.bridge.substitute(&cx, &legacy_unit, &rust_lib).unwrap_err();
+        let err = composite
+            .bridge
+            .substitute(&cx, &legacy_unit, &rust_lib)
+            .unwrap_err();
         assert!(err.to_string().contains("BIND(C)"), "unexpected: {err}");
         let err = composite
             .bridge
@@ -7375,7 +8493,10 @@ mod track_i_tests {
             .bridge
             .substitute(&cx_empty, &bind_c_unit, &rust_lib)
             .unwrap_err();
-        assert!(err.to_string().contains("no built object"), "unexpected: {err}");
+        assert!(
+            err.to_string().contains("no built object"),
+            "unexpected: {err}"
+        );
     }
 
     #[test]
@@ -7451,8 +8572,14 @@ mod track_i_tests {
         let (dir, unit) = gate_unit_for("src/tideshape.F90", text);
         let links: Vec<&str> = unit.exports.iter().map(|e| e.linkage.as_str()).collect();
         assert!(links.contains(&"tideshape"), "exports: {links:?}");
-        assert!(links.contains(&"__tideshape_MOD_wavesum"), "exports: {links:?}");
-        assert!(links.contains(&"__tideshape_MOD_rowsum"), "exports: {links:?}");
+        assert!(
+            links.contains(&"__tideshape_MOD_wavesum"),
+            "exports: {links:?}"
+        );
+        assert!(
+            links.contains(&"__tideshape_MOD_rowsum"),
+            "exports: {links:?}"
+        );
         CmakeBridge::check_substitutable(&unit, dir.path())
             .expect("assumed-shape REAL(8) units admit through the shim");
     }
@@ -7615,20 +8742,279 @@ mod track_i_tests {
                  integer n\n      end subroutine fscale\n"
                     .to_string(),
             ),
-            (
-                "f77-internal-proc",
-                "      subroutine fscale(x, n)\n      double precision x(*)\n\
-                 integer n\n      contains\n      subroutine inner(y)\n\
-                 double precision y\n      end subroutine inner\n\
-                 end subroutine fscale\n"
-                    .to_string(),
-            ),
         ];
         for (name, text) in f77_cases {
             let (dir, unit) = gate_unit_for("src/fscale.F", &text);
             let err = CmakeBridge::check_substitutable(&unit, dir.path()).unwrap_err();
             assert!(err.contains("BIND(C)"), "{name}: unexpected: {err}");
         }
+    }
+    #[test]
+    fn fortran_gate_internal_proc_is_not_an_export() {
+        // T020: a `CONTAINS` internal procedure of an F77 external emits no
+        // global symbol (nm-proven, ADR-057): the recon mints no export for
+        // it, so the admitted-shape unit admits. A stale frozen linkage for
+        // the proven internal is skipped by the same parse proof, while a
+        // genuinely missing procedure still refuses (fail closed).
+        let text = "      subroutine fscale(x, n)\n      double precision x(*)\n\
+             integer n\n      contains\n      subroutine inner(y)\n\
+             double precision y\n      end subroutine inner\n\
+             end subroutine fscale\n";
+        let (dir, unit) = gate_unit_for("src/fscale.F", text);
+        let links: Vec<&str> = unit.exports.iter().map(|e| e.linkage.as_str()).collect();
+        assert!(
+            !links.iter().any(|l| l.contains("inner")),
+            "exports: {links:?}"
+        );
+        CmakeBridge::check_substitutable(&unit, dir.path())
+            .expect("internal procedures are not exports");
+        // Stale frozen linkage for the proven internal: skipped.
+        let mut stale = unit.clone();
+        stale.exports.push(Symbol {
+            linkage: "__fscale_MOD_inner".into(),
+            abi: Abi::Fortran { bind_c: false },
+        });
+        fortran_substitution_verdict(&stale, dir.path())
+            .expect("proven phantom linkage is skipped");
+        // Genuinely missing procedure: still refuses.
+        let mut ghost = unit.clone();
+        ghost.exports.push(Symbol {
+            linkage: "__fscale_MOD_ghost".into(),
+            abi: Abi::Fortran { bind_c: false },
+        });
+        let reasons = fortran_substitution_verdict(&ghost, dir.path()).unwrap_err();
+        assert!(
+            reasons
+                .iter()
+                .any(|r| r.contains("procedure-not-found-in-gate-parse")),
+            "reasons: {reasons:?}"
+        );
+    }
+    #[test]
+    fn fortran_gate_skips_interface_body_phantom() {
+        // T020: `INTERFACE` bodies emit no symbols either: the stale
+        // `__m_MOD_body` linkage is skipped, the real module procedure is
+        // still checked on its merits (derived dummy refuses here).
+        let text = "module m\ninterface\nsubroutine body(a)\nreal(kind=dp) :: a\n\
+             end subroutine body\nend interface\ncontains\nsubroutine realproc(model)\n\
+             type(model_t) :: model\nend subroutine realproc\nend module m\n";
+        let (dir, unit) = gate_unit_for("src/m.F90", text);
+        let links: Vec<&str> = unit.exports.iter().map(|e| e.linkage.as_str()).collect();
+        assert!(
+            !links.iter().any(|l| l.contains("body")),
+            "exports: {links:?}"
+        );
+        let mut stale = unit.clone();
+        stale.exports.push(Symbol {
+            linkage: "__m_MOD_body".into(),
+            abi: Abi::Fortran { bind_c: false },
+        });
+        let reasons = fortran_substitution_verdict(&stale, dir.path()).unwrap_err();
+        assert!(
+            reasons.iter().any(|r| r.contains("derived-type dummy")),
+            "reasons: {reasons:?}"
+        );
+        assert!(
+            !reasons.iter().any(|r| r.contains("procedure-not-found")),
+            "reasons: {reasons:?}"
+        );
+    }
+    #[test]
+    fn fortran_gate_contains_region_ends_at_host_end() {
+        // T020: after `END SUBROUTINE host` a later external subprogram is
+        // checked on its own merits — a derived dummy there still refuses —
+        // while the host's proven internal linkage is skipped.
+        let text = "      subroutine hostok(x, n)\n      double precision x(*)\n\
+             integer n\n      contains\n      subroutine inner(y)\n\
+             double precision y\n      end subroutine inner\n\
+             end subroutine hostok\n\
+             subroutine laterbad(model, n)\n      type(model_t) :: model\n\
+             integer :: n\n      end subroutine laterbad\n";
+        let (dir, unit) = gate_unit_for("src/two.F", text);
+        let mut unit = unit;
+        unit.exports.push(Symbol {
+            linkage: "__hostok_MOD_inner".into(),
+            abi: Abi::Fortran { bind_c: false },
+        });
+        let reasons = fortran_substitution_verdict(&unit, dir.path()).unwrap_err();
+        assert!(
+            reasons.iter().any(|r| r.contains("derived-type dummy")),
+            "reasons: {reasons:?}"
+        );
+        assert!(
+            !reasons.iter().any(|r| r.contains("not-found")),
+            "reasons: {reasons:?}"
+        );
+    }
+    #[test]
+    fn fortran_gate_kind_eq_legacy_decl() {
+        // T020: `COMPLEX(KIND=dp)` is a kind selector, not initialization.
+        assert!(parse_legacy_decl("COMPLEX(KIND=dp) A(n*n), x(n)").is_some());
+        assert!(parse_legacy_decl("complex(kind=dp) a").is_some());
+        assert!(parse_legacy_decl("DOUBLE PRECISION x(*), alpha").is_some());
+        // A real top-level `=` in the entity list still refuses.
+        assert!(parse_legacy_decl("integer n = 3").is_none());
+        assert!(parse_legacy_decl("real(kind=dp) :: x = 1.0").is_none());
+        // End to end: the solve_cmplx shape (legacy KIND= complex dummies)
+        // admits through the F77-external path.
+        let text = "       SUBROUTINE SolveLapack_cmplx( N,A,x )\n\
+             INTEGER  N, IPIV(N), iinfo\n       COMPLEX(KIND=dp) A(n*n), x(n)\n\
+             END\n";
+        let (dir, unit) = gate_unit_for("src/solve_cmplx.F", text);
+        CmakeBridge::check_substitutable(&unit, dir.path())
+            .expect("KIND= legacy declarations admit");
+        // A `::` initializer on the same dtype still refuses.
+        let init = "module m\ncontains\nsubroutine cinit(x)\n\
+             complex(kind=dp) :: x = (1.0d0, 2.0d0)\nend subroutine\nend module m\n";
+        let (dir2, unit2) = gate_unit_for("src/cinit.F90", init);
+        let reasons = fortran_substitution_verdict(&unit2, dir2.path()).unwrap_err();
+        assert!(
+            reasons.iter().any(|r| r.contains("undeclared dummy")),
+            "reasons: {reasons:?}"
+        );
+    }
+    #[test]
+    fn fortran_plugin_entry_admits_poisson_shape() {
+        // T020 solver-entry shape: an F77-global entry with derived dummies
+        // admits as opaque (the accessor contract is port-side), while the
+        // legacy substitution gate still refuses the same unit.
+        let text = "subroutine poissonsolver(model, solver, dt, transient)\n\
+             type(model_t) :: model\ntype(solver_t) :: solver\n\
+             real(kind=dp) :: dt\nlogical :: transient\n\
+             contains\nsubroutine localmatrix(stiff, n)\n\
+             real(kind=dp) :: stiff(n, n)\ninteger :: n\n\
+             end subroutine localmatrix\nend subroutine poissonsolver\n";
+        let (dir, unit) = gate_unit_for("src/poisson.F90", text);
+        let links: Vec<&str> = unit.exports.iter().map(|e| e.linkage.as_str()).collect();
+        assert!(links.contains(&"poissonsolver"), "exports: {links:?}");
+        assert!(
+            !links.iter().any(|l| l.contains("localmatrix")),
+            "exports: {links:?}"
+        );
+        fortran_plugin_entry_verdict(&unit, dir.path())
+            .expect("F77 entries admit derived dummies as opaque");
+        let reasons = fortran_substitution_verdict(&unit, dir.path()).unwrap_err();
+        assert!(
+            reasons.iter().any(|r| r.contains("derived-type dummy")),
+            "reasons: {reasons:?}"
+        );
+    }
+    #[test]
+    fn fortran_plugin_entry_refuses_common_with_zero_exports() {
+        // T020: the entry shape closes the §4.6 blind spot — COMMON refuses
+        // even when there is nothing to substitute. (The legacy path keeps
+        // its vacuous admit: unchanged, pinned here.)
+        let text = "subroutine cb_only(x) bind(c, name=\"cb_only\")\n\
+             real(c_double) :: x\ncommon /st/ acc\nend subroutine cb_only\n";
+        let (dir, unit) = gate_unit_for("src/cb.F90", text);
+        assert!(
+            unit.exports
+                .iter()
+                .all(|e| matches!(e.abi, Abi::Fortran { bind_c: true })),
+            "exports: {:?}",
+            unit.exports
+        );
+        let reasons = fortran_plugin_entry_verdict(&unit, dir.path()).unwrap_err();
+        assert!(
+            reasons.iter().any(|r| r.contains("COMMON/BLOCK DATA")),
+            "reasons: {reasons:?}"
+        );
+        fortran_substitution_verdict(&unit, dir.path()).expect("legacy vacuous admit unchanged");
+    }
+    #[test]
+    fn fortran_plugin_entry_module_derived_still_refuses() {
+        // T020: module procedures keep the existing profiles under the
+        // entry shape — derived dummies there are not opaque.
+        let text = "module m\ncontains\nsubroutine eadd(n, a, model)\ninteger :: n\n\
+             real(kind=dp) :: a(n)\ntype(model_t) :: model\n\
+             end subroutine\nend module m\n";
+        let (dir, unit) = gate_unit_for("src/m.F90", text);
+        let reasons = fortran_plugin_entry_verdict(&unit, dir.path()).unwrap_err();
+        assert!(
+            reasons.iter().any(|r| r.contains("derived-type dummy")),
+            "reasons: {reasons:?}"
+        );
+    }
+    #[test]
+    fn fortran_plugin_entry_real_poisson_probe() {
+        // T020 end-to-end anchor: the real `fem/src/modules/Poisson.F90`
+        // admits at the plugin boundary (F77 entry, opaque derived dummies,
+        // proven-phantom internals) while the substitution gate refuses it.
+        // GPL sources stay out of this repo: ELMER_FORK-gated like the
+        // other real-file probes.
+        let fork = match std::env::var("ELMER_FORK") {
+            Ok(p) => PathBuf::from(p),
+            Err(_) => {
+                eprintln!("SKIP real_poisson: ELMER_FORK unset");
+                return;
+            }
+        };
+        let rel = "fem/src/modules/Poisson.F90";
+        assert!(
+            fork.join(rel).is_file(),
+            "no {rel} under ELMER_FORK={fork:?}"
+        );
+        let files = vec![fork.join(rel)];
+        let compiler_ids = BTreeMap::new();
+        let cx = FragmentCtx {
+            repo: &fork,
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
+        let frag = fortran_fragment(&cx).unwrap();
+        assert_eq!(frag.units.len(), 1, "units: {:?}", frag.units);
+        let unit = frag.units.into_iter().next().unwrap();
+        let links: Vec<&str> = unit.exports.iter().map(|e| e.linkage.as_str()).collect();
+        assert!(
+            !links.iter().any(|l| l.contains("localmatrix")),
+            "exports: {links:?}"
+        );
+        assert!(
+            !links.iter().any(|l| l.contains("boundarycondition")),
+            "exports: {links:?}"
+        );
+        fortran_plugin_entry_verdict(&unit, &fork).expect("REAL-FILE-ADMIT poisson entry");
+        eprintln!("REAL-FILE-ADMIT poisson (plugin entry)");
+        let reasons = fortran_substitution_verdict(&unit, &fork).unwrap_err();
+        assert!(
+            reasons.iter().any(|r| r.contains("derived-type dummy")),
+            "reasons: {reasons:?}"
+        );
+        eprintln!("REAL-FILE-REFUSE poisson (substitution, derived-type dummies)");
+    }
+    #[test]
+    fn fortran_plugin_entry_real_solve_cmplx_probe() {
+        // T020: the real `fem/src/solve_cmplx.F90` admits under BOTH gates
+        // (no derived dummies — the KIND= fix flipped the legacy verdict;
+        // the entry shape never narrows it).
+        let fork = match std::env::var("ELMER_FORK") {
+            Ok(p) => PathBuf::from(p),
+            Err(_) => {
+                eprintln!("SKIP real_solve_cmplx: ELMER_FORK unset");
+                return;
+            }
+        };
+        let rel = "fem/src/solve_cmplx.F90";
+        assert!(
+            fork.join(rel).is_file(),
+            "no {rel} under ELMER_FORK={fork:?}"
+        );
+        let files = vec![fork.join(rel)];
+        let compiler_ids = BTreeMap::new();
+        let cx = FragmentCtx {
+            repo: &fork,
+            files: &files,
+            compile_db: None,
+            compiler_ids: &compiler_ids,
+        };
+        let frag = fortran_fragment(&cx).unwrap();
+        assert_eq!(frag.units.len(), 1, "units: {:?}", frag.units);
+        let unit = frag.units.into_iter().next().unwrap();
+        fortran_plugin_entry_verdict(&unit, &fork).expect("REAL-FILE-ADMIT solve_cmplx entry");
+        fortran_substitution_verdict(&unit, &fork)
+            .expect("REAL-FILE-ADMIT solve_cmplx substitution");
+        eprintln!("REAL-FILE-ADMIT solve_cmplx (both gates)");
     }
     #[test]
     fn fortran_gate_real_harmutils_probe() {
@@ -7646,7 +9032,10 @@ mod track_i_tests {
             }
         };
         let rel = "fem/src/modules/HarmonicSignals.F90";
-        assert!(fork.join(rel).is_file(), "no {rel} under ELMER_FORK={fork:?}");
+        assert!(
+            fork.join(rel).is_file(),
+            "no {rel} under ELMER_FORK={fork:?}"
+        );
         let files = vec![fork.join(rel)];
         let compiler_ids = BTreeMap::new();
         let cx = FragmentCtx {
@@ -7691,7 +9080,10 @@ mod track_i_tests {
             }
         };
         let rel = "fem/src/Walls.F90";
-        assert!(fork.join(rel).is_file(), "no {rel} under ELMER_FORK={fork:?}");
+        assert!(
+            fork.join(rel).is_file(),
+            "no {rel} under ELMER_FORK={fork:?}"
+        );
         let files = vec![fork.join(rel)];
         let compiler_ids = BTreeMap::new();
         let cx = FragmentCtx {
@@ -7740,7 +9132,12 @@ mod track_i_tests {
         let dir = tempfile::tempdir().unwrap();
         write_file(&dir.path().join("src/fscale.F"), text);
         let mut exports = Vec::new();
-        for linkage in ["fscale", "__fscale_MOD_fscale", "fnorm", "__fnorm_MOD_fnorm"] {
+        for linkage in [
+            "fscale",
+            "__fscale_MOD_fscale",
+            "fnorm",
+            "__fnorm_MOD_fnorm",
+        ] {
             exports.push(Symbol {
                 linkage: linkage.to_string(),
                 abi: Abi::Fortran { bind_c: false },
@@ -7793,7 +9190,10 @@ mod track_i_tests {
         let got = CmakeBridge::find_unit_objects(&build, &tree, "src/foo.c");
         assert_eq!(
             got,
-            vec![build.join("CMakeFiles/t.dir/src/foo.c.o").to_string_lossy().into_owned()]
+            vec![build
+                .join("CMakeFiles/t.dir/src/foo.c.o")
+                .to_string_lossy()
+                .into_owned()]
         );
     }
 
@@ -7809,7 +9209,10 @@ mod track_i_tests {
         // Same-named copy under another directory: must never resolve here.
         write_file(&tree.join("other/sub/foo.c"), "int foo(void){return 2;}\n");
         let src = tree.join("sub/foo.c").to_string_lossy().replace('\\', "/");
-        let other = tree.join("other/sub/foo.c").to_string_lossy().replace('\\', "/");
+        let other = tree
+            .join("other/sub/foo.c")
+            .to_string_lossy()
+            .replace('\\', "/");
         write_file(
             &build.join("sub/CMakeFiles/t.dir/DependInfo.cmake"),
             &format!(
@@ -7828,13 +9231,19 @@ mod track_i_tests {
         let got = CmakeBridge::find_unit_objects(&build, &tree, "sub/foo.c");
         assert_eq!(
             got,
-            vec![build.join("sub/CMakeFiles/t.dir/foo.c.o").to_string_lossy().into_owned()]
+            vec![build
+                .join("sub/CMakeFiles/t.dir/foo.c.o")
+                .to_string_lossy()
+                .into_owned()]
         );
         // The other copy resolves to its own object, never this unit's.
         let got2 = CmakeBridge::find_unit_objects(&build, &tree, "other/sub/foo.c");
         assert_eq!(
             got2,
-            vec![build.join("copy/CMakeFiles/u.dir/foo.c.o").to_string_lossy().into_owned()]
+            vec![build
+                .join("copy/CMakeFiles/u.dir/foo.c.o")
+                .to_string_lossy()
+                .into_owned()]
         );
         // Listed but never built: no resolution, honest halt downstream.
         std::fs::remove_file(build.join("copy/CMakeFiles/u.dir/foo.c.o")).unwrap();
@@ -7852,16 +9261,31 @@ mod track_i_tests {
         write_file(&build.join("CMakeFiles/placeholder"), "x");
         write_file(&build.join(obj_rel), "object");
         write_file(&tree.join("matc/src/str.c"), "int str(void){return 1;}\n");
-        let src = tree.join("matc/src/str.c").to_string_lossy().replace('\\', "/");
+        let src = tree
+            .join("matc/src/str.c")
+            .to_string_lossy()
+            .replace('\\', "/");
         write_file(
             &build.join("matc/src/CMakeFiles/matc.dir/DependInfo.cmake"),
             &format!(
                 "set(CMAKE_DEPENDS_DEPENDENCY_FILES\n  \"{src}\" \"{obj_rel}\" \"gcc\" \"{obj_rel}.d\"\n  )"
             ),
         );
-        assert!(CmakeBridge::has_built_object(&build, &tree, "matc/src/str.c"));
-        assert!(!CmakeBridge::has_built_object(&build, &tree, "matc/src/str.h"));
-        assert!(!CmakeBridge::has_built_object(&build, &tree, "other/src/str.c"));
+        assert!(CmakeBridge::has_built_object(
+            &build,
+            &tree,
+            "matc/src/str.c"
+        ));
+        assert!(!CmakeBridge::has_built_object(
+            &build,
+            &tree,
+            "matc/src/str.h"
+        ));
+        assert!(!CmakeBridge::has_built_object(
+            &build,
+            &tree,
+            "other/src/str.c"
+        ));
     }
 
     #[test]
@@ -7870,7 +9294,10 @@ mod track_i_tests {
         let text =
             "set(CMAKE_DEPENDS_DEPENDENCY_FILES\n  \"/t/b.c\" \"o/b.c.o\" \"C\" \"d\"\n  )\n";
         assert!(CmakeBridge::depinfo_objects_for(text, "/t/a.c").is_empty());
-        assert_eq!(CmakeBridge::depinfo_objects_for(text, "/t/b.c"), vec!["o/b.c.o"]);
+        assert_eq!(
+            CmakeBridge::depinfo_objects_for(text, "/t/b.c"),
+            vec!["o/b.c.o"]
+        );
     }
 
     #[test]
@@ -7881,8 +9308,14 @@ mod track_i_tests {
             files: vec!["src/gen.src".into()],
             generated_from: None,
             exports: vec![
-                Symbol { linkage: "gen_mod".into(), abi: Abi::Fortran { bind_c: true } },
-                Symbol { linkage: "gen_init".into(), abi: Abi::Fortran { bind_c: true } },
+                Symbol {
+                    linkage: "gen_mod".into(),
+                    abi: Abi::Fortran { bind_c: true },
+                },
+                Symbol {
+                    linkage: "gen_init".into(),
+                    abi: Abi::Fortran { bind_c: true },
+                },
             ],
             imports: Vec::new(),
         };
@@ -7917,8 +9350,11 @@ mod track_i_tests {
     fn cmake_link_deps_artifacts_and_classify() {
         let mock = mock_tree();
         let bridge = CmakeBridge;
-        let cx =
-            BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        let cx = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &mock.build,
+            release: false,
+        };
         let deps = bridge.link_deps(&cx).unwrap();
         assert!(deps.iter().any(|d| d.name == "m" && d.path.is_none()));
         assert!(deps.iter().any(|d| d.name == "mpi" && d.path.is_some()));
@@ -7946,7 +9382,10 @@ mod track_i_tests {
             DepClass::Port
         );
         assert_eq!(
-            composite.classify_dep(&LinkDep { name: "m".into(), path: None }),
+            composite.classify_dep(&LinkDep {
+                name: "m".into(),
+                path: None
+            }),
             DepClass::Keep
         );
         assert_eq!(
@@ -8000,7 +9439,10 @@ mod track_i_tests {
                 id: UnitId("c:lib/util.c".into()),
                 files: vec!["lib/util.c".into()],
                 generated_from: None,
-                exports: vec![Symbol { linkage: "util".into(), abi: Abi::C }],
+                exports: vec![Symbol {
+                    linkage: "util".into(),
+                    abi: Abi::C,
+                }],
                 imports: vec![],
             },
         ];
@@ -8010,7 +9452,10 @@ mod track_i_tests {
             graph.module_langs.get("alpha_mod").map(String::as_str),
             Some("fortran")
         );
-        assert_eq!(graph.module_langs.get("util").map(String::as_str), Some("c"));
+        assert_eq!(
+            graph.module_langs.get("util").map(String::as_str),
+            Some("c")
+        );
         assert!(diagnostics.is_empty(), "unexpected: {diagnostics:?}");
     }
 
@@ -8019,14 +9464,21 @@ mod track_i_tests {
         let dir = tempfile::tempdir().unwrap();
         let build = dir.path().join("build");
         let query = write_file_api_query(&build).unwrap();
-        assert_eq!(query, build.join(".cmake/api/v1/query/client-rustsmith/query.json"));
+        assert_eq!(
+            query,
+            build.join(".cmake/api/v1/query/client-rustsmith/query.json")
+        );
         let body: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&query).unwrap()).unwrap();
-        let requests =
-            body.get("requests").and_then(|r| r.as_array()).expect("requests array");
+        let requests = body
+            .get("requests")
+            .and_then(|r| r.as_array())
+            .expect("requests array");
         assert!(
-            requests.iter().any(|r| r.get("kind").and_then(|k| k.as_str()) == Some("codemodel")
-                && r.get("version").and_then(|v| v.as_u64()) == Some(2)),
+            requests.iter().any(
+                |r| r.get("kind").and_then(|k| k.as_str()) == Some("codemodel")
+                    && r.get("version").and_then(|v| v.as_u64()) == Some(2)
+            ),
             "codemodel-v2 request missing: {body}"
         );
     }
@@ -8044,21 +9496,36 @@ mod track_i_tests {
             FileApiTarget {
                 name: "a_lib".into(),
                 sources: vec![
-                    FileApiSource { language: "fortran".into(), path: "src/a.F90".into() },
-                    FileApiSource { language: "c".into(), path: "lib/util.c".into() },
+                    FileApiSource {
+                        language: "fortran".into(),
+                        path: "src/a.F90".into(),
+                    },
+                    FileApiSource {
+                        language: "c".into(),
+                        path: "lib/util.c".into(),
+                    },
                 ],
             },
         ];
         // Exact repo-rel match: first sorted target wins.
-        assert_eq!(file_api_target_for_source(&targets, "src/a.F90"), Some("a_lib".into()));
-        assert_eq!(file_api_target_for_source(&targets, "lib/util.c"), Some("a_lib".into()));
+        assert_eq!(
+            file_api_target_for_source(&targets, "src/a.F90"),
+            Some("a_lib".into())
+        );
+        assert_eq!(
+            file_api_target_for_source(&targets, "lib/util.c"),
+            Some("a_lib".into())
+        );
         // Basename fallback: same file name under a different directory.
         assert_eq!(
             file_api_target_for_source(&targets, "other/dir/util.c"),
             Some("a_lib".into())
         );
         // Unmapped: no exact or basename hit, never a guess (no stem match).
-        assert_eq!(file_api_target_for_source(&targets, "src/missing.F90"), None);
+        assert_eq!(
+            file_api_target_for_source(&targets, "src/missing.F90"),
+            None
+        );
         assert_eq!(file_api_target_for_source(&targets, "src/a.F91"), None);
         assert_eq!(file_api_target_for_source(&[], "src/a.F90"), None);
     }
@@ -8088,7 +9555,10 @@ mod track_i_tests {
                 id: UnitId("c:lib/util.c".into()),
                 files: vec!["lib/util.c".into()],
                 generated_from: None,
-                exports: vec![Symbol { linkage: "util".into(), abi: Abi::C }],
+                exports: vec![Symbol {
+                    linkage: "util".into(),
+                    abi: Abi::C,
+                }],
                 imports: vec![],
             },
         ];
@@ -8121,31 +9591,41 @@ mod track_i_tests {
         .unwrap();
         let exports = fragment_unit_exports(dir.path(), rel).unwrap();
         assert!(
-            exports.iter().any(|e| e.linkage == "mini_add"
-                && matches!(e.abi, Abi::Fortran { bind_c: true })),
+            exports
+                .iter()
+                .any(|e| e.linkage == "mini_add" && matches!(e.abi, Abi::Fortran { bind_c: true })),
             "BIND(C) linkage missing: {exports:?}"
         );
         // Unclaimed extensions fall back to no exports, never an error.
-        assert!(fragment_unit_exports(dir.path(), "notes.md").unwrap().is_empty());
+        assert!(fragment_unit_exports(dir.path(), "notes.md")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
     fn partition_coarsens_and_marks_out_of_scope() {
         let mock = mock_tree();
         let (composite, _) = select_composite(&mock.tree).unwrap();
-        let cx =
-            BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        let cx = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &mock.build,
+            release: false,
+        };
         let (dag, diagnostics) = composite.partition(&cx).unwrap();
         // Nine stems: fortran singles + merged multi + c + cxx + python pair.
         assert_eq!(dag.units.len(), 9);
-        assert!(diagnostics.iter().any(|d| d
-            .contains("coarsen: 'fortran:src/multi.F90' merges 2 Fortran units")));
-        assert!(diagnostics.iter().any(|d| d
-            .contains("coarsen: 'fortran:src/solver.F90' is non-BIND(C) Fortran")));
-        assert!(diagnostics.iter().any(|d| d
-            .contains("out-of-scope: 'fortran:third_party/vendored.f90' is vendored")));
-        assert!(diagnostics.iter().any(|d| d
-            .contains("out-of-scope: 'cxx:app/main.cpp' has no baseline coverage")));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.contains("coarsen: 'fortran:src/multi.F90' merges 2 Fortran units")));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.contains("coarsen: 'fortran:src/solver.F90' is non-BIND(C) Fortran")));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.contains("out-of-scope: 'fortran:third_party/vendored.f90' is vendored")));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.contains("out-of-scope: 'cxx:app/main.cpp' has no baseline coverage")));
         assert!(!diagnostics
             .iter()
             .any(|d| d.contains("gen.src' has no baseline coverage")));
@@ -8159,8 +9639,11 @@ mod track_i_tests {
     fn declared_units_keep_canonical_ids_and_scope() {
         let mock = mock_tree();
         let (composite, _) = select_composite(&mock.tree).unwrap();
-        let cx =
-            BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        let cx = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &mock.build,
+            release: false,
+        };
         let (units, edges, diagnostics) = composite.declared_units(&cx).unwrap();
         // Canonical ids (no stems); the multi-module file merged to one
         // file unit instead of per-symbol units.
@@ -8168,8 +9651,12 @@ mod track_i_tests {
         assert!(!units.iter().any(|u| u.id.0.contains("multi.F90#")));
         // Scope marks mirror the diagnostics structurally.
         let scope = out_of_scope_ids(&units, &mock.build);
-        assert!(scope.iter().any(|id| id.contains("third_party/vendored.f90")));
-        assert!(diagnostics.iter().any(|d| d.contains("out-of-scope") && d.contains("vendored")));
+        assert!(scope
+            .iter()
+            .any(|id| id.contains("third_party/vendored.f90")));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.contains("out-of-scope") && d.contains("vendored")));
         // Edges reference surviving ids only (merged members rewired away).
         let ids: HashSet<String> = units.iter().map(|u| u.id.0.clone()).collect();
         for (a, b) in &edges {
@@ -8181,24 +9668,38 @@ mod track_i_tests {
     #[test]
     fn ctest_heldout_and_test_inventory() {
         let mock = mock_tree();
-        let cx =
-            BuildCtx { tree: &mock.tree, build_dir: &mock.build, release: false };
+        let cx = BuildCtx {
+            tree: &mock.tree,
+            build_dir: &mock.build,
+            release: false,
+        };
         let cmds = CtestRunner.heldout(Path::new("tests/solver_unit"), &cx);
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].program, "ctest");
-        assert_eq!(cmds[0].args, vec!["--output-on-failure", "-R", "solver_unit"]);
+        assert_eq!(
+            cmds[0].args,
+            vec!["--output-on-failure", "-R", "solver_unit"]
+        );
         assert_eq!(cmds[0].cwd, Cwd::BuildDir);
         let (composite, _) = select_composite(&mock.tree).unwrap();
         let inventory = composite.test_inventory(&mock.tree).unwrap();
-        assert!(inventory.test_files.iter().any(|f| f.ends_with("CTestTestfile.cmake")));
-        assert!(inventory.config_refs.iter().any(|f| f.ends_with("CMakeLists.txt")));
+        assert!(inventory
+            .test_files
+            .iter()
+            .any(|f| f.ends_with("CTestTestfile.cmake")));
+        assert!(inventory
+            .config_refs
+            .iter()
+            .any(|f| f.ends_with("CMakeLists.txt")));
         assert_eq!(inventory.fixture_globs, vec!["**/CTestTestfile*.cmake"]);
     }
 
     #[test]
     fn perf_profiler_shapes_and_honest_hotspots() {
         let mock = mock_tree();
-        let profiler = PerfProfiler { tree: mock.tree.clone() };
+        let profiler = PerfProfiler {
+            tree: mock.tree.clone(),
+        };
         let empty = Workload {
             name: "w".into(),
             setup: String::new(),
@@ -8249,7 +9750,10 @@ mod track_i_tests {
 
     #[test]
     fn scan_floats_and_anchors() {
-        assert_eq!(literal_anchors("norm\\s*=\\s*([0-9.eE+-]+)"), vec!["norm".to_string()]);
+        assert_eq!(
+            literal_anchors("norm\\s*=\\s*([0-9.eE+-]+)"),
+            vec!["norm".to_string()]
+        );
         let floats = scan_floats("x = -1.5e-3 y");
         assert_eq!(floats.len(), 1);
         assert!((floats[0].0 - -0.0015).abs() < 1e-12);
