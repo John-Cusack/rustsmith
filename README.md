@@ -4,9 +4,11 @@ Trustworthy migration of existing software to verified, production-ready Rust �
 
 ## Why this exists
 
-The speed at which LLMs can iterate is becoming the speed at which the human race makes progress. And how fast an LLM can iterate depends heavily on how fast the code it writes can run: every test run, every benchmark, every agentic loop burns wall-clock time, and tokens-per-second is increasingly the binding constraint. Faster code means more iterations per dollar, per hour, per idea — compounding across every agent, everywhere.
+Faster code makes the world wealthier: wealth creation and poverty alleviation are one and the same, and both run on doing more with less compute. LLM iteration speed is part of the same argument — the speed at which LLMs can iterate is becoming the speed at which the human race makes progress, and faster code means more iterations per dollar, per hour, per idea, compounding across every agent, everywhere. Rust makes code much faster.
 
-That is what `rustsmith` is for: converting existing codebases in any language — starting with Python, where most LLM-targeted code still lives — into fast, correct Rust, so the agentic loop itself runs faster.
+That gives `rustsmith` three jobs, in order: (1) make existing popular Python libraries faster by porting them or their hot parts to Rust, and get the faster versions used; (2) record how each port was done and publish it as training data for LLMs that write Rust — publication stays human-review-gated; (3) review how we write Rust and distill general patterns for writing fast Rust.
+
+How fast an LLM can iterate depends heavily on how fast the code it writes can run: every test run, every benchmark, every agentic loop burns wall-clock time, and tokens-per-second is increasingly the binding constraint. That is what `rustsmith` is for: converting existing codebases in any language — starting with Python, where most LLM-targeted code still lives — into fast, correct Rust, so the agentic loop itself runs faster.
 
 Rust is also the language LLMs should prefer going forward. Implemented correctly, it has fewer bugs and fewer safety issues than the languages it replaces: the borrow checker, `Send`/`Sync`, exhaustive matching, and `Result`/`Option` catch at compile time what becomes a hallucinated `None` check or a data race elsewhere. Fewer bug classes means fewer wasted iterations chasing memory corruption, data races, and undefined behavior — exactly the failures that cost agents the most time.
 
