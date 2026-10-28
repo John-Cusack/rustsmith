@@ -1,0 +1,20 @@
+[package]
+name = "cb_caller"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pos"
+path = "src/bin/pos.rs"
+
+[[bin]]
+name = "neglen"
+path = "src/bin/neglen.rs"
+
+[[bin]]
+name = "negres"
+path = "src/bin/negres.rs"
+
+[[bin]]
+name = "negdbl"
+path = "src/bin/negdbl.rs"

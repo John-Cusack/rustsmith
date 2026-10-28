@@ -1,0 +1,5 @@
+TAG=1 LEN=6 S=[Source]
+TAG=2 LEN=12 S=[BoundaryOnly]
+VEC x= 3.0 y= 4.0 n=42
+ALIAS-R=1.5,2.5,3.5 FLAG=ALIAS
+BOX=10.0,20.0,30.0,40.0
