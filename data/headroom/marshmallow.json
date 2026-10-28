@@ -1,0 +1,83 @@
+{
+  "package": "marshmallow",
+  "version": "4.3.1",
+  "workload": {
+    "name": "nested-batch-500x4",
+    "source": "doc-synthetic",
+    "iters": 15,
+    "detail": "UserSchema dump+load many=True over 500 nested objects x4 (nested Address, List[Nested Order], Email/Int/Float/Bool validation)"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 0.4224993899697438,
+  "tottime_secs": 0.42186021100000015,
+  "fractions": {
+    "pure_python": 0.9517230910406953,
+    "native": 0.0009802322883681483,
+    "io_wait": 0.0,
+    "regex": 0.006427354202409004,
+    "overhead": 0.04086932246852736
+  },
+  "concentration": {
+    "top1": 0.1357780101238322,
+    "top5": 0.3786388306718027,
+    "hot_modules": 5
+  },
+  "top": [
+    {
+      "file": "marshmallow/schema.py",
+      "func": "_deserialize",
+      "tottime_ms": 57.279340000000005,
+      "ncalls": 10004
+    },
+    {
+      "file": "marshmallow/fields.py",
+      "func": "deserialize",
+      "tottime_ms": 42.20202200000001,
+      "ncalls": 48000
+    },
+    {
+      "file": "marshmallow/fields.py",
+      "func": "serialize",
+      "tottime_ms": 22.225045,
+      "ncalls": 42000
+    },
+    {
+      "file": "marshmallow/fields.py",
+      "func": "_validate",
+      "tottime_ms": 19.411439,
+      "ncalls": 40000
+    },
+    {
+      "file": "marshmallow/schema.py",
+      "func": "_serialize",
+      "tottime_ms": 18.614811000000003,
+      "ncalls": 10004
+    },
+    {
+      "file": "marshmallow/schema.py",
+      "func": "getter",
+      "tottime_ms": 16.028920000000003,
+      "ncalls": 42000
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.isinstance>",
+      "tottime_ms": 14.168711,
+      "ncalls": 142008
+    },
+    {
+      "file": "marshmallow/fields.py",
+      "func": "_validate_all",
+      "tottime_ms": 13.35781,
+      "ncalls": 40000
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.808964627384591,
+  "verdict": "rewrite",
+  "why": "95% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}
