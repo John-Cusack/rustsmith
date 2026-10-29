@@ -1,0 +1,5 @@
+== nm -D --defined-only, T symbols ==
+reference: 60 T
+port:      60 T
+sets equal: YES (diff empty)
+MPI re-exports: absent on port by definition (reference-only transitives)
