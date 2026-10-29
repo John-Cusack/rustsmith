@@ -1,0 +1,35 @@
+# USF loading-contract probe (rs-elmer-t024, step-0)
+
+Reference tree: lane scratch/build-ice (WITH_ElmerIce=TRUE @ 9f6af2f85).
+Staged Buoyancy case in lane scratch/probe-stage/{ref,probe} with
+ELMER_HOME/LIB/MODULES_PATH pointed at the build tree, mpiexec -n 1.
+
+## (a) Symbol resolution (measured, not assumed)
+
+ElmerIceUSF.so DT_NEEDED: ElmerIceUtils.so, libelmersolver.so,
+libgfortran, libm, liblapack, libgcc_s, libc — with RUNPATH into the
+build tree (fem/src, elmerice/Utils, matc, fhutiter, arpack, parpack,
+openmpi lib). 77 undefined dynamic symbols (nm -D -u), dominated by
+__defutils_MOD_* served by libelmersolver.so. Resolution is via the
+link, NOT host-global scope. Load.c try_dlopen uses RTLD_NOW (LOCAL).
+A port cdylib replicates exactly this: -lelmersolver + RUNPATH.
+
+## (b) dlopen+call path (staged A/B)
+
+Search order in Load.c: "." -> ELMER_LIB dirs -> ELMER_MODULES_PATH dirs.
+Probe = Rust cdylib (panic=abort, no deps) exporting seapressure_ -> 1234.5
+and seaspring_ -> -42.25 (by-ref (Model, nodenumber, y) -> REAL(8) ABI),
+dropped into the stage CWD as ElmerIceUSF.so (reference tree untouched).
+
+- ref:   exit 0, TEST.PASSED=1 (FlowSolve 0.35355345733452664, zs-top 9.9999999056136168 = RefNorm)
+- probe: exit 0, solver completes, TEST.PASSED=0,
+         CompareToReferenceSolution FAILED: Norm = 1.58698910E+02 vs RefNorm = 9.99999990E+00
+         (FlowSolve 20.675648190564981, zs-top 39.739782081951738)
+
+The Rust cdylib was dlopen'd and both entries called through the USF
+path; sentinel returns drove the solve. Log line "Loading user function
+library: [ElmerIceUSF]...[SeaPressure]" precedes the divergence.
+Probe source: lane scratch/probe-usf/ (2 fns, ~20 lines).
+
+Remaining for slice 4: a Rust cdylib that ALSO calls into libelmersolver
+(DT_NEEDED half + call half together) — the slice-4 port's own proof.
