@@ -1,10 +1,11 @@
 # Pattern review — the repeatable process
 
-How [`RUST_PATTERNS.md`](RUST_PATTERNS.md) stays living: after every
-port or recraft, an LLM review pass reads the before/after code plus
-the measured results and proposes guide updates. Every new port
-brief consults the guide before building. This file is procedure;
-the guide is the artifact. No LLM calls in gates — the review pass
+How [`RUST_PATTERNS.md`](RUST_PATTERNS.md) and
+[`PYTHON_PATTERNS.md`](PYTHON_PATTERNS.md) stay living: after every
+port, recraft, or tier-1-only lane, an LLM review pass reads the
+before/after code plus the measured results and proposes guide updates.
+Every new port brief consults both guides before building. This file is
+procedure; the guides are the artifacts. No LLM calls in gates — the review pass
 proposes, the normal PR process disposes (AGENTS.md).
 
 ## When it runs
@@ -60,47 +61,57 @@ bundle state; an unlabeled number is not.
 Run as a normal lane task (scout/report shape — deliverable is a
 proposed diff + report, never a direct edit to `main`):
 
-1. **Read before/after side by side.** For each hot unit: what did
-   the original do per item (allocation, dispatch, branching,
-   crossings), what does the Rust do per item? Name the mechanism,
-   not the language ("one loop over u64" — not "Rust is fast").
-2. **Attach numbers or downgrade.** Every mechanism claim must cite
-   a row from `numbers.md` (workload-labeled speedup + peak RSS).
-   A mechanism with no row goes to Hypotheses wording in the
-   proposal, clearly labeled — or is dropped.
-3. **Classify against the guide**, one of four outcomes per finding:
+3. **Classify against the owning guide**, one of four outcomes per finding.
+   Route first, then classify: Rust port/recraft mechanisms →
+   [`RUST_PATTERNS.md`](RUST_PATTERNS.md); tier-1 pure-Python mechanisms
+   (including tier-1 arms inside a port lane, and tier-1-only no_gain lanes) →
+   [`PYTHON_PATTERNS.md`](PYTHON_PATTERNS.md). A lane with both kinds of
+   findings proposes to both guides in the same diff, one entry per guide.
    - **Confirm** — matches an existing pattern: add this port to its
      evidence list; bump confidence if it crosses a threshold
      (Single→Medium at 2 ports, Medium→High at 3).
    - **Extend** — same pattern, new scope limit or new loser:
      amend "does NOT help" with the losing row.
-   - **New pattern** — mechanism not in the guide, measured:
+   - **New pattern** — mechanism not in the owning guide, measured:
      draft a full entry (problem shape, technique, before/after
      excerpt ≤ ~15 lines each side, measured rows, loser or
      "no loser recorded yet", confidence Single).
    - **Retire / narrow** — a guide claim this port falsified or
      failed to reproduce: propose the narrower claim with both the
      old and new rows kept. Retirement deletes the *claim*, never
-     the evidence; the anti-pattern ledger gains the receipt.
-4. **Update the per-port index + Appendix A** in the same diff:
-   patterns found, representative figure, loser, source. A port
+     the evidence; the owning guide's anti-pattern ledger gains the receipt.
+4. **Update the per-lane index + Appendix A in the owning guide** in the same diff:
+   patterns found, representative figure, loser, source. A lane
    with no index row is invisible to the next brief — that is the
-   failure this process exists to prevent.
-5. **Re-rank the Top 10** only on representative-track rows.
+   failure this process exists to prevent. Pure-Python rows go to
+   `PYTHON_PATTERNS.md`; Rust rows go to `RUST_PATTERNS.md`.
+5. **Re-rank the Top patterns** only on representative-track rows, in the
+   owning guide (`RUST_PATTERNS.md` Top 10 / `PYTHON_PATTERNS.md` Top patterns).
    Showcase rows never promote a pattern in the table.
 6. **Emit the proposal as a PR** (docs-only, or docs + the bundle
-   script if it changed): PR body lists per-port findings and any
-   Top-10 movement with the rows that caused it. Port PRs and
+   script if it changed): PR body lists per-lane findings and any
+   Top-pattern movement with the rows that caused it. Port PRs and
    tool/guide PRs stay separate (AGENTS.md); the guide PR names
    the port PRs it consumed.
+7. **Upstream tracker:** the lane that owns an upstream offer updates
+   [`PYTHON_SPEEDUPS.md`](PYTHON_SPEEDUPS.md) when its state changes and
+   nothing else does: `being offered` → PR URL + `offered` when the PR
+   opens, → `merged` / `declined` on upstream verdict. The review pass
+   never edits tracker PR cells; it only adds the new row's measured
+   columns (package, dl/mo, speedup + workload, patch location,
+   Rust-rewrite follow).
 
 ## The pre-port consult (brief checklist)
 
 Every new port or recraft brief must include, before build steps:
 
-- [ ] Guide consulted on <date> at rustsmith commit <sha>.
-- [ ] Patterns expected to apply: P__ (why this port's hot path
+- [ ] Guides consulted on <date> at rustsmith commit <sha> — both guides
+      (`RUST_PATTERNS.md` for the port shape, `PYTHON_PATTERNS.md` for
+      the tier-1-first shape).
+- [ ] Rust patterns expected to apply: P__ (why this port's hot path
       matches the problem shape), P__ …
+- [ ] Pure-Python patterns expected to apply first (tier-1 before Rust):
+      PY__ (why the hot path matches), PY__ …
 - [ ] Losers to design around: the "does NOT help" rows nearest
       this port's shape (name the receipt, e.g. "markdown-it 0.20x
       bulk → no per-token crossings; batch the token stream").
@@ -143,12 +154,16 @@ answer, blank is not.
       different algorithm — sympy GCD receipt).
 
 **Guide bookkeeping**
-- [ ] Each finding classified Confirm / Extend / New / Retire.
+- [ ] Each finding routed (Rust → `RUST_PATTERNS.md`, pure-Python →
+      `PYTHON_PATTERNS.md`) and classified Confirm / Extend / New / Retire.
 - [ ] Losers recorded with numbers, including "pattern applied,
       measured no-change" (1.00x is a finding).
-- [ ] Confidence changes justified by independent-port count.
-- [ ] Per-port index + Appendix A updated; Top 10 re-ranked only
-      on representative rows; hypotheses quarantined as unmeasured.
+- [ ] Confidence changes justified by independent-lane count.
+- [ ] Per-lane index + Appendix A updated in the owning guide; Top
+      patterns re-ranked only on representative rows; hypotheses
+      quarantined as unmeasured.
+- [ ] New tier-1 row added to [`PYTHON_SPEEDUPS.md`](PYTHON_SPEEDUPS.md)
+      measured columns (no PR-cell edits — the upstream lane owns those).
 - [ ] No oracle/gate/threshold touched to make a number fit
       (AGENTS.md — a gate failure is feedback, not a workaround).
 
@@ -156,6 +171,11 @@ answer, blank is not.
 
 - The lane that produced the port owes the bundle; the review pass
   is a separate short lane (fresh eyes beat the port author's).
+- The lane that produced a tier-1 result owes its
+  [`PYTHON_SPEEDUPS.md`](PYTHON_SPEEDUPS.md) row (measured columns);
+  the lane that owns an upstream offer owes that row's PR URL + status
+  cells when they change (opens, merges, declined) — no other lane
+  touches them.
 - Guide PRs are docs-only and merge on the same rigor as any PR:
   `cargo build --release`, `cargo test`,
   `cargo clippy -- -D warnings` where code (the bundle script)

@@ -260,7 +260,9 @@ Built milestone by milestone, M0 → M9, each with verbatim acceptance criteria:
 - `SPEC_STAGE2.md` — replaces SPEC §9 Stage 2 (fixes benchmark gaming, representation wins, symptom-looping)
 - `tests/m*_acceptance.sh` — acceptance probes, incl. adversarial plants (test edits, skip injection, fixture-keyed caches, tuned constants, phantom gains, RSS-for-speed, dead-path removal)
 - `docs/RUST_PATTERNS.md` — the living pattern guide: what made each port faster (and where it didn't), every claim workload-labeled with measured wall + peak RSS
-- `docs/PATTERN_REVIEW.md` — the post-port review process + brief checklist that keeps the guide current (`scripts/gather_pattern_review.sh` builds the review bundle)
+- `docs/PYTHON_PATTERNS.md` — the living pure-Python speedup guide: what made each tier-1 fix faster (and where it didn't), same evidence discipline, separate from the Rust guide
+- `docs/PYTHON_SPEEDUPS.md` — the pure-Python speedups tracker: package, downloads/mo, measured speedup + workload, patch location, upstream PR URL + status, Rust-rewrite follow
+- `docs/PATTERN_REVIEW.md` — the post-port review process + brief checklist that keeps both guides current (`scripts/gather_pattern_review.sh` builds the review bundle)
 
 Pinned fixtures (`config/fixture.toml`): primary `Nicoretti/crc`, secondary `luozhouyang/python-string-similarity` for DAG checks.
 
