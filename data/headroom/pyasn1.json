@@ -1,0 +1,83 @@
+{
+  "package": "pyasn1",
+  "version": "0.6.5",
+  "workload": {
+    "name": "ber-codec-3000rec",
+    "source": "doc-synthetic",
+    "iters": 3,
+    "detail": "BER encode+decode of 3000 nested records (int/blob/bool/oid), TLS-stack codec CPU, frozen WORKLOAD.md v1"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 0.6605686829425395,
+  "tottime_secs": 0.6605591559999999,
+  "fractions": {
+    "pure_python": 0.9899482083630373,
+    "native": 0.0,
+    "io_wait": 0.010051791636962794,
+    "regex": 0.0,
+    "overhead": 0.0
+  },
+  "concentration": {
+    "top1": 0.1687992165231603,
+    "top5": 0.37350162322176644,
+    "hot_modules": 7
+  },
+  "top": [
+    {
+      "file": "pyasn1/codec/ber/decoder.py",
+      "func": "__call__",
+      "tottime_ms": 111.501868,
+      "ncalls": 33000
+    },
+    {
+      "file": "pyasn1/codec/ber/decoder.py",
+      "func": "valueDecoder",
+      "tottime_ms": 45.261236000000004,
+      "ncalls": 6000
+    },
+    {
+      "file": "pyasn1/codec/ber/encoder.py",
+      "func": "encode",
+      "tottime_ms": 41.409563000000006,
+      "ncalls": 18000
+    },
+    {
+      "file": "pyasn1/codec/streaming.py",
+      "func": "readFromStream",
+      "tottime_ms": 26.411756,
+      "ncalls": 105000
+    },
+    {
+      "file": "pyasn1/codec/ber/encoder.py",
+      "func": "encodeValue",
+      "tottime_ms": 22.135494,
+      "ncalls": 3000
+    },
+    {
+      "file": "pyasn1/codec/ber/decoder.py",
+      "func": "valueDecoder",
+      "tottime_ms": 19.322568,
+      "ncalls": 18000
+    },
+    {
+      "file": "pyasn1/type/base.py",
+      "func": "__init__",
+      "tottime_ms": 18.934172000000004,
+      "ncalls": 15000
+    },
+    {
+      "file": "pyasn1/type/base.py",
+      "func": "clone",
+      "tottime_ms": 17.724127000000003,
+      "ncalls": 15000
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.8414559771085817,
+  "verdict": "rewrite",
+  "why": "99% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}
