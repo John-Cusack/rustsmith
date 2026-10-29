@@ -1,0 +1,347 @@
+{
+  "generated_by": "rs-elmer-t023 manifest pin",
+  "libraries": [
+    {
+      "expected_dynsyms": [
+        "__batterymodule_MOD_anodeweight",
+        "__batterymodule_MOD_anodeweightsum",
+        "__batterymodule_MOD_batteryinitialized",
+        "__batterymodule_MOD_butlervolmer",
+        "__batterymodule_MOD_butlervolmerupdate",
+        "__batterymodule_MOD_cathodeweightsum",
+        "__batterymodule_MOD_cellvoltage",
+        "__batterymodule_MOD_cevar",
+        "__batterymodule_MOD_cs1dvar",
+        "__batterymodule_MOD_csavevar",
+        "__batterymodule_MOD_csdiffvar",
+        "__batterymodule_MOD_cserrvar",
+        "__batterymodule_MOD_csfullvar",
+        "__batterymodule_MOD_csinitvar",
+        "__batterymodule_MOD_csvar",
+        "__batterymodule_MOD_effdiffconductivity",
+        "__batterymodule_MOD_effionconductivity",
+        "__batterymodule_MOD_electrolytefluxscaling",
+        "__batterymodule_MOD_etavar",
+        "__batterymodule_MOD_extremeleftnode",
+        "__batterymodule_MOD_extremerightnode",
+        "__batterymodule_MOD_faradayconstant",
+        "__batterymodule_MOD_gasconstant",
+        "__batterymodule_MOD_initializebattery",
+        "__batterymodule_MOD_interfacesurfacearea",
+        "__batterymodule_MOD_jli0",
+        "__batterymodule_MOD_jliintegvar",
+        "__batterymodule_MOD_jlivar",
+        "__batterymodule_MOD_mainmesh",
+        "__batterymodule_MOD_massmult1d",
+        "__batterymodule_MOD_phievar",
+        "__batterymodule_MOD_phisvar",
+        "__batterymodule_MOD_socvar",
+        "__batterymodule_MOD_solidfluxscaling",
+        "__batterymodule_MOD_submesh",
+        "__batterymodule_MOD_uneg",
+        "__batterymodule_MOD_upos",
+        "__batterymodule_MOD_usemeanflux",
+        "__batterymodule_MOD_usetimeavediff",
+        "__batterymodule_MOD_usetimeaveflux",
+        "__batterymodule_MOD_variablerange",
+        "batterypost_",
+        "electrolytecons_",
+        "electrolytecons_init_",
+        "electrolytepot_",
+        "electrolytepot_init_",
+        "solidphasecons_",
+        "solidphasecons_init_",
+        "solidphasepot_",
+        "solidphasepot_init_"
+      ],
+      "name": "BatterySolver",
+      "so": "BatterySolver.so",
+      "units": [
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/BatterySolver/BatteryPost.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/BatterySolver/BatteryUtils.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/BatterySolver/ElectrolyteCons.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/BatterySolver/ElectrolytePot.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/BatterySolver/SolidPhaseCons.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/BatterySolver/SolidPhasePot.F90"
+        }
+      ]
+    },
+    {
+      "expected_dynsyms": [
+        "compressibilitysolver_",
+        "optimalsolutionupdate_",
+        "pressuresolver_",
+        "velocitysolver_"
+      ],
+      "name": "ConsistentSplitting",
+      "so": "ConsistentSplitting.so",
+      "units": [
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ConsistentSplitting/CompressibilitySolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ConsistentSplitting/OptimalSolutionUpdate.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ConsistentSplitting/PressureSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ConsistentSplitting/VelocitySolver.F90"
+        }
+      ]
+    },
+    {
+      "expected_dynsyms": [
+        "levelsetcurvature_",
+        "levelsetdistance_",
+        "levelsetintegrate_",
+        "levelsetintegrate_init_",
+        "levelsetsolver_",
+        "levelsettimestep_"
+      ],
+      "name": "LevelSet",
+      "so": "LevelSet.so",
+      "units": [
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/LevelSet/LevelSetCurvature.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/LevelSet/LevelSetDistance.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/LevelSet/LevelSetIntegrate.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/LevelSet/LevelSetSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/LevelSet/LevelSetTimestep.F90"
+        }
+      ]
+    },
+    {
+      "expected_dynsyms": [
+        "__maxwell_MOD_maxwellboundary",
+        "__maxwell_MOD_maxwellcompose",
+        "__maxwellaxis_MOD_maxwellaxisboundary",
+        "__maxwellaxis_MOD_maxwellaxiscompose",
+        "__maxwellgeneral_MOD_maxwellgeneralboundary",
+        "__maxwellgeneral_MOD_maxwellgeneralcompose",
+        "magneticsolver_"
+      ],
+      "name": "MagneticSolve",
+      "so": "MagneticSolve.so",
+      "units": [
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagneticSolve/MagneticSolve.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagneticSolve/Maxwell.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagneticSolve/MaxwellAxiS.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagneticSolve/MaxwellGeneral.F90"
+        }
+      ]
+    },
+    {
+      "expected_dynsyms": [
+        "__magnetodynamicsutils_MOD_addconstraintfrombulk",
+        "__magnetodynamicsutils_MOD_communicatecondreg",
+        "__magnetodynamicsutils_MOD_gaugetree",
+        "__magnetodynamicsutils_MOD_gaugetreefluxbc",
+        "__magnetodynamicsutils_MOD_getreluctivityc",
+        "__magnetodynamicsutils_MOD_getreluctivityr",
+        "__magnetodynamicsutils_MOD_getreluctivitytensorc",
+        "__magnetodynamicsutils_MOD_getreluctivitytensorr",
+        "__magnetodynamicsutils_MOD_jfixphase",
+        "__magnetodynamicsutils_MOD_jfixrhs",
+        "__magnetodynamicsutils_MOD_jfixrhsc",
+        "__magnetodynamicsutils_MOD_jfixsurfaceperm",
+        "__magnetodynamicsutils_MOD_jfixsurfacevec",
+        "__magnetodynamicsutils_MOD_jfixsurfacevecc",
+        "__magnetodynamicsutils_MOD_markouternodes",
+        "__magnetodynamicsutils_MOD_packedgerows",
+        "__magnetodynamicsutils_MOD_recvdonenodesandedges",
+        "__magnetodynamicsutils_MOD_senddonenodesandedges",
+        "__magnetodynamicsutils_MOD_setdoftovaluec",
+        "__magnetodynamicsutils_MOD_setdoftovaluer",
+        "helmholtzprojector_",
+        "helmholtzprojector_init0_",
+        "helmholtzprojector_init_",
+        "helmholtzprojectort_",
+        "helmholtzprojectort_init0_",
+        "helmholtzprojectort_init_",
+        "jfixpotentialsolver_",
+        "magnetodynamicscalcfields_",
+        "magnetodynamicscalcfields_init0_",
+        "magnetodynamicscalcfields_init_",
+        "platiseferromodel_",
+        "removekernelcomponent_",
+        "removekernelcomponent_init0_",
+        "removekernelcomponentt_",
+        "removekernelcomponentt_init0_",
+        "whitneyavharmonicsolver_",
+        "whitneyavharmonicsolver_init0_",
+        "whitneyavharmonicsolver_init_",
+        "whitneyavsolver_",
+        "whitneyavsolver_init0_",
+        "whitneyavsolver_init_"
+      ],
+      "name": "MagnetoDynamics",
+      "so": "MagnetoDynamics.so",
+      "units": [
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagnetoDynamics/CalcFields.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagnetoDynamics/JfixPotentialSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagnetoDynamics/PlatiseFerroModel.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagnetoDynamics/Utils.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagnetoDynamics/WhitneyAVHarmonicSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90"
+        }
+      ]
+    },
+    {
+      "expected_dynsyms": [
+        "__dxfile_MOD_writedisplacement",
+        "__dxfile_MOD_writedxfiles",
+        "__dxfile_MOD_writegrid",
+        "__dxfile_MOD_writevariable",
+        "__vtklegacyfile_MOD___copy_vtklegacyfile_Vtkcell_t",
+        "__vtklegacyfile_MOD___def_init_vtklegacyfile_Vtkcell_t",
+        "__vtklegacyfile_MOD___vtab_vtklegacyfile_Vtkcell_t",
+        "__vtklegacyfile_MOD_freesurface",
+        "__vtklegacyfile_MOD_writegrid",
+        "__vtklegacyfile_MOD_writevector",
+        "__vtklegacyfile_MOD_writevtklegacyfile",
+        "__vtuxmlfile_MOD_averagebodyfields",
+        "__vtuxmlfile_MOD_checkanydgfield",
+        "__vtuxmlfile_MOD_vtufilenaming",
+        "dxoutputsolver_",
+        "elmerpostoutputsolver_",
+        "gidoutputsolver_",
+        "resultoutputsolver_",
+        "vtkoutputsolver_",
+        "vtuoutputsolver_"
+      ],
+      "name": "ResultOutputSolve",
+      "so": "ResultOutputSolve.so",
+      "units": [
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ResultOutputSolve/DXOutputSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ResultOutputSolve/ElmerPostOutputSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ResultOutputSolve/GidOutputSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ResultOutputSolve/ResultOutputSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90"
+        }
+      ]
+    },
+    {
+      "expected_dynsyms": [
+        "saveboundaryvalues_",
+        "savedependence_",
+        "savedependence_init_",
+        "saveline_",
+        "saveline_init_",
+        "savematerials_",
+        "saveprojection_",
+        "saveprojection_init_",
+        "savescalars_",
+        "savescalars_init_"
+      ],
+      "name": "SaveData",
+      "so": "SaveData.so",
+      "units": [
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/SaveData/SaveBoundaryValues.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/SaveData/SaveDependence.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/SaveData/SaveLine.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/SaveData/SaveMaterials.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/SaveData/SaveProjection.F90"
+        },
+        {
+          "ledger": "lane-fem-a",
+          "unit": "fortran:fem/src/modules/SaveData/SaveScalars.F90"
+        }
+      ]
+    }
+  ]
+}
