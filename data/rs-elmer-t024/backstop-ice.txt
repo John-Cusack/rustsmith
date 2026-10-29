@@ -1,0 +1,14 @@
+# Fem backstop in the ice-on tree (rs-elmer-t024, step-0)
+
+Tree: lane scratch/build-ice (WITH_ElmerIce=TRUE @ 9f6af2f85, frozen
+configure-ice.cmd). Command: ctest -L quick -j4 (HWLOC_COMPONENTS=-gl).
+
+Result: 99% tests passed, 3 tests failed out of 482 -> 479/482.
+Failed: #80 ConstantBCTemperature, #536 ProfileBCTemperature,
+#537 ProfileBCTemperatureRobin — exactly the K=3 upstream set (same
+test numbers as the ice-off campaign bar).
+
+Failure signature (verified on #80): no TEST.PASSED; per-rank log ends
+in HeatSolver with "mpiexec noticed that process rank 0 ... exited on
+signal 11 (Segmentation fault)". Ice-on introduces no fem baseline delta.
+Full log: lane proof/backstop-ice.log.
