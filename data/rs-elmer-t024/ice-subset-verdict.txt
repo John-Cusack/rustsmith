@@ -1,0 +1,11 @@
+test | stdout-ident-modulo-wallclock | TEST.PASSED | stderr-note
+Buoyancy | yes | 1 | identical
+Friction_Weertman | yes | 1 | identical
+Friction_Coulomb | yes | 1 | identical
+Grounded | yes | 1 | identical
+SSA_Weertman | yes | 1 | identical
+SSA_Coulomb | yes | 1 | run1-only MPI transport warning
+SSA_SEP | yes | 1 | identical
+ComputeDevStress | yes | 1 | identical
+ShapeFactor | yes | 1 | identical
+Flotation | yes | 1 | identical

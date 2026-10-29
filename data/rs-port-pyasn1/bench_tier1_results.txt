@@ -1,0 +1,45 @@
+arm  track     wall_s  peakRSS_MiB checksum
+A    rep       0.2694         21.7 35928312000
+B    rep       0.2401         22.0 35928312000
+C    rep       0.2758         22.5 35928312000
+D    rep       0.2851         22.5 35928312000
+E    rep       0.2307         22.5 35928312000
+A    enc       0.0412         22.5 271934
+B    enc       0.0414         22.5 271934
+C    enc       0.0415         22.5 271934
+D    enc       0.0432         22.5 271934
+E    enc       0.0417         22.5 271934
+A    dec       0.1916         22.5 35928312000
+B    dec       0.1557         22.5 35928312000
+C    dec       0.1910         22.5 35928312000
+D    dec       0.1938         22.5 35928312000
+E    dec       0.1566         22.5 35928312000
+A    x1        0.1083         22.5 12000
+B    x1        0.1027         22.5 12000
+C    x1        0.1066         22.5 12000
+D    x1        0.1029         22.5 12000
+E    x1        0.1021         22.5 12000
+
+speedups vs A-baseline (representative track decides):
+  arm A rep: 1.00x
+  arm B rep: 1.12x
+  arm C rep: 0.98x
+  arm D rep: 0.94x
+  arm E rep: 1.17x
+  arm A enc: 1.00x
+  arm B enc: 1.00x
+  arm C enc: 0.99x
+  arm D enc: 0.95x
+  arm E enc: 0.99x
+  arm A dec: 1.00x
+  arm B dec: 1.23x
+  arm C dec: 1.00x
+  arm D dec: 0.99x
+  arm E dec: 1.22x
+  arm A x1: 1.00x
+  arm B x1: 1.05x
+  arm C x1: 1.02x
+  arm D x1: 1.05x
+  arm E x1: 1.06x
+
+checksums agree within track: True

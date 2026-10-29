@@ -1,0 +1,32 @@
+{
+ "passed": true,
+ "upstream_unit_suite": {
+  "passed": true,
+  "tests": 631,
+  "note": "full original suite green via import alias"
+ },
+ "json_schema_test_suite": {
+  "passed": true,
+  "tests": 3908,
+  "xfailed": 435,
+  "xpassed": 950,
+  "note": "identical counts to stock run"
+ },
+ "equiv_corpus": {
+  "passed": true,
+  "tests": 832,
+  "note": "seeded differential incl. messages/paths, PYTHONHASHSEED=0"
+ },
+ "python_install_smoke": [
+  {
+   "check": "import fastjsonschema_rust",
+   "passed": true,
+   "tail": "editable install in devvenv"
+  },
+  {
+   "check": "fallback env",
+   "passed": true,
+   "tail": "FASTJSONSCHEMA_RUST_FALLBACK=1 routes to pure Python"
+  }
+ ]
+}
