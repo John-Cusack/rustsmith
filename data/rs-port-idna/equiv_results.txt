@@ -1,0 +1,13 @@
+=== stock upstream suite ===
+6441 passed, 1 skipped, 56 subtests passed in 9.36s
+=== tier1 upstream suite ===
+6441 passed, 1 skipped, 56 subtests passed in 8.50s
+=== port suite (upstream + differential) ===
+8166 passed, 1 skipped, 56 subtests passed in 8.78s
+=== differential: stock vs tier-1 (900 rows) ===
+900 rows, 0 mismatches (returns + exception type/code/message)
+=== differential: stock vs port kernel (900 rows) ===
+900 rows, 0 mismatches
+=== fuzz: stock vs port kernel (8249 cases x encode/decode) ===
+cases=8249
+rows=16498 mismatches=0
