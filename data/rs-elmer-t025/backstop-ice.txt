@@ -1,0 +1,4 @@
+99% tests passed, 3 tests failed out of 482
+	 80 - ConstantBCTemperature (Failed)
+	536 - ProfileBCTemperature (Failed)
+	537 - ProfileBCTemperatureRobin (Failed)

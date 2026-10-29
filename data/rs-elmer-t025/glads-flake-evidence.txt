@@ -1,0 +1,6 @@
+full-bO-1: ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20461363E-01  2.0000000     ) :: glads coupled sheet
+full-bO-2: ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20461341E-01  2.0000000     ) :: glads coupled sheet
+full-bO-3: ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20461341E-01  2.0000000     ) :: glads coupled sheet
+full-bP-1: ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20461341E-01  2.0000000     ) :: glads coupled sheet
+full-bP-2: ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20461341E-01  2.0000000     ) :: glads coupled sheet
+full-bP-3: ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20461341E-01  2.0000000     ) :: glads coupled sheet
