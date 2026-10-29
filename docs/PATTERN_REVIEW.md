@@ -99,7 +99,9 @@ proposed diff + report, never a direct edit to `main`):
    opens, → `merged` / `declined` on upstream verdict. The review pass
    never edits tracker PR cells; it only adds the new row's measured
    columns (package, dl/mo, speedup + workload, patch location,
-   Rust-rewrite follow).
+   Rust-rewrite follow). The offer process itself — target selection,
+   proof format, humanizer pass, review response — lives in
+   [`UPSTREAM_PRS.md`](UPSTREAM_PRS.md).
 
 ## The pre-port consult (brief checklist)
 

@@ -265,6 +265,7 @@ Built milestone by milestone, M0 → M9, each with verbatim acceptance criteria:
 - `docs/PYTHON_PATTERNS.md` — the living pure-Python speedup guide: what made each tier-1 fix faster (and where it didn't), same evidence discipline, separate from the Rust guide
 - `docs/PYTHON_SPEEDUPS.md` — the pure-Python speedups tracker: package, downloads/mo, measured speedup + workload, patch location, upstream PR URL + status, Rust-rewrite follow
 - `docs/PATTERN_REVIEW.md` — the post-port review process + brief checklist that keeps both guides current (`scripts/gather_pattern_review.sh` builds the review bundle)
+- `docs/UPSTREAM_PRS.md` — the end-to-end process for offering speedups upstream so they actually get merged (target selection, proof format, humanizer pass, review response, pre-flight checklist, PR-body template)
 
 Pinned fixtures (`config/fixture.toml`): primary `Nicoretti/crc`, secondary `luozhouyang/python-string-similarity` for DAG checks.
 
