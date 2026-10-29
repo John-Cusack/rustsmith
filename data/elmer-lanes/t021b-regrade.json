@@ -1,0 +1,587 @@
+{
+  "dag": "/home/john/runs/elmer-work/recon/dag.json",
+  "generated_by": "regrade-entry (fortran_plugin_entry_verdict, file model, M-Z)",
+  "tree": "/home/john/runs/elmer-fork",
+  "units": [
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 29,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/MagnetoDynamics2D.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 7,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/MarchingODESolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/Mesh2MeshSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 3,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/MeshChecksum.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/MeshSolve.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 7,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ModelMixedPoisson.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ModelPDE.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ModelPDECutFEM.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ModelPDEhandle.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 6,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/NodeToEdgeSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/NonphysicalMeshSolve.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/NormalSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/OdeSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 7,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/OpenFoam2ElmerIO.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 14,
+      "reason": [
+        "__anisotropicmaterialmodels_MOD_anisotropiceffectiveviscosity: derived-type dummy (needs whole-program layout)"
+      ],
+      "unit": "fortran:fem/src/modules/ParStokes.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 6,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ParallelRemesh.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 8,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ParticleAdvector.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 11,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ParticleDynamics.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/PartitionMesh.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 7,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/PhaseChangeSolve.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/Poisson.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 11,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/PoissonBEM.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 6,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/PoissonBoltzmannSolve.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 6,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/PoissonDG.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 3,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/PressurePrecond.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 2,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/Probes.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 15,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ProjectToPlane.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 3,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/RateOfChange.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 2,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ReloadData.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 2,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ReloadInput.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 10,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ReynoldsSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 12,
+      "reason": [
+        "__porousmaterials_MOD_hydraulicconductivity: derived-type dummy (needs whole-program layout)",
+        "__porousmaterials_MOD_watercontent: derived-type dummy (needs whole-program layout)"
+      ],
+      "unit": "fortran:fem/src/modules/RichardsSolver.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 8,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/RigidBodyReduction.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 3,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/RigidMeshMapper.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 9,
+      "reason": [
+        "__particleoutputsolver_MOD_particleoutputnetcdf: pointer dummy (libgfortran realloc contract)"
+      ],
+      "unit": "fortran:fem/src/modules/SaveGridData.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 2,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/SaveMesh.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ScalarPotentialSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ScannedFieldSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 6,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ShallowWaterNS.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ShearrateSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 33,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ShellSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 17,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/SimpleCircuits.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 6,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/Smitc.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 2,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/SpringAssembly.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 16,
+      "reason": [
+        "__statcurrentsolvefront_MOD_delegatetostatcurrentlegacy: character dummy (hidden length param)",
+        "__statcurrentsolvefront_MOD_legacyassembly: derived-type dummy (needs whole-program layout)",
+        "__statcurrentsolver_init_MOD_statcurrentsolver_boundary_residual: non-REAL(8) assumed-shape dtype",
+        "__statcurrentsolver_init_MOD_statcurrentsolver_edge_residual: non-REAL(8) assumed-shape dtype",
+        "__statcurrentsolver_init_MOD_statcurrentsolver_inside_residual: non-REAL(8) assumed-shape dtype"
+      ],
+      "unit": "fortran:fem/src/modules/StatCurrentSolve.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 12,
+      "reason": [
+        "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_boundary_residual: non-REAL(8) assumed-shape dtype",
+        "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_edge_residual: non-REAL(8) assumed-shape dtype",
+        "__statcurrentsolverlegacy_init_MOD_statcurrentsolverlegacy_inside_residual: non-REAL(8) assumed-shape dtype"
+      ],
+      "unit": "fortran:fem/src/modules/StatCurrentSolveLegacy.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 8,
+      "reason": [
+        "__statcurrentsolvevecfront_MOD_delegate: character dummy (hidden length param)",
+        "__statcurrentsolvevecfront_MOD_delegateto: character dummy (hidden length param)",
+        "__statcurrentsolvevecfront_MOD_legacyassembly: derived-type dummy (needs whole-program layout)"
+      ],
+      "unit": "fortran:fem/src/modules/StatCurrentSolveVec.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 8,
+      "reason": [
+        "__statelecboundaryenergy_MOD_statelecboundarycharge: untyped function result (no type prefix)",
+        "__statelecboundaryenergy_MOD_statelecboundaryenergy: untyped function result (no type prefix)",
+        "__statelecboundaryenergy_MOD_statelecboundaryforce: untyped function result (no type prefix)",
+        "__statelecboundaryenergy_MOD_statelecboundaryspring: untyped function result (no type prefix)",
+        "__statelecboundaryutils_MOD_electrostaticholecorrection: character dummy (hidden length param)",
+        "__statelecboundaryutils_MOD_statelecboundarygeneric: derived-type dummy (needs whole-program layout)",
+        "statelecboundaryenergy: untyped function result (no type prefix)"
+      ],
+      "unit": "fortran:fem/src/modules/StatElecBoundary.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 20,
+      "reason": [
+        "__statelecsolvefront_MOD_delegatetostateleclegacy: character dummy (hidden length param)",
+        "__statelecsolvefront_MOD_legacyassembly: derived-type dummy (needs whole-program layout)",
+        "__statelecsolver_init0_MOD_statelecsolver_boundary_residual: non-REAL(8) assumed-shape dtype",
+        "__statelecsolver_init0_MOD_statelecsolver_edge_residual: non-REAL(8) assumed-shape dtype",
+        "__statelecsolver_init0_MOD_statelecsolver_inside_residual: non-REAL(8) assumed-shape dtype"
+      ],
+      "unit": "fortran:fem/src/modules/StatElecSolve.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 17,
+      "reason": [
+        "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_boundary_residual: non-REAL(8) assumed-shape dtype",
+        "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_edge_residual: non-REAL(8) assumed-shape dtype",
+        "__statelecsolverlegacy_init_MOD_statelecsolverlegacy_inside_residual: non-REAL(8) assumed-shape dtype"
+      ],
+      "unit": "fortran:fem/src/modules/StatElecSolveLegacy.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 10,
+      "reason": [
+        "__statelecsolvevecfront_MOD_delegate: character dummy (hidden length param)",
+        "__statelecsolvevecfront_MOD_delegateto: character dummy (hidden length param)",
+        "__statelecsolvevecfront_MOD_injectphysicaleps0: derived-type dummy (needs whole-program layout)",
+        "__statelecsolvevecfront_MOD_legacyassembly: derived-type dummy (needs whole-program layout)"
+      ],
+      "unit": "fortran:fem/src/modules/StatElecSolveVec.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 7,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/StatMagSolve.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/SteadyPhaseChange.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 17,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/Stokes.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 19,
+      "reason": [
+        "__streamsolver_MOD_in: non-intrinsic dummy",
+        "__streamsolver_MOD_velocity: non-intrinsic dummy"
+      ],
+      "unit": "fortran:fem/src/modules/StreamSolver.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 20,
+      "reason": [
+        "__stresssolvefront_MOD_delegatetoelasticsolve: character dummy (hidden length param)",
+        "__stresssolvefront_MOD_legacyassembly: derived-type dummy (needs whole-program layout)",
+        "__stresssolvefront_MOD_mapstresssolvekeywords: derived-type dummy (needs whole-program layout)",
+        "__stresssolver_init0_MOD_stresssolver_boundary_residual: non-REAL(8) assumed-shape dtype",
+        "__stresssolver_init0_MOD_stresssolver_edge_residual: non-REAL(8) assumed-shape dtype",
+        "__stresssolver_init0_MOD_stresssolver_inside_residual: non-REAL(8) assumed-shape dtype"
+      ],
+      "unit": "fortran:fem/src/modules/StressSolve.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/StructuredFlowLine.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 7,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/StructuredMeshMapper.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 3,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/StructuredProjectToPlane.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 9,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/SunAngle.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 8,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/ThermoElectricSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 17,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/TopoOpt.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [
+        "__transientcost_init_MOD_for: non-intrinsic dummy"
+      ],
+      "unit": "fortran:fem/src/modules/TransientCost.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 6,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/TransientPhaseChange.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 7,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/TransportEquation.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [
+        "__umat_template_MOD_hencky_stvenant_kirchhoff: character dummy (hidden length param)",
+        "__umat_template_MOD_linear_isotropic: character dummy (hidden length param)",
+        "__umat_template_MOD_stvenant_kirchhoff: character dummy (hidden length param)",
+        "__umat_template_MOD_umat_template: character dummy (hidden length param)",
+        "umat_template: character dummy (hidden length param)"
+      ],
+      "unit": "fortran:fem/src/modules/UMATLib.F90",
+      "verdict": "refuse"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 19,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/VectorHelmholtz.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/VectorHelmholtzLumping.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 6,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/VectorHelmholtzNodal.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 3,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/VelocityPrecond.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 4,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/VorticitySolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 9,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/WPotentialSolver.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/WVectorFix.F90",
+      "verdict": "admit"
+    },
+    {
+      "ledger": "lane-fem-b",
+      "n_exports": 5,
+      "reason": [],
+      "unit": "fortran:fem/src/modules/WaveSolver.F90",
+      "verdict": "admit"
+    }
+  ]
+}
