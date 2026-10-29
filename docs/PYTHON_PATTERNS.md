@@ -46,7 +46,7 @@ Impact ≠ applicability: read the "does NOT help" line before using.
 
 | # | Pattern | Best representative evidence | Confidence |
 |---|---|---|---|
-| 1 | [PY2 Skip work on the fast-path input class](#py2-skip-work-on-the-fast-path-input-class-ascii-first) | email-validator 3.20x mixed-2000 (6.43x ascii-valid showcase) | Single |
+| 1 | [PY2 Skip work on the fast-path input class](#py2-skip-work-on-the-fast-path-input-class-ascii-first) | email-validator 3.20x mixed-2000 (6.43x ascii-valid showcase) | Medium |
 | 2 | [PY1 Hoist per-call rebuilds to or above the constructing call site](#py1-hoist-per-call-rebuilds-to-or-above-the-constructing-call-site) | arrow 1.99x end-to-end pipeline, 74.4 → 37.4 ms | High |
 | 3 | [PY4 Don't build bookkeeping nobody reads](#py4-dont-build-bookkeeping-nobody-reads) | fastjsonschema 1.63x rep (combined arm E) | Single |
 | 4 | [PY3 One C call instead of a per-character Python loop](#py3-one-c-call-instead-of-a-per-character-python-loop) | email-validator T-vec (part of 3.20x); fastjsonschema required 1.21x rep | Medium |
@@ -72,10 +72,14 @@ entries.
 | pyasn1 0.6.5 (410M dl/mo) | PY5 | **1.17x** rep (0.2694 → 0.2307 s); decode-only 1.22–1.23x | bytes-join arm 0.98x; header-cache arm 0.94x — recorded losers | `data/rs-port-pyasn1/{WORKLOAD.md,bench_tier1.py,tier1.patch,upstream-patch-note.md}`, ADR-060 |
 | mako 1.4.3 (181M dl/mo) | (noise) | **1.015x** (1.1406 → 1.1238 s, 40000 renders) | whole tier-1 is the loser; P3 parsetree analysis declined, ~15% bound only | ADR-064 (patch `tier1-runtime.patch` not in-tree; no `data/rs-port-mako/`) |
 | networkx 3.7 (199M dl/mo) | (losers only) | no shippable win; cached-export T2 1.39–1.77x needs an API change | T1 per-call export 0.4–0.6x; T3 no-conversion export 0.4–0.9x — measured losers | `data/rs-port-networkx/{WORKLOAD.md,bench_tier1.py,upstream-patch-note.md}`, ADR-066 |
+| idna 3.20 (1339.5M dl/mo) | PY2 | **2.60x** mixed-8000 (0.2228 → 0.0856 s); 7.52x ascii-16000 showcase; idn-4000 1.12x | T-import-only arm 1.01x mixed / 1.07x idn (fast path carries the win); per-label `lru_cache` analyzed but declined (unmeasured) | `data/rs-port-idna/{WORKLOAD.md,bench_port_results.csv,equiv_results.txt}`, ADR-070, https://github.com/John-Cusack/rustsmith/pull/144 |
+| mdurl 0.1.2 (427M dl/mo) | (losers only) | A+D combined **1.03x** (2.781 → 2.712 s) — below any offer bar, not offered | arm C 0.82x (generator fusion); arms A/B/D ~1.00x/1.00x/0.97x no-ops | `data/rs-port-mdurl/{WORKLOAD.md,bench.json,bench_tier1_results.json}`, ADR-069, https://github.com/John-Cusack/rustsmith/pull/143 |
 
 Box for all rows: Ryzen 9 5950X, CPython 3.12.3 (arrow: 3.12),
 min-of-5 (arrow, pyasn1) / min-of-7 (email-validator, fastjsonschema,
-mako) fresh-subprocess walls unless the entry says otherwise.
+mako, idna) fresh-subprocess walls; idna per-cell best-of-21 across 3
+min-of-7 sessions; mdurl fresh-subprocess medians-of-3
+(`/usr/bin/time -v`) — unless the entry says otherwise.
 
 ---
 
@@ -170,16 +174,25 @@ unchanged). Isolated T-idna effect: 2.03x mixed / 4.04x ascii
 (ablation: tier-1 minus this change). Upstream suite 306/306 both
 arms; 468-row differential (52 addresses × 9 option sets, incl.
 exception types/messages and combining-sequence adversarial cases)
-identical.
+identical. idna (`bench_tier1.py`, min-of-7 × 3 sessions, per-cell
+best): mixed-8000 representative 0.2228 → 0.0856 s (**2.60x**);
+ascii-16000 showcase 0.4264 → 0.0567 s (**7.52x**); idn-4000 showcase
+0.1398 → 0.1248 s (**1.12x**). Isolated T-import effect: 1.01x mixed
+/ 1.07x idn — the ASCII fast path carries essentially the whole win.
+Upstream suite 6441 passed + 56 subtests both arms; 900-row
+differential (incl. exact exception types/codes/messages), 0 mismatches.
 
 **Does NOT help.** The idn-1000 track (0.98x) is the boundary made
 visible: on IDN input the lane is structurally idna-bound and no
 in-package ASCII path can move it — a faithful port must either keep
 UTS-46/IDNA behind the seam or reimplement the shared `idna`
 dependency (ADR-065 kill math: own-code-only ceiling 1.66x < 2x;
-60.3% of remaining profiled CPU outside email-validator).
+60.3% of remaining profiled CPU outside email-validator). Same shape
+inside `idna` itself: the idn-4000 track moves only 1.12x — the ASCII
+class guard cannot touch UTS-46/punycode work, so the port (not more
+tier-1) is where that share goes (ADR-070).
 
-**Confidence: Single** (email-validator only; not yet replicated).
+**Confidence: Medium** (email-validator, idna).
 
 ---
 
@@ -301,6 +314,8 @@ as same-family until shown otherwise — ADR-060).
 | Per-call adjacency export in pure Python | networkx T1 0.4–0.6x, T3 0.4–0.9x on 1–5K-node graphs | No transparent patch exists; the Rust kernel walks the dict once inside (2.09–3.60x) — a shape not expressible in pure Python |
 | Export-cache without an invalidation story | networkx T2 1.39–1.77x but needs a caching-handle API on a mutable graph | API change, not a faster loop — out of scope ("never mirror the package") |
 | Valid-path set construction | fastjsonschema enum-only 0.99x on valid; stock set-minus on the valid path | PY3/PY4: move construction off the valid path |
+| Generator-expression fusion of an explicit C-`find` loop | mdurl arm C 0.82x (3.413 s vs 2.781 s baseline) — two nested generator frames cost more than the `for` + C-`find` loop | Keep the explicit loop; do not "clean up" what the profile says is already fast |
+| Hoisting an import the machinery already caches | idna T-import-only arm 1.01x mixed / 1.07x idn (`sys.modules` lookup per call is ~nothing) | Verify the hoist removes real per-call work before offering; the ASCII fast path (PY2) carried this win |
 | IDNA-bound track patched in the wrong package | email-validator idn-1000 0.98x | Leave idna to `idna`; take the ASCII path (PY2) or walk away |
 
 ---
@@ -367,6 +382,22 @@ One paragraph each. Numbers are the rows in the
   re-run the experiment. Survival shape noted for the Rust side:
   concentrated tight loop over plain data, whole-graph crossing, no
   user callbacks — port 2.09–3.60x (ADR-066).
+- **idna** — The second PY2 confirm: lowercase-ASCII-valid label fast
+  path in `check_label`/`alabel`/`ulabel` (one module-level regex;
+  match implies NFC-stable/PVALID/bidi-clean) plus a hoisted
+  `uts46data` import. 2.60x mixed rep / 7.52x ascii showcase; idn
+  1.12x is the same boundary email-validator hit from the other
+  side. T-import-only ablation (1.01x) proves the fast path carries
+  the win; per-label `lru_cache` analyzed but declined (unmeasured,
+  not a receipt). Patch + note live in the port repo per the captain
+  rule (no upstream PR opened, lane policy); the Rust port that
+  followed is a RUST_PATTERNS entry (6.85x/2.63x, ADR-070).
+- **mdurl** — The nothing-to-offer receipt: K1 ~= 0 (regexes already
+  module-precompiled, the one inline pattern absorbed by the `re`
+  cache), so the named thesis (hoist per-parse regex) did not
+  reproduce. A/B/D arms 1.00x/1.00x/0.97x; arm-C generator fusion
+  0.82x loser; combined 1.03x, not offered upstream. The port that
+  followed is a RUST_PATTERNS entry (3.12x, ADR-069).
 
 ## Appendix B: sources
 
@@ -374,7 +405,11 @@ In-repo: `data/rs-port-{arrow,email-validator,fastjsonschema,pyasn1,networkx}/{W
 bench results (`bench_tier1_results.json` where the lane kept one),
 `docs/adr/059/060/061/064/065/066`,
 `/home/john/firstmate/data/rs-rerank-4/report.md` §4 (upstream-offer
-inventory — states, not numbers).
-Mako: ADR-064 only (no lane data dir; patch not in-tree).
+inventory — states, not numbers). idna/mdurl: `data/rs-port-idna/`
+(WORKLOAD, bench CSV, equiv, ADR-070) and `data/rs-port-mdurl/`
+(WORKLOAD, bench JSONs, tier-1 results, review, verification,
+ADR-069); tier-1 patches + upstream notes in the port repos
+(idna-rust `9d8ce8b` / mdurl-rust `a7ce9fd` `tier1/`, no upstream PRs
+opened per lane policy).
 Process: [`PATTERN_REVIEW.md`](PATTERN_REVIEW.md).
 Upstream states: [`PYTHON_SPEEDUPS.md`](PYTHON_SPEEDUPS.md).

@@ -19,10 +19,15 @@ Rust-port lessons live separately in [`RUST_PATTERNS.md`](RUST_PATTERNS.md).
 | pyasn1 0.6.5 | 410M | 1.17x rep (0.2694 → 0.2307 s); 1.22–1.23x decode-only; join/header arms ~1.0x losers | `data/rs-port-pyasn1/tier1.patch` ([note](../data/rs-port-pyasn1/upstream-patch-note.md), ADR-060) | not offered | not offered (low priority) | No (no_gain, ADR-060: infinite-decode ceiling 1.83x < 2x) |
 | mako 1.4.3 | 181M | 1.015x (1.1406 → 1.1238 s, 40000 renders — noise) | not in-tree (`tier1-runtime.patch` in lane scratch only; ADR-064) | not offered | not offered (issue-only lead: parsetree caller-use analysis) | No (no_gain, ADR-064: realizable ≤1.17x at zero toll) |
 | networkx 3.7 | 199M | no shippable win: T1 0.4–0.6x, T3 0.4–0.9x losers; T2 1.39–1.77x needs an API change | none (losers recorded in [note](../data/rs-port-networkx/upstream-patch-note.md), ADR-066) | not offered | not offered (nothing to offer) | Yes — Dijkstra kernel port 2.09–3.60x, ADR-066 |
+| idna 3.20 | 1339.5M | 2.60x mixed-8000 rep (0.2228 → 0.0856 s); 7.52x ascii-16000 showcase; idn-4000 1.12x | not in-tree (`tier1/tier1.patch` in idna-rust `9d8ce8b` + [note](https://github.com/John-Cusack/idna-rust/tree/main/tier1); ADR-070) | not offered | not offered (note ready in port repo, no PR per lane policy) | Yes — port 6.85x rep / 2.63x over tier-1 (PR144) |
+| mdurl 0.1.2 | 427M | 1.03x A+D rep (2.781 → 2.712 s — noise-adjacent, not offered); arm C 0.82x loser | not in-tree (`tier1/tier1.patch` in mdurl-rust `a7ce9fd` + [note](https://github.com/John-Cusack/mdurl-rust/tree/main/tier1); ADR-069) | not offered | not offered (1.03x below any offer bar) | Yes — port 3.12x rep (2.93x over tier-1), ADR-069 |
 
 Box for all speedup rows: Ryzen 9 5950X, CPython 3.12.3 (arrow: 3.12);
-min-of-5/7 fresh-subprocess walls. RSS: email-validator worker
-self-RSS 14.5–16.1 → 16.0–17.0 MB; fastjsonschema flat 20–22 MiB;
-pyasn1 flat 21.7–22.5 MiB; mako 24272 → 25212 KB; arrow RSS not quoted
-in the lane note; networkx tier-1 RSS not reported. dl/mo from the
-lane ADRs (059/060/061/064/065/066).
+min-of-5/7 fresh-subprocess walls (idna: min-of-7 × 3 sessions,
+per-cell best; mdurl: fresh-subprocess medians-of-3). RSS:
+email-validator worker self-RSS 14.5–16.1 → 16.0–17.0 MB; fastjsonschema
+flat 20–22 MiB; pyasn1 flat 21.7–22.5 MiB; mako 24272 → 25212 KB; arrow
+RSS not quoted in the lane note; networkx tier-1 RSS not reported; idna
+stock ~14.8–15.3 → tier-1 ~15.1–16.0 MB worker self-RSS (temp-copy
+harness delta, ADR-070); mdurl flat ~12 MB both arms. dl/mo from the
+lane ADRs (059/060/061/064/065/066/069/070).

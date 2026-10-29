@@ -57,9 +57,11 @@ Impact ≠ applicability: read the "does NOT help" line before using.
 
 Deliberately not in the top 10 despite being load-bearing:
 [P7 fast path + delegation guard](#p7-narrow-fast-path--delegation-guard--bail-to-fallback)
-(it *enables* the wins above without claiming one itself) and
+(it *enables* the wins above without claiming one itself),
 [P11 probe headroom before porting](#p11-probe-headroom-first-port-only-the-proven-kernel)
-(it saves lanes, not cycles — charset and pygments are its receipts).
+(it saves lanes, not cycles — charset and pygments are its receipts), and
+[P13 transcribe the host's boundary semantics exactly](#p13-transcribe-the-hosts-boundary-semantics-exactly-fuzz-the-edges)
+(a correctness gate: 0-divergence receipts, no speedup claimed).
 
 ---
 
@@ -90,6 +92,8 @@ its honest loser. Detail in the pattern entries and
 | babel | P6, P7, P12 | decimal 2.2–2.3x, currency 3.4x, datetime 3.3–3.5x; frozen workload 3.3x | `Locale.parse` lookup track unported → no win claimed (~1.0x; stays Python per ADR-054 seam) | babel-rust `28881a5`; README board row 2026-10-28, ADR-054 |
 | sqlparse | P1, P12, P8, P6 | 7.4x split-1x; 11.7x format-reindent-1x; 4.3x parse-single | peak RSS +0–20% bulk (batch tables vs generator pipeline) | sqlparse-rust `0d4fcd3` README; `data/rs-port-sqlparse/{bench,retro}.md`, ADR-053-sqlparse |
 | Elmer recrafts | P9, P3-neg, P2-neg | `mtr_sum` 4.76–19.72x; `ludecomp` 1.04–1.13x; RSS ±0.4% | `jacobi` 1.01x / variant 0.96x — reverted; branch-hoist/index variants 0.81–0.94x — rejected (compiler already does it) | elmer-rust PR9 / rustsmith PR110 recraft rows (open PRs at measurement; digest-identical arms) |
+| idna | P1, P2, P6, P7, P12 (+P13 trap) | 6.85x mixed-8000 / 2.63x over tier-1; 8.49x idn-4000 showcase over tier-1; RSS +~0.5–0.8 MB mixed (extension pages) | x1-invalid 0.75x vs tier-1 (failure-path double-pay); ascii 1.34x over tier-1 (tier-1 harvested the shape) | idna-rust `9d8ce8b` README bench table; `data/rs-port-idna/bench_port_results.csv`; https://github.com/John-Cusack/rustsmith/pull/144 |
+| mdurl | P1, P2, P4, P8 | 3.12x rep (600k URLs) / 3.69x x1; RSS +~0.6 MB | tier-1 arm C 0.82x (generator fusion); B/D ~1.00x no-ops | mdurl-rust `a7ce9fd` README + `data/rs-port-mdurl/bench.json`; https://github.com/John-Cusack/rustsmith/pull/143 |
 
 ---
 
@@ -134,6 +138,9 @@ if type(self) is Lexer:  # ... -> _core.tokenize_flat(text)
 small docs, 67x bulk-256KB showcase, ~13x lower peak RSS
 (625908→47300 KiB bulk). sqlparse: 5.3–12.4x across split/parse/
 format. tabulate: one kernel call per `tabulate()` → 10.12–11.87x.
+idna: one crossing per address (`encode_address`/`decode_address`,
+whole UTS-46 kernel) → 6.85x mixed-8000 rep (2.63x over tier-1),
+9.51x/8.49x idn-4000 showcase vs stock/tier-1.
 
 **Does NOT help / inverted when violated.** markdown-it bulk:
 **0.20x** on render-280KB (587→2972 ms) while the same port is 2.36x
@@ -148,7 +155,12 @@ ADR-029) still wins 3.04x because the per-token Rust work (scanner
 state machine) is large; the toll is bounded and *disclosed*, not
 absent. Rule: if per-item work < ~1 µs, P1 is mandatory; if per-item
 work is a whole state-machine step, measure the toll explicitly
-(X1 overhead rows exist for exactly this).
+(X1 overhead rows exist for exactly this). Even a correct P1 seam
+double-pays on the failure path: idna x1-invalid is 0.75x vs tier-1
+(13→6 µs tier-1, port 8 µs — the kernel rejects fast, then the
+pure-Python path re-raises the byte-exact error); rare in real traffic
+(mixed rep still wins 2.63x with 10% invalid mixed in), but the
+invalid-only track is the receipt.
 
 **Confidence: High** (docutils, sqlparse, tabulate, marshmallow,
 dateutil-rrule confirm; markdown-it confirms by violation).
@@ -192,7 +204,11 @@ pub fn update_table(reg: u64, cfg: &Config, table: &[u64; 256], data: &[u8]) -> 
 (upstream PR212) already gave 16.8x CRC-32-5MiB / 24.7x CRC-16 /
 4.9x CRC-64 — proof the win is the loop shape first, the language
 second. sympy `dup_mul` (flat `&[Qq]` slices, zero-skip, one output
-`Vec`): 5.06x/8.75x. strsimpy distance kernels: 65.15x.
+`Vec`): 5.06x/8.75x. strsimpy distance kernels: 65.15x. idna:
+per-char classify + `intranges_contain` wrapper (bit-twiddling around
+one C `bisect`) → one `partition_point` binary search over static
+u32 ranges, `u32`-code-point loop, one output `Vec`: 6.85x/2.63x
+mixed rep, 9.51x/8.49x idn showcase.
 
 **Does NOT help.** When the loop body must call user code per item
 (pygments `RegexLexer` callbacks, marshmallow custom fields) —
@@ -272,7 +288,10 @@ binding keeps one owned `String` alive for the whole parse.
 fuzzy_with_tokens 10.82x, edge rows to 13.59x; port RSS ~1.2 MB
 *above* baseline (extension pages — disclosed, 16.2→17.4 MB).
 Differential: 6138/6138 corpus rows identical before/after the
-borrow rewrite.
+borrow rewrite. mdurl: kernel borrows `&str` end to end (`py_strip`,
+`match_simple_path` return slices; owned `String` only where the
+algorithm rebinds `rest` or emits fields) as part of the 3.12x rep /
+3.69x x1 port (RSS flat ~12 MB both arms).
 
 **Does NOT help.** Where tokens must outlive the input or cross back
 as owned Python objects per token anyway (markdown-it token objects:
@@ -280,8 +299,9 @@ borrowed spans can't fix a P1 violation). Remaining per-token allocs
 in dateutil (`lower_token` per table probe) were deliberately left —
 measure before chasing the tail.
 
-**Confidence: Medium** (dateutil primary; pyparsing `RawUnits`
-borrowed-unit scan is the same shape, its win is booked under P8).
+**Confidence: Medium** (dateutil primary; mdurl second independent
+confirm — pyparsing `RawUnits` borrowed-unit scan is the same shape,
+its win is booked under P8).
 
 ---
 
@@ -357,6 +377,14 @@ Evidence shapes:
 - **sqlparse** (`0d4fcd3`): default lexer config (regex order +
   813-entry keyword map) baked into the core at build time from the
   installed upstream, with provenance header (ADR-053-sqlparse).
+- **idna** (`9d8ce8b`): UTS-46/IDNA tables generated from the oracle
+  package's *own* data files (`idnadata`/`uts46data` for IDNA/UTS-46,
+  the build interpreter's `unicodedata` for bidi/category/combining —
+  `tools/gen_tables.py`, zero-skew rule), never a third-party crate's
+  version. The generated header records both versions
+  (package data Unicode 18.0 vs interpreter `unicodedata` 15.1 — ADR-070); the
+  differential over TR46 vectors plus 16,498 fuzz rows shows
+  0 divergences.
 - **pygments**: `regex_opt` keyword-regex builder runs at
   lexer-definition import time — porting just that builder measured
   9.32x on its showcase row while everything else tied (P11).
@@ -409,14 +437,17 @@ crc PR212 shape: non-`bytes` input or an overridden `_process_byte`
 lets P1/P2/P6 ship at 100% oracle parity (tabulate 318-suite +
 400/400 differential at 10–12x; marshmallow 1188/1188 at 4.53x;
 sqlparse 506-suite + fuzz at 4.3–12.4x; babel 69,401-comparison
-equivalence, kernel hit 99.9%, at 1.9–3.5x).
+equivalence, kernel hit 99.9%, at 1.9–3.5x; idna 6441-suite + 1725
+differential + 900-row + 16498-row fuzz, 0 mismatches, at 6.85x/2.63x).
 
 **Does NOT help.** If the guard itself is per-item expensive, or the
 fallback class is the *common* class (then you ported the rare path:
 pyparsing grammars 0.98x — the scan kernel pays, real grammars route
-around it). Lone surrogates must route to fallback (pygments):
+Lone surrogates must route to fallback (pygments, idna):
 Rust `String` cannot hold them; silent U+FFFD corruption is worse
-than no speedup.
+than no speedup. idna's shim catches `UnicodeError` from the `&str`
+crossing next to `KernelFailed` and re-runs the pure path, which
+raises the byte-exact error — same receipt, second port.
 
 **Confidence: High** (every shipped port uses a variant).
 
@@ -439,7 +470,9 @@ exact where the original used them — probe-then-fuzz the edges
 11.7–12.4x format rows. pycparser hand lexer + recursive-descent
 parser: 5.5x (4KB real), 6.3x (30KB real TU), 8.0x (7KB synth),
 2.4x (390KB synth) parse. pyyaml scanner state machines: 3.04x scan
-(via P12 facades).
+(via P12 facades). mdurl: 4 module regexes + 2 find-loops + 2
+`rfind`s hand-rolled into one pass, part of the 3.12x rep port (the
+displaced C-`re` was 8.5% of profile, C-`find`s 19%).
 
 **Does NOT help.** When the shared C `re` engine already *is* the
 hot path and Python dispatch between matches is thin: pygments
@@ -449,7 +482,11 @@ negative boundary with measured rationale). When the lexer is a
 runtime-constructible user grammar: pyparsing real grammars
 **0.98x** — only the fixed scan kernels port, the combinator engine
 stays. Headroom probe separates these before you build (P11:
-pygments regex fraction 0.54 capped its score).
+pygments regex fraction 0.54 capped its score). And do not "clean up"
+an explicit loop into generator fusion: mdurl tier-1 arm C fused the
+two min-find loops into `min(...)` generator expressions and measured
+**0.82x** (3.413 s vs 2.781 s baseline) — generator frames cost more
+than the explicit `for` + C-`find` loop they replace.
 
 **Confidence: High** (pyparsing-scan, sqlparse, pycparser, pyyaml;
 pygments as the measured counter-case).
@@ -588,15 +625,75 @@ constructing the tree *directly* in the binding cut parse-8x RSS
 from +33% to +9% — build direct construction first, RSS is a
 first-class citizen for parser ports. multipart 1.86x/2.72x with
 verbatim Python orchestration around the Rust byte state machines.
+mdurl: the `URL` NamedTuple is rebuilt Python-side from 8 scalars
+(7× `Option<String>` + bool), `decode`/`encode` re-exported from
+upstream, as part of the 3.12x rep port — the call path stays Python
+while the kernel is Rust. idna: failures surface as byte-exact
+`IDNAError` raised from Python (shim catches `KernelFailed`), part
+of the 6.85x/2.63x port.
 
 **Does NOT help.** When the object layer *is* the hot path
 (markdown-it: token objects + plugin callbacks per token → the
 hybrid degenerates into P1 violation, 0.20x bulk). When per-node
 descriptor conversion exceeds engine savings at small sizes, X1
 rows expose it (pyyaml tiny-scan 1.23x only; upstream-shape scan
-tiny-doc 0.85x regression disclosed in the lane-1 report).
+tiny-doc 0.85x regression disclosed in the lane-1 report). Boundary
+caution: inputs the host accepts but Rust `str` cannot hold (lone
+surrogates) must fall back, never convert lossy — see P7 (pygments,
+idna) and [P13](#p13-transcribe-the-hosts-boundary-semantics-exactly-fuzz-the-edges).
 
 **Confidence: High** (pyyaml, sqlparse, multipart, babel).
+
+---
+
+### P13. Transcribe the host's boundary semantics exactly; fuzz the edges
+
+**Problem shape.** The port must reproduce host-stdlib edge semantics
+that the native side defines differently, or accept inputs the native
+string type cannot hold at all: Python `str.strip` / `re \s` treat
+U+001C–U+001F as whitespace while Rust `char::is_whitespace`
+(White_Space) does not; a Python `str` can hold lone surrogates while
+Rust `&str`/`String` cannot; and embedded Unicode tables can skew from
+the interpreter's `unicodedata` (idna 3.20 data is Unicode 18.0,
+CPython 3.12 `unicodedata` is 15.1).
+
+**Technique.** Re-implement the *host's* class, not the obvious native
+one; route unrepresentable inputs to the pure-Python fallback instead
+of lossy conversion; generate validation tables from the oracle
+package's own data files plus the build interpreter's `unicodedata`,
+recording both versions in the generated header (P6); and prove the
+edges with differential fuzz (controls/unicode/empty/surrogates) —
+every trap below was found by the fuzzer, none by reading.
+
+After (mdurl-core `src/lib.rs` — the host class, transcribed):
+
+```rust
+fn py_is_space(c: char) -> bool {
+    c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
+}
+```
+
+Before/after seam (idna `idna/core.py` shim — unrepresentable input
+falls back instead of converting lossy):
+
+```python
+try:
+    return _rust.encode_address(s, strict, uts46, std3_rules)
+except (_rust.KernelFailed, UnicodeError):
+    pass  # pure-Python path below raises the byte-exact IDNAError
+```
+
+**Measured.** mdurl: 24,176/24,176 pairs identical after the fix
+(1,827 mismatches before, all `\x1c`-padded/edge inputs), as part of
+the 3.12x rep / 3.69x x1 port. idna: 16,498/16,498 fuzz rows plus the
+900-row differential and the 6,441 upstream suite, 0 divergences, as
+part of the 6.85x / 2.63x port.
+
+**Does NOT help.** No loser recorded yet — this is a correctness gate,
+not a speedup lever. Its runtime cost is one range check per class
+test (unmeasured, negligible against the kernel win it protects).
+
+**Confidence: Medium** (mdurl, idna).
 
 ---
 
@@ -639,6 +736,8 @@ incomplete (`PATTERN_REVIEW.md` checklist).
 | Hand-unswitching / strength-reducing compiled Rust | Elmer variants 0.81–0.94x rejected; jacobi 1.01x reverted | P9: fix access order only; A/B every variant |
 | Batch materialization ignoring RSS | sqlparse parse-8x +33% RSS (first design) | Direct construction; drop tables pre-return |
 | Alloc win read as wall win | charset latin: alloc 2112→28 KB, wall 0.57x | Report both columns; gate on wall |
+| Native string/class narrower than the host's | mdurl U+001C–U+001F whitespace + idna lone surrogates: fuzz-found, 0 divergences after fix | P13: transcribe the host class, fuzz the edges, fall back |
+| Failure-path double-pay at a correct P1 seam | idna x1-invalid 0.75x vs tier-1 (kernel rejects fast, Python re-raises exact) | Disclose; gate on the representative track, not the invalid-only one |
 | Showcase quoted as typical | (process rule) | Two-track benches; representative gates, showcase labels ceiling |
 
 ---
@@ -756,6 +855,20 @@ the rows cited in the [index](#per-port-index).
   cosmetics measured 0.81–1.01x and were reverted/rejected. The
   deliverable pattern is the harness + one-change-per-variant
   discipline now templated for the remaining campaign units.
+- **idna** — Whole-address kernel (P1) over per-char classify +
+  `bisect` (P2: one binary search over static u32 ranges) with
+  oracle-data tables baked in (P6 zero-skew codegen) and a
+  tier-1-ASCII-guard-shaped delegation seam (P7: `KernelFailed` /
+  `UnicodeError` → pure path raising byte-exact `IDNAError`, P12).
+  6.85x/2.63x mixed rep; ascii 10.08x/1.34x showcase (tier-1
+  harvested that shape); idn 9.51x/8.49x showcase; x1-invalid 0.75x
+  vs tier-1 is the failure-path double-pay receipt (P1). Lone-
+  surrogate fallback is the second P13 confirm (with mdurl).
+- **mdurl** — Whole-URL kernel (P1) as one byte-loop scan (P2) over
+  a borrowed `&str` (P4), 4 regexes + find-loops hand-rolled into one
+  pass (P8). 3.12x rep / 3.69x x1 at flat RSS. Tier-1 arms B/D ~1.0x
+  no-ops and arm-C 0.82x generator-fusion loser are the recorded
+  receipts; the `\x1c` whitespace trap is the first P13 confirm.
 
 ## Appendix B: sources
 
@@ -770,5 +883,9 @@ Mirror repos (commit read for this guide): babel-rust `28881a5`,
 docutils-rust `8e53457`, marshmallow-rust `e8d863d`,
 pycparser-rust `35c2965`, sqlparse-rust `0d4fcd3`,
 sympy-rust `325b926`, tabulate-rust `b1fe9a2`,
-elmer-rust `484ffe6` + recraft PR9 (rustsmith PR110 evidence rows).
+elmer-rust `484ffe6` + recraft PR9 (rustsmith PR110 evidence rows),
+idna-rust `9d8ce8b` (rustsmith PR144), mdurl-rust `a7ce9fd` (rustsmith PR143).
+Lane evidence: `data/rs-port-idna/` (WORKLOAD, bench CSV, equiv,
+ADR-070), `data/rs-port-mdurl/` (WORKLOAD, bench JSONs, tier-1 results,
+review, verification, ADR-069).
 Process: [`PATTERN_REVIEW.md`](PATTERN_REVIEW.md).
