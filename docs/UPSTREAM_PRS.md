@@ -1,355 +1,490 @@
-# Upstream PRs — the end-to-end process for offers that get merged
+# Upstream PRs
 
-How rustsmith offers pure-Python speedups (and, earlier, small Rust
-accelerators) back to upstream projects so that maintainers actually
-merge them. Docs only: no code, no gate changes, no upstream contact
-beyond the PRs themselves. Per the repo rule, per-project patch work
-lives in its fork or its own repo; this file holds the generic process
-plus the evidence behind each rule.
+How we offer speedups to upstream Python projects, and how we reply on
+those threads afterwards. Every PR and every comment goes through the same
+steps: a reason a real user needs it, the smallest change that delivers
+it, measured costs, short text, three independent reviews, and a person
+who signs off before anything is posted.
 
-Related: [`PYTHON_SPEEDUPS.md`](PYTHON_SPEEDUPS.md) (per-package
-tracker — the upstream lane owns its PR URL + status cells),
-[`PATTERN_REVIEW.md`](PATTERN_REVIEW.md) (the review pass never touches
-those cells), [`PYTHON_PATTERNS.md`](PYTHON_PATTERNS.md) (the mechanisms
-worth offering).
+Related: [`PYTHON_SPEEDUPS.md`](PYTHON_SPEEDUPS.md) is the per-package
+tracker (the offering lane owns its PR URL and status cells),
+[`PYTHON_PATTERNS.md`](PYTHON_PATTERNS.md) lists the mechanisms worth
+offering, and [`PATTERN_REVIEW.md`](PATTERN_REVIEW.md) never touches the
+tracker's PR cells.
 
-## Evidence base (all states as of 2026-10-29)
+## What maintainers have told us
 
-Ten upstream PRs from two generations of lanes. The first generation
-offered small Rust accelerators / pure-Python hot-path fixes; the
-second (tier-1 lanes, report in
-`/home/john/firstmate/data/rs-upstream-tier1/report.md`) offers
-measured pure-Python tier-1 patches with before/after wall + peak RSS.
-Every rule below cites the row that taught it.
+As of 2026-10-29 none of our upstream PRs has been merged. Every
+maintainer reply so far has been about motive, size, or whether a person
+checked the work. None was about the speedup number.
 
-| PR | Shape | State | Maintainer signal |
-|---|---|---|---|
-| [Nicoretti/crc#210](https://github.com/Nicoretti/crc/pull/210) | pure-Python fast loop (~18x) | **closed, unmerged** | "AI PR with failing CI." — 12/18 checks red |
-| [Nicoretti/crc#211](https://github.com/Nicoretti/crc/pull/211) | resubmit + missing tests | **closed, unmerged** | "code is not dry, test do not use best practices and does not fit existing style" |
-| [Nicoretti/crc#212](https://github.com/Nicoretti/crc/pull/212) | single-impl loop, unittest-style tests | open | no maintainer reply yet; fork-CI awaiting approval, local proof posted in a comment instead |
-| [JoshData/python-email-validator#182](https://github.com/JoshData/python-email-validator/pull/182) | 4 mechanical wins, 2.97x rep | open | "But why?" — motivation questioned, not mechanics |
-| [arrow-py/arrow#1398](https://github.com/arrow-py/arrow/pull/1398) | class-level memo + parser-per-locale, 1.81x pipeline | open, `REVIEW_REQUIRED` | none yet; 24/27 CI legs green, 3 reds triaged in a comment |
-| [horejsek/python-fastjsonschema#233](https://github.com/horejsek/python-fastjsonschema/pull/233) | draft04-only codegen shapes, 1.48x rep | open | none yet |
-| [yaml/pyyaml#976](https://github.com/yaml/pyyaml/pull/976) | optional Rust scan core | open | none — no comments, no reviews (ignored so far) |
-| [dateutil/dateutil#1609](https://github.com/dateutil/dateutil/pull/1609) | tokenizer by index, py2.7-compatible | open | none — 44/45 checks, no comments |
-| [executablebooks/markdown-it-py#449](https://github.com/executablebooks/markdown-it-py/pull/449) | per-line markers | open | none — 2/2 checks, no comments |
-| [Kludex/python-multipart#337](https://github.com/Kludex/python-multipart/pull/337) | callback hoist, same shape as their #316 | open, 2 reviews | codspeed bot: **+30.55%** on their own benchmark |
+| PR | What happened |
+|---|---|
+| [Nicoretti/crc#210](https://github.com/Nicoretti/crc/pull/210) | Closed: "AI PR with failing CI." Their coverage gate (`fail-under=100`) fell to 98%. |
+| [Nicoretti/crc#211](https://github.com/Nicoretti/crc/pull/211) | Closed: "code is not dry, test do not use best practices and does not fit existing style". |
+| [JoshData/python-email-validator#182](https://github.com/JoshData/python-email-validator/pull/182) | "But why?" The body said what changed and how fast, but not who needs it. |
+| [kjd/idna#286](https://github.com/kjd/idna/pull/286) | Closed: "highly complicated for what is a trivial small optimization", and the import move "causes a significant regression by forcing a significant dependency that most users of the library will not use. It looks like it was AI generated and I can't imagine it has had any legitimate human review." The maintainer merged the same idea as [kjd/idna#287](https://github.com/kjd/idna/pull/287): three added lines. |
+| [arrow-py/arrow#1398](https://github.com/arrow-py/arrow/pull/1398), [horejsek/python-fastjsonschema#233](https://github.com/horejsek/python-fastjsonschema/pull/233), [yaml/pyyaml#976](https://github.com/yaml/pyyaml/pull/976), [dateutil/dateutil#1609](https://github.com/dateutil/dateutil/pull/1609), [executablebooks/markdown-it-py#449](https://github.com/executablebooks/markdown-it-py/pull/449) | Open, no maintainer reply yet. |
+| [Kludex/python-multipart#337](https://github.com/Kludex/python-multipart/pull/337) | Open. Their own benchmark bot reported +30.55%. |
 
-Plus: idna tier-1 (2.60x mixed / 7.52x ascii, note in
-`/home/john/firstmate/data/rs-upstream-idna/upstream-patch-note.md`)
-was PR-ready but unopened at time of writing — the offer lane was still
-running. And the deliberate non-offers: pyasn1 (1.17x, low priority),
-mako (1.015x noise — issue-only lead), networkx tier-1 (needs an API
-change; the offer was a Rust kernel port instead, ADR-066).
+So the process is built against three complaints: no clear reason, too
+much code and text for the gain, and no sign that a person checked it.
 
-Two patterns in the table matter most. First, **nothing has been merged
-yet** — the process below is built from closes and silences, not from
-victories; follow it to avoid the known failure modes, not because it
-guarantees a merge. Second, the only maintainer sentences we have are
-the two crc closes and one "But why?": every one of them is about
-*trust* (red CI, foreign style, unclear motive), never about the
-speedup number. The process optimizes for trust.
+## The steps
 
-## 1. Target selection
+1. Write the why.
+2. Make the diff small.
+3. Measure the gain and every cost a user could see.
+4. Write the text and run the humanizer skill on it.
+5. Run the mechanical check.
+6. Run the review panel: three fresh agents, one packet.
+7. Resolve the verdicts. Shrink or hold when they say so.
+8. A person signs off and posts.
 
-- **Active maintainers first.** Check the commit log and recent merge
-  rate before investing lane time: PRs into repos that merge weekly get
-  answers; #976 / #1609 / #449 show that even live PRs with green CI
-  can sit uncommented for weeks when maintainers are busy. Prefer the
-  highest-download target whose maintainers merged *something* in the
-  last month.
-- **Read their AI-contribution policy and disclosure requirements
-  before writing a line.** None of email-validator, arrow, or
-  fastjsonschema had an AI clause in CONTRIBUTING as of 2026-10-29 —
-  but crc's maintainer closed #210 as "AI PR with failing CI" with no
-  written policy to point at. Policies appear without notice and norms
-  apply without being written: assume every diff will be read as
-  AI-authored, and pre-empt it (green gates, house style, human body
-  text — §§4–6). If a repo *does* require disclosure or a sign-off,
-  that is a hard gate, not guidance.
-- **Don't offer what they can't take.** pyasn1 (1.17x) was held as low
-  priority; mako (1.015x, inside noise) was never offered; networkx T2
-  needed an API change so it stayed a note (ADR-066). Below ~1.2x on
-  the representative track, or anything needing an API change, is not
-  an offer — record it and walk away.
+Replies and comments on upstream threads go through steps 4 to 8 as
+well (see [Replies and comments](#replies-and-comments)).
 
-## 2. Issue-first versus PR-first
+The pieces live here:
 
-Discover per repo, every time: CONTRIBUTING, PR template, code of
-conduct, dev docs, CI config. No shortcut from the last repo carries
-over.
+| File | Used in |
+|---|---|
+| [`prompts/upstream_pr/writer.md`](../prompts/upstream_pr/writer.md) | Steps 1 to 4: brief for whoever prepares the PR |
+| [`prompts/upstream_pr/pr_body_template.md`](../prompts/upstream_pr/pr_body_template.md) | Step 4: PR title and body |
+| [`prompts/upstream_pr/reply_template.md`](../prompts/upstream_pr/reply_template.md) | Step 4: replies and comments |
+| [`scripts/upstream_pr_check.sh`](../scripts/upstream_pr_check.sh) | Step 5: word counts, banned terms, dashes, title, diff warnings |
+| [`scripts/upstream_pr_packet.sh`](../scripts/upstream_pr_packet.sh) | Step 6: builds the packet the reviewers see, runs the check |
+| [`prompts/upstream_pr/review_maintainer.md`](../prompts/upstream_pr/review_maintainer.md) | Step 6: skeptical maintainer |
+| [`prompts/upstream_pr/review_ai_tells.md`](../prompts/upstream_pr/review_ai_tells.md) | Step 6: AI tells, using the humanizer skill's patterns |
+| [`prompts/upstream_pr/review_facts.md`](../prompts/upstream_pr/review_facts.md) | Step 6: facts and numbers |
 
-- None of email-validator / arrow / fastjsonschema required an issue
-  first — PRs went directly. If the docs *do* require an issue (or a
-  discussion), open it and stop at needs-decision until maintainers
-  respond; never open the PR to force the question.
-- If the repo has a PR template, it goes first verbatim (checklist
-  included), evidence after — arrow #1398 kept the template checklist
-  on top. No template → free-form body (§6).
-- Changelog and sign-off rules are per repo and binding:
-  email-validator and fastjsonschema both expect contributor CHANGELOG
-  entries under the unreleased section (verified from their git log —
-  both PRs added one); arrow's changelog is maintainer-curated at
-  release time, so #1398 added none. Copy what recent merged PRs did,
-  not what you prefer.
+## 1. The why
 
-## 3. Smallest reviewable diff, no behavior change, their style
+Before touching code, write two sentences: who calls this code, how often,
+and what it costs them today. Then check them.
 
-The #211 close is the whole section: "code is not dry, test do not use
-best practices and does not fit existing style." Concretely:
+- Read the project's README for the use it names. email-validator says it
+  is for registration and login forms: one address per request, often
+  followed by a DNS check that takes milliseconds. Saving 37 µs per
+  address means nothing there. A why for that project has to name a
+  different caller, and one exists: pydantic's `EmailStr` calls
+  `email_validator.validate_email(..., check_deliverability=False)` for
+  every value it validates, so bulk imports pay it once per record.
+- Name a real caller and link it: a dependent library, a framework
+  integration, an issue that asks for speed.
+- If the only caller you can name is our benchmark loop, there is no PR.
+  Mark it held in the tracker.
 
-- **One concern, minimal files.** fastjsonschema #233 kept to
-  `draft04.py` even though the same shapes apply to draft06/07 —
-  "kept this PR to `draft04` to stay reviewable." Offer the follow-ups
-  in prose, not in the diff.
-- **No behavior change, ever.** Same exceptions, messages, normalized
-  forms, error paths. Prove it with a differential corpus on top of
-  their suite (email-validator: 468/468 identical stock-vs-patched
-  including exception type and message; fastjsonschema: sha256 outcome
-  checksums + error samples agree on all three tracks; arrow: 20/20
-  including 5 error-path cases).
-- **Match the file's existing idiom, not yours.** #212 exists because
-  #211's tests weren't in the module's unittest style and the loop was
-  two near-identical copies. Constraints propagate: dateutil #1609
-  kept Python 2.7-compatible syntax because the codebase is; arrow
-  #1398 added tests because their template and 99%-coverage gate demand
-  them.
-- **New tests where the repo's gates need them, not blanket coverage.**
-  Arrow got cross-instance memo sharing, locale isolation, eviction,
-  and factory tests (coverage gate 99% → achieved 99.93%). crc #210
-  died on `fail-under=100` at 98% — five uncovered lines — so #211/#212
-  added exactly the delegation-guard and bypassed-body tests. Run
-  *their* coverage gate locally and close the gap before opening.
+The older target rules still apply. Prefer projects whose maintainers
+merged something in the last month. Read CONTRIBUTING, the PR template,
+and any AI or disclosure policy before writing a line; a required issue,
+sign-off, or disclosure is a hard gate. Do not offer anything below about
+1.2x on the workload that matches the why, or anything that needs an API
+change.
 
-## 4. Reproduce their environment, run their gates, rebase, re-measure
+## 2. The diff
 
-Do this on current upstream main, not on the lane's pinned base — the
-rebase itself finds real bugs:
+Start from the smallest change that could carry the gain, and add a hunk
+only when it earns its place.
 
-- **Fresh venv per repo, installed per their docs.**
-  email-validator: `test_requirements.txt` + `pip install -e .`, then
-  `make`-equivalent flake8/mypy/pytest. Arrow: `requirements-tests.txt`
-  + editable install, `pytest` with `--cov-fail-under=99`, `pre-commit
-  run --all-files`. fastjsonschema: `.[devel]` + the
-  `JSON-Schema-Test-Suite` submodule init (`make test` needs it).
-- **Rebase the patch onto main HEAD and re-measure there.** Stock arm =
-  pristine `git archive` of HEAD; patched arm = the fork branch; same
-  frozen workload, fresh subprocesses, min-of-several walls, peak RSS
-  both arms. Numbers measured against a stale base are not evidence.
-- **Run their full suite on both arms.** Twice this caught real patch
-  bugs, not flakes: arrow's naive class-level key broke
-  `test_parse_unrecognized_token` (in-place `_BASE_INPUT_RE_MAP` mock
-  vs stale cache entry) — fixed by keying the memo on a per-instance
-  input-map fingerprint, no test modifications needed. fastjsonschema's
-  `_keys`-line skip exposed codegen `IndentationError` on
-  trivially-checkless schemas (`properties: {}`, solo
-  `additionalProperties: true/{}`) — fixed by hoisting trivial returns
-  above the `if`-emitting block. If their suite passes unmodified, say
-  so; it is the strongest sentence in the body.
+- Measure each hunk on its own (leave it out, or add it alone) on the why
+  workload, and keep the table in the evidence. A hunk stays if it
+  carries roughly 10% or more of the total gain, or if another hunk needs
+  it to be correct. idna#287 kept 89% of the time idna#286 saved on the
+  mixed workload, with 3 added lines against 11. The import move in #286
+  bought nothing we could measure (our own body said it "barely changes
+  the numbers") and cost every user at import.
+- Write it the way the maintainer would: their names, their comment
+  density, no new module state unless it pays for itself. Keep our terms
+  out of the code. #182 shipped a comment that began "Tier-1 (pure-Python)
+  fast paths".
+- If you would offer to split the PR, split it first and post the smaller
+  part. An offer to split in the body tells the maintainer the PR is
+  bigger than it needs to be.
+- No behavior change: same return values, exceptions, and messages. Match
+  the file's idiom (crc#211 failed on style). Add tests only where their
+  gates need them, and run their coverage gate locally (crc#210 failed on
+  it).
 
-## 5. Proof format (PR body evidence section)
+## 3. Measure
 
-Every offer carries the same five items, workload-labeled, both sides.
-Copy the template in §9. Rules:
+Reproduce their environment from their own docs in a fresh venv, rebase
+onto current upstream main, and measure there. Both arms (main and the
+branch) run in fresh processes, arms interleaved, min of several runs.
+Use VmHWM for memory; `ru_maxrss` reads constant on some of our machines.
 
-- Before/after **wall time and peak RSS** on the same frozen workload,
-  both sides, with machine + interpreter versions and exact
-  reproduction commands. Min-of-N fresh-subprocess walls; VmHWM/`ru_maxrss`
-  for RSS (note: `ru_maxrss` is constant-broken on some boxes — the tier-1
-  lanes verified against VmHWM; say which you used).
-- Representative track first, showcase second, near-unchanged tracks
-  disclosed, not hidden (email-validator idn-1000 1.09x "idn-bound,
-  near unchanged"; idna idn-4000 1.12x). A 1.00x row is a finding.
-- Outcome counts identical both arms (parse counts, ok/err splits).
-- Their suite result verbatim, including pre-existing failures with the
-  stock-arm proof (email-validator IPv6 `::ffff:` rendering fails
-  identically on unmodified main — py3.12 `ipaddress` drift; arrow's 3
-  red legs triaged with master-HEAD evidence; see §7).
-- No internal paths, tokens, fleet details, or Rust-port mentions. The
-  bench script stays available on request ("say the word and I'll
-  attach it") rather than inflating the diff.
+The evidence directory holds raw output, both arms, for:
 
-## 6. Title, body, and the humanizer pass
+- the speed number on the why workload, and the per-hunk table;
+- `python -X importtime -c "import <pkg>"` and VmHWM after import,
+  whenever the diff touches imports or module-level code;
+- their full test suite, lint, and type checks (a failure that also
+  happens on main gets the main-branch proof, with the commit);
+- a differential run over generated inputs comparing return values and
+  exception type and message;
+- every documented runtime setting, changed after the first call, still
+  taking effect.
 
-Title: what + size + "no behavior change"
-(`Leaner generated validation code (~1.5x on object-heavy schemas), no
-behavior change`). Body: their template first, then What / Measured /
-Test-proof, in that order — see the three tier-1 PR bodies
-(`ev_pr_body.md`, `arrow_pr_body.md`, `fjs_pr_body.md` in the tier-1
-lane scratch) as worked examples.
+The last item is new because #182 broke it. The PR cached the module
+defaults on the first call, so `email_validator.CHECK_DELIVERABILITY =
+False`, which the README tells users to set, is ignored on the PR branch
+once one address has been validated. Its 468-case differential corpus
+passed because no case changed a setting.
 
-Then run the body text through the **humanizer skill in Claude Code**
-before opening. Why: both crc closes read as reactions to
-AI-sounding, process-ignoring output — "AI PR with failing CI" and a
-style mismatch. The humanizer pass exists to remove the tells (stiff
-diction, over-formatting, hedged throat-clearing) while keeping every
-number and claim byte-identical. It edits prose only — never code,
-never figures.
+## 4. The text
 
-- **The exact skill and how a worker invokes it.** There is no skill
-  named `humanizer` installed in this environment (checked 2026-10-29:
-  `~/.claude/skills/` carries only `no-mistakes` + synced entries;
-  installed plugins are only `rust-analyzer-lsp` from the official
-  `anthropics/claude-plugins-official` marketplace, which ships no
-  humanizer). The captain's "humanizer skill in Claude Code" therefore
-  means a **third-party plugin/skill**, and installing any third-party
-  plugin needs **captain approval first**. Proposed install once the
-  captain names the marketplace and plugin:
-  `claude plugin marketplace add <marketplace-repo>` then
-  `claude plugin install humanizer@<marketplace>` (exact names from the
-  captain — do not guess a repo). After install, the worker invokes it
-  in Claude Code with the Skill tool (`humanizer`) on the draft
-  title + body file, then diffs the result to confirm no number,
-  filename, command, or claim changed.
-- **Until it is installed:** write the body from the §9 template in a
-  plain human register — short sentences, first person where the
-  template allows, plain acknowledgment of anything red (the crc #212
-  body is the model: "Fair catch… Happy to adjust anything — tests,
-  style, or scope"). The #211→#212 tone shift plus genuine fixes is
-  what a second chance looks like; no wording pass substitutes for
-  green gates and house style.
+Use [`pr_body_template.md`](../prompts/upstream_pr/pr_body_template.md).
+In short:
 
-## 7. Responding to review
+- The title says what the change does, like a commit subject. No speedup
+  multiplier and no "no behavior change".
+- The body leads with the why, then what changed, then one number, then
+  one line on tests. Under 200 visible words, and aim for about 100.
+  Benchmark details, scripts, and any table go in a collapsed `<details>`
+  block.
+- Write to the maintainer. "The test suite passes", not "their gates are
+  green".
+- No offers to attach more, no pre-offered splits, no internal terms, no
+  dashes, no bold.
+- Their PR template goes first if they have one. Add a changelog entry
+  only if recent outside PRs did.
 
-Lane rule, unchanged from the first upstream brief: maintainer
-questions come back as needs-decision with their words quoted verbatim
-— never paraphrased, never answered unilaterally when they imply a
-direction choice.
+Then run the humanizer skill on the draft (in Claude Code, the Skill tool
+with `humanizer:humanizer`, embedded mode) and diff the result against
+your draft. No number, name, command, or claim may change.
 
-- **Latency:** acknowledge within one day (a short comment, even before
-  the fix), fix within the lane's next run. #182's "But why?" (2026-10-29)
-  is the live case: it questions *motive*, so the answer is data, not
-  argument — who pays the cost (per-validation overhead on every
-  `validate_email` call), the measured size, and the offer to split the
-  PR (the email-validator body already pre-offers: "If (1) reads as too
-  clever, (2)–(4) stand alone … happy to split the PR either way").
-- **One concern per commit**, re-run their gates per commit, say what
-  each commit addresses. #212's body models this: "the byte loop is now
-  a single implementation … and the new tests are written in the
-  unittest style the test module already uses" — naming both review
-  points from #211 explicitly.
-- **Never argue benchmarks without data.** If a maintainer doubts a
-  number, re-measure on their terms (their workload, their box
-  description) and report both arms again. If they doubt the approach,
-  offer the split/narrowing first.
-- **CI failures that are not ours: document politely, with evidence, in
-  a comment — not in the body.** Arrow #1398's triage comment is the
-  template: each red leg named, each shown failing identically on
-  unmodified master HEAD (commit hash given), closing with "Happy to
-  rebase/retest if you want a fresh full-green signal." Same for the
-  email-validator `ipaddress` drift (fails identically on main) and crc
-  #212's fork-approval wait (`action_required`, plus the local gate
-  results in the comment). Never call their CI broken; show the
-  stock-arm proof and offer the re-run.
+On AI assistance: follow the project's policy, disclose when it asks, and
+never deny it when someone asks. The humanizer pass removes padding and
+habits that generated text carries; it does not change how the work was
+done or who is answerable for it. Step 8 is what answers "has a person
+reviewed this".
 
-## 8. Follow-up and closing the loop
+## 5. Mechanical check
 
-- **Monitor via contributions records.** Every upstream PR gets a
-  `contributions.json` entry (`fm-contributions.v1`) in its lane dir;
-  re-check state, comments, reviews, and checks on a cadence — silence
-  is also data (#976/#1609/#449: green, uncommented, unmerged for
-  weeks). Report maintainer replies as needs-decision the same day.
-- **Update [`PYTHON_SPEEDUPS.md`](PYTHON_SPEEDUPS.md) when state
-  changes and nothing else does:** `being offered` → PR URL + `offered`
-  when it opens → `merged` / `declined` on verdict. The upstream lane
-  owns those cells; the pattern-review pass never touches them
-  ([`PATTERN_REVIEW.md`](PATTERN_REVIEW.md) § "Upstream tracker").
-- **A merged pure-Python change can unlock a Rust rewrite re-scope.**
-  fastjsonschema is the receipt: tier-1 measured 1.48–1.63x, and the
-  port then measured 2.44x rep (1.69x *over* the tier-1 baseline,
-  ADR-061) — the merged-shape question and the port ceiling are
-  re-computed against the new baseline. Conversely arrow and
-  email-validator tier-1s confirmed no_gain (ceilings 1.78x / 1.66x <
-  2x, ADR-059 / ADR-065): no rewrite follows, and the doc says so
-  honestly.
-- **If it stalls, say so in the tracker.** A PR ignored for a month is
-  not "offered" forever — note the stall date in the lane, keep the
-  fork branch, and move on. Do not bump the thread, do not close and
-  re-open to game visibility.
+`scripts/upstream_pr_check.sh --body <draft> [--title <file>] [--diff
+<patch>] [--kind pr|reply]` runs without any model. It fails on a visible
+body over 200 words (120 for a reply), internal terms in the text or the
+added lines, dashes in prose, a title over 90 characters or one carrying
+a multiplier or "no behavior change", and headings or tables in a reply.
+It warns on chat residue and pre-offers, stock words, bold, new
+module-level imports, regexes and `global` statements, and comments that
+narrate the optimization. Fix every FAIL before the panel runs. The
+packet builder runs it and saves the output as `checks.txt`.
 
-## 9. Pre-flight checklist
+Against our own past PRs: idna#286 fails four ways (656 visible words for
+a 13-line diff, title length, multiplier and "no behavior change" in the
+title) and email-validator#182 fails twelve. kjd's #287 passes.
 
-Copy into the offer lane; every box answered before opening.
+## 6. Review panel
 
-- [ ] Target selected on evidence: downloads, recent maintainer merges
-      (merged something in the last month), no standing no-offer reason
-      (saturated hot path, needs-API-change, <1.2x rep).
-- [ ] AI-contribution policy + disclosure rules read today; hard gates
-      (sign-off, issue-first, changelog) listed.
-- [ ] Their dev env reproduced fresh (their install docs, their venv);
-      no lane paths or tokens anywhere near the fork.
-- [ ] Diff is minimal, behavior-identical, house-styled; new tests only
-      where their gates need them; their coverage gate green locally.
-- [ ] Rebased onto current upstream main; re-measured there (min-of-N
-      fresh subprocesses, wall + peak RSS both arms, workload-labeled);
-      differential equivalence corpus green on top of their suite.
-- [ ] Their full suite + lint + typing green on the branch; any red
-      shown failing identically on pristine main (hash recorded) with
-      the triage ready as a comment, not in the body.
-- [ ] PR body: their template first (if any), then What / Measured /
-      Test-proof; title carries size + "no behavior change"; bench
-      script offered on request, not inlined.
-- [ ] Body run through the humanizer skill (or hand-written in a plain
-      human register per §6); numbers/commands/claims diffed unchanged.
-- [ ] Fork branch under our account, one branch per package; never
-      touched their branches; PR opened ready-for-review, never draft.
-- [ ] contributions.json entry + tracker cells (`being offered` → PR
-      URL + `offered`) updated on open.
-
-## 10. PR-body template
-
-```md
-<what changed, in which files> (~<rep speedup>x on <workload>), no behavior change
-
-<If repo has a PR template: the template, filled, first. Then:>
-
-## What
-
-<files only>. <N> mechanical hot-path wins, each behavior-preserving
-(<what is identical: sets, messages, forms, errors>):
-
-1. <change> (`<symbol>`). <why it is safe in one sentence>.
-2. …
-
-<If part of the diff could read as clever: name the split offer here —
-"If (1) reads as too clever, (2)–(N) stand alone — happy to split.">
-
-## Measured
-
-<box>, <interpreter + key dep versions>. Frozen workload: <generator/
-corpus, sizes>, each arm a fresh subprocess, min-of-<N> walls, peak
-RSS per arm:
-
-| Track | Stock (main @ <sha>) | Patched | Speedup |
-|---|---|---|---|
-| <rep track> | <s> | <s> | <x> |
-| <showcase> | <s> | <s> | <x> |
-| <flat track> | <s> | <s> | <~1x, cause named> |
-
-Peak RSS <flat/changed> (~<MB> both). Outcome counts identical both
-arms (<counts>).
-
-Reproduce (from a checkout at <sha> vs this branch):
+Build the packet:
 
 ```sh
-<their install commands>
-<bench command per track>
+scripts/upstream_pr_packet.sh --repo <upstream checkout> --base <sha> \
+    --head <branch> --evidence <dir> --title <title.txt> --body <draft.md> \
+    --out <packet dir>
 ```
 
-(Bench script with the frozen <generator/corpus> available on request —
-say the word and I'll attach it.)
+For a reply, add `--thread <thread.md>` with the conversation so far, and
+drop `--title`. The packet holds the diff, the raw evidence, the draft,
+the thread, the check output, and a `MANIFEST.md` with an id hashed from
+all of them. It does not hold the writer's notes, plans, earlier drafts,
+or earlier verdicts, so the reviewers judge only what the maintainer
+will see.
 
-## Test / lint proof
+Run three reviewers in parallel, each a fresh agent. In Claude Code that
+is the Agent tool with a general-purpose agent, never a fork: a fork
+inherits the writer's context. The whole prompt is: "Read your role
+instructions in `prompts/upstream_pr/review_<role>.md` and follow them.
+Packet: `<dir>`." Add the read-only and no-posting constraints, and
+nothing else. No summary of the change and no hint of what worries you.
 
-Their own gates, run in a venv built exactly per <their docs>:
+| Reviewer | Asks | Verdicts |
+|---|---|---|
+| Maintainer | Would I merge this? Is there a why in the first two sentences? Is it too big for the gain? What cost is unmeasured? | PASS, SHRINK, HOLD, FAIL |
+| AI tells | Where would a maintainer first think "generated"? Uses the humanizer skill's numbered patterns plus PR-specific ones (length, method narration, title taglines, pre-offers, our jargon in code comments). | PASS, FAIL |
+| Facts | Does every number, claim, and "no behavior change" trace to evidence or a public source? Are derived numbers right? Is any required cost measurement missing? For a reply, does the live thread still match? | PASS, FAIL |
 
-* `<suite command>`: **<result>** on both stock and patched; <any
-  failure> fails identically on unmodified main — <cause>, unrelated.
-* `<lint/typing commands>`: clean.
-* Differential equivalence: <N>-case corpus (<coverage note>) dumped
-  under stock main and under this branch — **<N>/<N> identical**.
+Each returns a fixed block with the packet id, the verdict, and numbered
+findings. Save them as `reviews/<role>.txt` in the packet.
 
-<CHANGELOG entry added under "<section>" | No changelog entry: <repo's
-rule, e.g. maintainer-curated at release>.> <License terms agreement if
-their CONTRIBUTING requires it.>
-```
+## 7. Resolving verdicts
+
+- Post only when all three say PASS on the same packet id.
+- The strictest verdict wins: HOLD, then SHRINK, then FAIL, then PASS.
+- Any edit to the diff or the text makes a new packet, and all three
+  reviewers run again on it. A rewrite for tone can break a fact, and a
+  fact fix can add a tell.
+- Facts FAIL: correct the claim, delete it, or measure what is missing.
+  It is never argued.
+- AI-tells FAIL: the writer rewrites the flagged parts (the reviewer only
+  flags), then runs the humanizer again.
+- SHRINK: cut what the maintainer reviewer named, re-measure, rebuild.
+  If the smaller version falls under the gain bar, it becomes HOLD.
+- HOLD: do not post. Record the reason in the tracker. If the only gap is
+  the why and the project welcomes questions, the person signing off may
+  open a short issue asking whether they would want it.
+- When reviewers pull in different directions (the maintainer wants a
+  sentence of context, the AI-tells reviewer wants it shorter), the
+  shorter text wins and the extra goes into `<details>` or is dropped.
+  Numbers always follow the facts reviewer.
+- The writer may contest one finding per round, in writing, citing the
+  packet. A new agent of the same role gets the packet, the finding, and
+  the rebuttal, and rules UPHOLD or DROP; that ruling stands. A facts
+  finding can only be answered with evidence.
+- Three rounds at most. If the packet still has no unanimous PASS, it is
+  held and goes to a person with the packet and the last verdicts.
+
+## 8. Sign-off and posting
+
+A person reads the final diff, the text, and the three verdicts, and
+posts only what they would defend line by line in the thread. This is the
+review kjd said was missing. Before posting, re-fetch the thread: if
+anything changed since the packet was built, rebuild it and review again.
+
+Post from a fork branch under our account, one branch per package, ready
+for review, not as a draft. Update the tracker cells (`being offered`,
+then the PR URL and `offered`) and the lane's contributions record.
+
+## Replies and comments
+
+Every comment we post on an upstream PR or issue goes through steps 4
+to 8: answering a question, replying to a review, closing our own PR, a
+CI triage note, a follow-up. Use
+[`reply_template.md`](../prompts/upstream_pr/reply_template.md) and build
+the packet with `--thread`. The same three reviewers run on it; the
+maintainer reviewer asks whether the first sentence answers what was
+asked, and the facts reviewer checks the live thread.
+
+Rules for replies:
+
+- The first sentence answers the question or says what you are doing.
+- Under 120 words, and most should be under 60. No headings, no tables.
+- Every number is already in the thread or in the evidence.
+- Offer only a version you have measured, with its number.
+- When the maintainer found a real problem, say so once and fix it.
+- When the maintainer has already done it themselves, thank them in a
+  clause and stop.
+
+The older reply rules still hold. A maintainer's comment goes to the
+person signing off the same day, quoted word for word, before anyone
+drafts an answer. Acknowledge within a day. Push one concern per commit
+and say what each commit addresses. Never argue a benchmark without new
+data; re-measure on their terms instead. A CI failure that also happens
+on main goes in a comment with the main-branch proof (arrow#1398 has the
+model), never in the body.
+
+### First use: the two pending replies
+
+Both drafts below went through the full pipeline on 2026-10-29. Neither
+has been posted.
+
+idna#286, draft as written:
+
+> Thanks for looking at it, and for #287, which gets the same win in far
+> less code. You're right about the import move too. I didn't measure
+> import time, and it costs everyone who never touches uts46. Closing this
+> in favour of #287.
+
+Round 1: maintainer PASS, AI tells PASS, facts FAIL. #287 recovers 89%
+of the time #286 saved on the mixed workload and 95% on plain ASCII, so
+"the same win" overstates it. The facts reviewer also checked the live
+thread: kjd had closed #286 and merged #287 a few minutes after our
+snapshot, so "Closing this" was stale.
+
+Round 2, after re-fetching the thread: all three PASS. Final text:
+
+> Thanks for #287, which gets most of the win in far less code. You're
+> right about the import move too. I didn't measure import time, and it
+> costs everyone who never touches uts46.
+
+The maintainer reviewer advised against adding the measured cost (about
+2 ms and 1 MiB per import), because numbers would read as arguing with
+"significant", and against offering the `ulabel()` hunk as a follow-up.
+
+email-validator#182, draft as written:
+
+> Fair question. The main reason is that pydantic's EmailStr calls
+> validate_email for every value, so it runs on every request or record
+> with an email field, for example API servers and bulk imports. In the
+> mixed benchmark above it takes about 55 µs per address today, so a
+> million addresses is roughly a minute of CPU. With this change it's
+> about 18 seconds. Nobody filed an issue asking for this, so if the
+> extra regex code isn't worth it to you, that's fine. Changes 2-4 are
+> the simplest part, and I can cut the PR down to just those.
+
+The pydantic claim checks out: `EmailStr` calls
+`pydantic.networks.validate_email`, which calls
+`email_validator.validate_email(email, check_deliverability=False)`, the
+same setting as the benchmark. The rest did not survive. We measured each
+change on its own for this review:
+
+| Version | Lines | Time per address (mixed-2000) |
+|---|---|---|
+| main | | 56 µs |
+| change 1 only (skip the IDNA round trip for plain ASCII domains) | +9 | 35 µs (1.63x) |
+| changes 2 to 4 | +73 -27 | 38 µs (1.47x) |
+| changes 2 to 4 without the module-level caches | +60 -23 | 40 µs (1.41x) |
+| whole PR | +83 -27 | 19 µs (2.93x) |
+
+Round 1: all three FAIL. The offer kept the wrong part: changes 2 to 4
+are the regex code the sentence offers to drop, carry less of the gain
+than the 9-line change 1, and include the defaults cache that breaks
+documented settings. The facts reviewer found that reassigning
+`email_validator.SPECIAL_USE_DOMAIN_NAMES` after the first call is
+ignored too, and that the new regexes add about 11 ms to `import
+email_validator` (23.1 ms to 33.9 ms median, mostly compiling the
+character classes in `syntax.py`; change 1 alone adds nothing). The
+18-second figure describes code that cannot ship. "Fair question." and
+the closing offer are chat habits, and the reply ran to 99 words. API
+servers were the wrong example: 37 µs per request does not show there.
+
+Round 2 led with pydantic, disclosed the bug, and offered change 1 with
+its own number. Maintainer PASS and AI tells PASS. Facts FAIL: "56 µs per
+address" was stated as a general cost when it holds for one synthetic
+workload, the reply offered the cut without saying the title and
+changelog ("~3x", "no behavior change") would be corrected, and the
+evidence had no test, differential, or memory result for the change-1-only
+version. We ran them: the test suite gives the same result on main and on
+change 1 alone, 10,044 differential cases are identical, and memory after
+import is flat.
+
+Round 3, with that evidence in the packet: all three PASS. Final text:
+
+> pydantic's `EmailStr` calls `validate_email()` for each address it
+> validates, so bulk imports pay it once per record: about 56 µs per
+> address on our mixed benchmark, or a minute of CPU per million.
+>
+> This PR has a bug: the cached defaults ignore settings such as
+> `email_validator.CHECK_DELIVERABILITY` when they change after the first
+> call. I'll cut it down to the 9-line change that skips the IDNA round
+> trip for plain ASCII domains, which on its own brings the benchmark to
+> about 35 µs per address, and correct the title and changelog to match.
+
+It cannot be posted as is: it promises a change, so the cut-down branch
+(change 1 only, its comment shortened to one line, title and changelog
+corrected) goes through the PR pipeline first. The reviewers' minor notes
+for whoever signs off: say "my" benchmark rather than "our", consider
+stating the saving (about 20 µs per address) instead of today's cost, and
+link the pydantic source line. Any of those edits means another packet
+and another review.
+
+## Follow-up
+
+- Re-check every open PR on a cadence: state, comments, reviews, checks.
+  Record a lack of replies too: pyyaml#976, dateutil#1609 and
+  markdown-it-py#449 have been green and uncommented for weeks.
+- Update [`PYTHON_SPEEDUPS.md`](PYTHON_SPEEDUPS.md) when state changes:
+  `being offered`, then PR URL and `offered`, then `merged` or `declined`.
+  Add `held` with the reason when the panel holds an offer.
+- A PR ignored for a month gets its stall date noted in the tracker. Do
+  not bump the thread, and do not close and reopen it for visibility.
+- A merged pure-Python change can change the case for a Rust port; redo
+  the port's ceiling against the new baseline (fastjsonschema went from
+  1.48x pure Python to a 2.44x port, ADR-061).
+
+## Retrospective: idna#286 and email-validator#182
+
+What each reviewer would have said if the panel had existed, and what the
+PR should have been. Numbers below are from re-running on 2026-10-29: a
+shared Ryzen 9 5950X, CPython 3.12.3, the benchmark script from the #286
+body, and `python -X importtime` over 41 interleaved runs.
+
+### kjd/idna#286
+
+| | master | #286 | #287 |
+|---|---|---|---|
+| Lines changed | | +11 -2 | +3 -0 |
+| mixed-8000 encode+decode | 0.228 s | 0.096 s | 0.110 s |
+| ascii-16000 | 0.416 s | 0.087 s | 0.102 s |
+| `import idna`, median | 10.0 ms | 11.8 ms | 11.0 ms |
+| VmHWM after import | 11.5 MiB | 12.5 MiB | 11.7 MiB |
+| `uts46data` loaded by `import idna` | no | yes | no |
+
+Maintainer reviewer: SHRINK. The import move has no measured gain of its
+own (the body says so) and loads `uts46data`, a 237 KB module, into every
+process that imports idna, including the many that never use UTS 46
+remapping. The `ulabel()` shortcut is a second branch for about 10% of
+the gain. The paragraphs on how it fits with #279 add length and decide
+nothing for the maintainer. Smallest version: the `check_label()` early return, which is
+what kjd wrote.
+
+AI-tells reviewer: FAIL. 656 visible words (1,514 with the script) for a
+13-line diff. Title tagline "(~2.3x on ordinary hostnames), no behavior
+change". A numbered list that explains every hunk; method narration ("best
+of 7 passes; each cell's figure is the best of 3 such runs"); two tables;
+"It goes with #279 rather than competing with it" (humanizer §1); "I can
+attach that script too if it's useful" (§22). Each one is minor alone.
+Together they read as generated, and length was the first thing kjd
+named.
+
+Facts reviewer: FAIL. The diff adds a module-level import and the
+evidence has no import-time or import-memory measurement for either arm.
+"Barely changes the numbers" has no per-hunk table behind it.
+
+What it should have been: kjd's #287 diff, with a body like this (numbers
+from the table above):
+
+> Title: Skip full validation for plain lowercase LDH labels in
+> check_label
+>
+> Most labels that reach `check_label()` are plain lowercase LDH
+> (`mail`, `example`, `com`), and those pass every check after the empty
+> test. This returns early for them; `xn--` labels and anything else take
+> the full path as before. encode+decode over 8,000 mixed hostnames goes
+> from 0.228 s to 0.110 s. The test suite passes.
+
+That is 53 words. It still lacks a named caller, which the maintainer
+reviewer would push on; for idna the honest answer is callers like
+email-validator that run every domain through `idna.encode()` and
+`idna.decode()`.
+
+### JoshData/python-email-validator#182
+
+Maintainer reviewer: HOLD. The README names registration forms as the
+use, where 37 µs per address is invisible, and the body names no other
+caller. Four changes, +84 -27 across three files, nine new module-level
+regexes, two module-level caches, and no per-change numbers, so nobody
+could say which change carried the gain. The defaults cache breaks
+`CHECK_DELIVERABILITY` and the other documented settings once the first
+address has been validated, and a reassigned `SPECIAL_USE_DOMAIN_NAMES`
+is ignored the same way. The pre-offered split ("If (1) reads as too
+clever") says the PR is too big.
+
+AI-tells reviewer: FAIL. Title tagline "(~3x mixed, ~5x valid-ASCII), no
+behavior change", repeated as the first line of the body. What / Measured
+/ Test proof headings and a table for a small change. Bold test counts.
+"Their own gates", which addresses the maintainer in the third person.
+"Say the word and I'll attach it". Seven dashes. "Tier-1" in a code
+comment, and four comments that start "Fast path:".
+
+Facts reviewer: FAIL. "No behavior change" is false (the settings test
+above). The changelog line says "typical ASCII email addresses" about a
+seeded synthetic generator. Import time was not measured although the
+diff adds nine regexes compiled at import. Measured now, they add about
+11 ms to `import email_validator`, which is more than the whole PR saves
+for any process that validates fewer than about 300 addresses. That
+covers the registration-form use the README names.
+
+What it should have been: change 1 alone, led by the pydantic why.
+
+> Title: Skip the IDNA round trip for plain ASCII domains
+>
+> pydantic's `EmailStr` calls `validate_email()` (with
+> `check_deliverability=False`) for every value it validates, so bulk
+> imports run it once per record. For a domain that is plain ASCII with no
+> `xn--` label, the `idna.decode()`/`idna.encode()` round trip at the end
+> of `validate_email_domain_name()` only lowercases it. This returns the
+> lowercased domain directly in that case. On 2,000 generated addresses it
+> takes validation from 56 µs to 35 µs per address.
+
+The test and differential sentence would need a fresh run on that diff;
+we have not run it, so it is not written here.
+
+### The other open PRs
+
+Not changed by this work. For comparison, the mechanical check on each:
+
+| PR | Visible words | Diff | Why in the first two sentences | Import time measured | Check |
+|---|---|---|---|---|---|
+| arrow#1398 | 456 | +106 -5 | partly (every `arrow.get` rebuilds a parser; no caller named) | no (adds `import threading`) | FAIL: length, dashes |
+| fastjsonschema#233 | 342 | +42 -15 | no | not applicable (no new imports) | FAIL: length, dashes, title |
