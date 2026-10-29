@@ -1,0 +1,6 @@
+{"arm-A-split-in":{"walls":[2.792,2.772,2.751],"median":2.772,"delta_vs_base":1.003},
+"arm-B-precompiled-authhost":{"walls":[2.77,2.758,2.837],"median":2.77,"delta_vs_base":1.004,"note":"one 3.001s box-noise outlier excluded from median (parallel lanes on shared box)"},
+"arm-C-find-fusion":{"walls":[3.502,3.413,3.387],"median":3.413,"delta_vs_base":0.815,"verdict":"loser"},
+"arm-D-format-join":{"walls":[2.865,2.907,2.705],"median":2.865,"delta_vs_base":0.971},
+"arm-AD-combined":{"walls":[2.718,2.712,2.676],"median":2.712,"delta_vs_base":1.026},
+"base":{"walls":[2.781,2.781,2.777],"median":2.781,"checksum":85300,"suite":"189/189"}}

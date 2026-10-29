@@ -1,0 +1,24 @@
+[
+ {
+  "track": "representative",
+  "pure_wall_s": 2.886,
+  "rust_wall_s": 0.925,
+  "speedup": 3.12,
+  "checksum": 85300,
+  "checksum_rust": 85300,
+  "pure_rss_kb": 11944,
+  "rust_rss_kb": 12524,
+  "tier1_wall_s": 2.712
+ },
+ {
+  "track": "x1",
+  "pure_wall_s": 0.000004877,
+  "rust_wall_s": 0.000001321,
+  "speedup": 3.69,
+  "checksum": 54,
+  "checksum_rust": 54,
+  "pure_rss_kb": 11636,
+  "rust_rss_kb": 12416,
+  "tier1_wall_s": 0.000004702
+ }
+]
