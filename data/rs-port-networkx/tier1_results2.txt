@@ -1,0 +1,32 @@
+base rep    wall=0.1946s rss=47.6MiB checksum=(3301288.423937, 66000, 0) stable=True
+t1   rep    wall=0.3505s rss=51.1MiB checksum=(3301288.423937, 66000, 0) stable=True
+t2   rep    wall=0.1159s rss=53.6MiB checksum=(3301288.423937, 66000, 0) stable=True
+t3   rep    wall=0.2616s rss=51.1MiB checksum=(3301288.423937, 66000, 0) stable=True
+base path   wall=0.0720s rss=48.1MiB checksum=(696.933893, 16, 216) stable=True
+t1   path   wall=0.1592s rss=50.3MiB checksum=(696.933893, 16, 216) stable=True
+t2   path   wall=0.0518s rss=53.4MiB checksum=(696.933893, 16, 216) stable=True
+t3   path   wall=0.1667s rss=50.4MiB checksum=(696.933893, 16, 216) stable=True
+base multi  wall=0.0315s rss=47.7MiB checksum=(296989.666994, 11000, 0) stable=True
+t1   multi  wall=0.0563s rss=49.9MiB checksum=(296989.666994, 11000, 0) stable=True
+t2   multi  wall=0.0208s rss=52.9MiB checksum=(296989.666994, 11000, 0) stable=True
+t3   multi  wall=0.0676s rss=50.3MiB checksum=(296989.666994, 11000, 0) stable=True
+base target wall=0.0721s rss=47.6MiB checksum=(817.321968, 16, 0) stable=True
+t1   target wall=0.2025s rss=50.5MiB checksum=(817.321968, 16, 0) stable=True
+t2   target wall=0.0458s rss=52.3MiB checksum=(817.321968, 16, 0) stable=True
+t3   target wall=0.1908s rss=50.4MiB checksum=(817.321968, 16, 0) stable=True
+base x1     wall=0.0030s rss=46.6MiB checksum=(22.079828, 1, 7) stable=True
+t1   x1     wall=0.0035s rss=47.5MiB checksum=(22.079828, 1, 7) stable=True
+t2   x1     wall=0.0018s rss=52.1MiB checksum=(22.079828, 1, 7) stable=True
+t3   x1     wall=0.0037s rss=47.1MiB checksum=(22.079828, 1, 7) stable=True
+AGREE rep: True {(3301288.423937, 66000, 0)}
+AGREE path: True {(696.933893, 16, 216)}
+AGREE multi: True {(296989.666994, 11000, 0)}
+AGREE target: True {(817.321968, 16, 0)}
+AGREE x1: True {(22.079828, 1, 7)}
+
+## tier-1 gains (base/t1, base/t2, wall medians)
+rep    base=0.1946s t1=0.56x t2=1.68x t3=0.74x
+path   base=0.0720s t1=0.45x t2=1.39x t3=0.43x
+multi  base=0.0315s t1=0.56x t2=1.51x t3=0.47x
+target base=0.0721s t1=0.36x t2=1.58x t3=0.38x
+x1     base=0.0030s t1=0.86x t2=1.66x t3=0.82x
