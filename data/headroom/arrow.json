@@ -1,0 +1,83 @@
+{
+  "package": "arrow",
+  "version": "1.4.0",
+  "workload": {
+    "name": "arrow-representative-pipeline",
+    "source": "doc-synthetic",
+    "iters": 5,
+    "detail": "parse2000(fmt)+shift+format+humanize200pairs via arrow.get"
+  },
+  "tool": "cprofile",
+  "machine": "AMD Ryzen 9 5950X 16-Core Processor",
+  "python": "3.12.3",
+  "wall_secs": 0.23816582700237632,
+  "tottime_secs": 0.23792092300000015,
+  "fractions": {
+    "pure_python": 0.8484669631178249,
+    "native": 0.04462687798163928,
+    "io_wait": 0.0,
+    "regex": 0.09997511231914642,
+    "overhead": 0.006931046581388722
+  },
+  "concentration": {
+    "top1": 0.13516795662397452,
+    "top5": 0.297909339398452,
+    "hot_modules": 6
+  },
+  "top": [
+    {
+      "file": "arrow/parser.py",
+      "func": "_generate_pattern_re",
+      "tottime_ms": 32.159285000000004,
+      "ncalls": 2000
+    },
+    {
+      "file": "__init__.py",
+      "func": "_compile",
+      "tottime_ms": 13.573705,
+      "ncalls": 24000
+    },
+    {
+      "file": "~",
+      "func": "<method 'sub' of 're.Pattern' objects>",
+      "tottime_ms": 9.357487,
+      "ncalls": 6000
+    },
+    {
+      "file": "arrow/formatter.py",
+      "func": "_format_token",
+      "tottime_ms": 7.980414,
+      "ncalls": 12000
+    },
+    {
+      "file": "arrow/parser.py",
+      "func": "_build_datetime",
+      "tottime_ms": 7.807974000000001,
+      "ncalls": 2000
+    },
+    {
+      "file": "arrow/parser.py",
+      "func": "__init__",
+      "tottime_ms": 7.6673800000000005,
+      "ncalls": 2000
+    },
+    {
+      "file": "~",
+      "func": "<built-in method builtins.isinstance>",
+      "tottime_ms": 7.299626,
+      "ncalls": 60400
+    },
+    {
+      "file": "arrow/parser.py",
+      "func": "parse",
+      "tottime_ms": 7.247240000000001,
+      "ncalls": 2000
+    }
+  ],
+  "loop_nature": "pipeline",
+  "loop_factor": 0.85,
+  "native_cover": [],
+  "score": 0.7211969186501511,
+  "verdict": "rewrite",
+  "why": "85% pure-Python in a pipeline loop: portable headroom predicts a rewrite win"
+}
