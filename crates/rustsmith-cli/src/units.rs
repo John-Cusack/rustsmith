@@ -37,6 +37,17 @@ pub struct TemplateSpec {
     pub extra_files: HashMap<String, Vec<(String, String)>>,
     pub delete_on_merge: HashMap<String, Vec<String>>,
     pub orig_source: HashMap<String, String>,
+    /// CTest-spine known-upstream-failure tolerance (subset rule): test names
+    /// that fail on the pristine tree, so the port must introduce zero
+    /// regressions beyond them. Empty = strict zero-failure gate. Loaded
+    /// from the lane template (`known_upstream_failures`); package identity
+    /// never appears in gate code.
+    pub known_upstream_failures: Vec<String>,
+    /// Repo-rel directory prefixes whose units link but are never ported
+    /// (bundled third-party numerics the frozen recon does not mark
+    /// `out_of_scope`). Loaded from the lane template
+    /// (`vendored_link_prefixes`); empty = no link-target exclusion.
+    pub vendored_link_prefixes: Vec<String>,
 }
 
 /// True when `s` is a canonical UnitId (`<lang>:<repo-rel>[#<symbol>]`):
@@ -137,6 +148,15 @@ fn strmap(v: &serde_json::Value) -> HashMap<String, Vec<String>> {
     m
 }
 
+fn strlist(v: &serde_json::Value) -> Vec<String> {
+    v.as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+        .collect()
+}
+
 pub fn load_template(dir: &Path) -> Result<TemplateSpec, String> {
     let t = std::fs::read_to_string(dir.join("template.json")).map_err(|e| e.to_string())?;
     let v: serde_json::Value = serde_json::from_str(&t).map_err(|e| e.to_string())?;
@@ -163,6 +183,8 @@ pub fn load_template(dir: &Path) -> Result<TemplateSpec, String> {
         extra_files,
         delete_on_merge: strmap(&v["delete_on_merge"]),
         orig_source,
+        known_upstream_failures: strlist(&v["known_upstream_failures"]),
+        vendored_link_prefixes: strlist(&v["vendored_link_prefixes"]),
     };
     if spec.package.is_empty() {
         return Err(format!("{}: template.json lacks package", dir.display()));
@@ -474,6 +496,8 @@ mod tests {
             extra_files,
             delete_on_merge: HashMap::new(),
             orig_source,
+            known_upstream_failures: Vec::new(),
+            vendored_link_prefixes: Vec::new(),
         }
     }
 
@@ -609,6 +633,8 @@ mod tests {
                 "python:src/pkg/_crc.py".to_string(),
                 "src/pkg/_crc.py".to_string(),
             )]),
+            known_upstream_failures: Vec::new(),
+            vendored_link_prefixes: Vec::new(),
         };
         let template = Path::new("template");
         // Migrated unit: UnitId-keyed extra plus the orig-source override.
@@ -693,6 +719,14 @@ mod tests {
         assert_eq!(spec.cmake_target, "elmersolver");
         assert!(spec.extension_module.is_empty());
         assert!(!spec.src_layout);
+        // Campaign tolerance rides the template as data (no package names in
+        // gate code): known-upstream-failure subset + vendored link prefixes.
+        assert_eq!(spec.known_upstream_failures, vec![
+            "ConstantBCTemperature".to_string(),
+            "ProfileBCTemperature".to_string(),
+            "ProfileBCTemperatureRobin".to_string(),
+        ]);
+        assert_eq!(spec.vendored_link_prefixes, vec!["mathlibs".to_string(), "umfpack".to_string()]);
         for (src, _) in &spec.files {
             assert!(dir.join(src).is_file(), "template base file missing: {src}");
         }

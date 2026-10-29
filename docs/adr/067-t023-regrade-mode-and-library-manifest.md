@@ -58,3 +58,15 @@ asserts the no-`mode`-key shape; full-corpus diff below).
 
 No oracle, gate threshold, or tolerance touched. Every relaxation still
 ships with fixture proof in its own PR (ADR-027 rule).
+
+## 4. Relocation (2026-10-29)
+
+`elmer-regrade` and its T023 proof moved out of rustsmith into
+[elmer-rust `tools/elmer-regrade`](https://github.com/John-Cusack/elmer-rust/tree/main/tools/elmer-regrade)
+(standalone crate, `rustsmith-adapters` via git dependency; proof at
+`tools/elmer-regrade/t023_regrade_mode_proof.sh`). Pure relocation: no
+gate, verdict, or output change — the rebuilt binary reproduces the
+recorded 184-unit `fem/src/modules` regrade outputs byte-identically in
+both modes. References above to `crates/rustsmith-adapters/src/bin/`
+and `tests/t023_regrade_mode_proof.sh` resolve to the last rustsmith
+commit holding them; current locations are under the elmer-rust link.

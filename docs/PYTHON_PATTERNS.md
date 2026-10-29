@@ -66,12 +66,12 @@ entries.
 
 | Lane | Patterns found | Representative (labeled) | Loser / no-change | Source |
 |---|---|---|---|---|
-| email-validator 2.3.0 (160M dl/mo) | PY1, PY2, PY3 | **3.20x** mixed-2000 (112.8 → 35.3 ms); 6.43x ascii-valid-5000 showcase | idn-1000 0.98x (idna-bound, unchanged) | `data/rs-port-email-validator/{WORKLOAD.md,bench_tier1.py,bench_tier1_results.json,tier1.patch,upstream-patch-note.md}`, ADR-065 |
-| arrow 1.4.0 (60.2M dl/mo) | PY1 | **1.99x** end-to-end pipeline (74.4 → 37.4 ms); fmt-parse D-arm 1.95x, C-arm 6.03x | — (ceiling killed the rewrite, not the patch: 1.78x infinite-speed ceiling) | `data/rs-port-arrow/{WORKLOAD.md,bench_tier1.py,tier1-memo.patch,upstream-patch-note.md}`, ADR-059 |
-| fastjsonschema @738da70 (108M dl/mo) | PY3, PY4 | **1.63x** rep (0.3571 s stock → combined E); valid 1.76x, x1 1.98x | enum-only arm 0.99x on valid (no win there) | `data/rs-port-fastjsonschema/{WORKLOAD.md,bench_tier1.py,bench_tier1_results.json,tier1.patch,upstream-patch-note.md}`, ADR-061 |
-| pyasn1 0.6.5 (410M dl/mo) | PY5 | **1.17x** rep (0.2694 → 0.2307 s); decode-only 1.22–1.23x | bytes-join arm 0.98x; header-cache arm 0.94x — recorded losers | `data/rs-port-pyasn1/{WORKLOAD.md,bench_tier1.py,tier1.patch,upstream-patch-note.md}`, ADR-060 |
+| email-validator 2.3.0 (160M dl/mo) | PY1, PY2, PY3 | **3.20x** mixed-2000 (112.8 → 35.3 ms); 6.43x ascii-valid-5000 showcase | idn-1000 0.98x (idna-bound, unchanged) | `data/rs-port-email-validator/{WORKLOAD.md,bench_tier1_results.json}` (measured evidence) + [lane tooling: bench/ + tier1/](https://github.com/John-Cusack/email-validator-rust/tree/main/bench), ADR-065 |
+| arrow 1.4.0 (60.2M dl/mo) | PY1 | **1.99x** end-to-end pipeline (74.4 → 37.4 ms); fmt-parse D-arm 1.95x, C-arm 6.03x | — (ceiling killed the rewrite, not the patch: 1.78x infinite-speed ceiling) | `data/rs-port-arrow/WORKLOAD.md` (measured evidence) + [lane tooling: bench/ + tier1/](https://github.com/John-Cusack/arrow-rust/tree/main/bench), ADR-059 |
+| fastjsonschema @738da70 (108M dl/mo) | PY3, PY4 | **1.63x** rep (0.3571 s stock → combined E); valid 1.76x, x1 1.98x | enum-only arm 0.99x on valid (no win there) | `data/rs-port-fastjsonschema/{WORKLOAD.md,bench_tier1_results.json}` (measured evidence) + [lane tooling: bench/ + tier1/](https://github.com/John-Cusack/fastjsonschema-rust/tree/main/bench), ADR-061 |
+| pyasn1 0.6.5 (410M dl/mo) | PY5 | **1.17x** rep (0.2694 → 0.2307 s); decode-only 1.22–1.23x | bytes-join arm 0.98x; header-cache arm 0.94x — recorded losers | `data/rs-port-pyasn1/{WORKLOAD.md,bench_tier1_results.txt}` (measured evidence) + [lane tooling: bench/ + tier1/](https://github.com/John-Cusack/pyasn1-rust/tree/main/bench), ADR-060 |
 | mako 1.4.3 (181M dl/mo) | (noise) | **1.015x** (1.1406 → 1.1238 s, 40000 renders) | whole tier-1 is the loser; P3 parsetree analysis declined, ~15% bound only | ADR-064 (patch `tier1-runtime.patch` not in-tree; no `data/rs-port-mako/`) |
-| networkx 3.7 (199M dl/mo) | (losers only) | no shippable win; cached-export T2 1.39–1.77x needs an API change | T1 per-call export 0.4–0.6x; T3 no-conversion export 0.4–0.9x — measured losers | `data/rs-port-networkx/{WORKLOAD.md,bench_tier1.py,upstream-patch-note.md}`, ADR-066 |
+| networkx 3.7 (199M dl/mo) | (losers only) | no shippable win; cached-export T2 1.39–1.77x needs an API change | T1 per-call export 0.4–0.6x; T3 no-conversion export 0.4–0.9x — measured losers | `data/rs-port-networkx/{WORKLOAD.md,bench_evidence.json,bench_rows.json,tier1_results2.txt}` (measured evidence) + [lane tooling: bench/ + tier1/](https://github.com/John-Cusack/networkx-rust/tree/main/bench), ADR-066 |
 | idna 3.20 (1339.5M dl/mo) | PY2 | **2.60x** mixed-8000 (0.2228 → 0.0856 s); 7.52x ascii-16000 showcase; idn-4000 1.12x | T-import-only arm 1.01x mixed / 1.07x idn (fast path carries the win); per-label `lru_cache` analyzed but declined (unmeasured) | `data/rs-port-idna/{WORKLOAD.md,bench_port_results.csv,equiv_results.txt}`, ADR-070, https://github.com/John-Cusack/rustsmith/pull/144 |
 | mdurl 0.1.2 (427M dl/mo) | (losers only) | A+D combined **1.03x** (2.781 → 2.712 s) — below any offer bar, not offered | arm C 0.82x (generator fusion); arms A/B/D ~1.00x/1.00x/0.97x no-ops | `data/rs-port-mdurl/{WORKLOAD.md,bench.json,bench_tier1_results.json}`, ADR-069, https://github.com/John-Cusack/rustsmith/pull/143 |
 
@@ -401,8 +401,12 @@ One paragraph each. Numbers are the rows in the
 
 ## Appendix B: sources
 
-In-repo: `data/rs-port-{arrow,email-validator,fastjsonschema,pyasn1,networkx}/{WORKLOAD.md,bench_tier1.py,tier1*.patch,upstream-patch-note.md}`,
-bench results (`bench_tier1_results.json` where the lane kept one),
+Lane tooling (bench/probe/equivalence scripts, patches) moved out of
+rustsmith into each package's `*-rust` repo (`bench/` + `tier1/`, same
+shape as mdurl-rust); measured evidence (`WORKLOAD.md`, results JSON/TXT,
+reviews) stays in `data/rs-port-*`. Sources: lane data dirs, lane `bench/`
+ + `tier1/` in `John-Cusack/{arrow,email-validator,fastjsonschema,pyasn1,
+networkx}-rust`,
 `docs/adr/059/060/061/064/065/066`,
 `/home/john/firstmate/data/rs-rerank-4/report.md` §4 (upstream-offer
 inventory — states, not numbers). idna/mdurl: `data/rs-port-idna/`

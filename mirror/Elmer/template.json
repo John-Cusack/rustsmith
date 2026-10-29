@@ -8,5 +8,11 @@
   ],
   "extra_files": {},
   "delete_on_merge": {},
-  "orig_source": {}
+  "orig_source": {},
+  "known_upstream_failures": [
+    "ConstantBCTemperature",
+    "ProfileBCTemperature",
+    "ProfileBCTemperatureRobin"
+  ],
+  "vendored_link_prefixes": ["mathlibs", "umfpack"]
 }

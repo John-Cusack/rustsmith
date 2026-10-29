@@ -16,9 +16,9 @@ CPython 3.12.3, email-validator 2.3.0, idna 3.20.
 
 ## Tier-1 (pure Python, upstream-plausible; suite-identical)
 
-Patch: lane `tier1.patch` (applies to installed 2.3.0;
-`bench_tier1.py` applies it to a temp copy itself). Upstream-ready note in
-`upstream-patch-note.md` (no upstream PR opened, lane policy).
+Patch: lane [`tier1.patch`](https://github.com/John-Cusack/email-validator-rust/blob/main/tier1/tier1.patch) in email-validator-rust (applies to installed 2.3.0;
+`bench_tier1.py` — same repo `bench/` — applies it to a temp copy itself). Upstream-ready note in
+[`upstream-patch-note.md`](https://github.com/John-Cusack/email-validator-rust/blob/main/tier1/upstream-patch-note.md) (no upstream PR opened, lane policy).
 
 - **T-idna** `validate_email_domain_name`: skip the `idna.decode` +
   `idna.encode` roundtrip for pure-ASCII domains without a Punycode label

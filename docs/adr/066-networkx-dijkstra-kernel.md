@@ -25,7 +25,7 @@ dominates), arrow 1.99x-tier-1/1.78x-ceiling (measure tier-1 first).
 
 ## Tier-1 (pure Python, frozen WORKLOAD.md v1, wall + child-ru_maxrss both arms)
 
-Arms on `scratch/bench_tier1.py` (medians, fresh subprocesses):
+Arms on [`bench_tier1.py`](https://github.com/John-Cusack/networkx-rust/tree/main/bench) in networkx-rust (relocated out of `data/rs-port-networkx/`; medians, fresh subprocesses):
 
 - T1 per-call adjacency export (float-convert every edge per query):
   **0.4–0.6x** — measured loser. Exporting O(E) Python objects per call
@@ -100,8 +100,8 @@ either language) is out of scope ("never mirror the package").
 | target | 77.4      | 37.1      | 2.09x   | 47.2 → 48.4 MiB |
 | x1     | 2.9       | 1.3       | 2.29x   | 46.6 → 47.4 MiB |
 
-Evidence: `data/rs-port-networkx/{WORKLOAD.md,bench_evidence.json,
-bench_rows.json,equiv_pure.jsonl,equiv_rust.jsonl,verification.json}`.
+Evidence (stays in rustsmith): `data/rs-port-networkx/{WORKLOAD.md,bench_evidence.json,
+bench_rows.json,equiv_pure.jsonl,equiv_rust.jsonl,verification.json}`; lane tooling (bench scripts, tier-1 note) in [networkx-rust `bench/` + `tier1/`](https://github.com/John-Cusack/networkx-rust/tree/main/bench).
 
 ## Consequences
 
