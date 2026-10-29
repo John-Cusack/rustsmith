@@ -1,0 +1,236 @@
+diff -r a/email_validator/syntax.py b/email_validator/syntax.py
+--- a/email_validator/syntax.py	2026-10-29 06:37:57.688463439 -0400
++++ b/email_validator/syntax.py	2026-10-29 06:37:57.689857139 -0400
+@@ -10,6 +10,20 @@
+ import ipaddress
+ from typing import Optional, Tuple, TypedDict, Union
+ 
++# Tier-1 (pure-Python) fast paths. All are behavior-preserving shortcuts
++# for checks that the unoptimized code performs per character or per call:
++# the bad-character sets and error messages produced are identical.
++_RLDH_LABEL_RE = re.compile(r"(?!xn)..--", re.I)
++_ATEXT_HOSTNAME_INTL_NEG_RE = re.compile(r"[^a-zA-Z0-9\-\.\x80-\U0010ffff]")
++_ATEXT_INTL_DOT_NEG_RE = re.compile(r"[^.a-zA-Z0-9_!#\$%&\'\*\+\-/=\?\^`\{\|\}~\x80-\U0010ffff]")
++_ATEXT_NEG_RE = re.compile(r"[^.a-zA-Z0-9_!#\$%&\'\*\+\-/=\?\^`\{\|\}~]")
++_QTEXT_INTL_NEG_RE = re.compile(r"[^\u0020-\u007E\u0080-\U0010FFFF]")
++_UNSAFE_ASCII_RE = re.compile(r"[\x00-\x1f\x7f ]")
++_UNSAFE_ASCII_ALLOW_SPACE_RE = re.compile(r"[\x00-\x1f\x7f]")
++_NONPRINTABLE_ASCII_RE = re.compile(r"[^\x20-\x7e]")
++_REQUOTE_RE = re.compile(r'(["\\])')
++_SPECIAL_USE_DOMAIN_NAMES = None  # lazily cached: `from . import ...` per call shows in profiles
++
+ 
+ def split_email(email: str) -> Tuple[Optional[str], str, str, bool]:
+     # Return the display name, unescaped local part, and domain part
+@@ -55,13 +69,18 @@
+         inside_quote = False
+         escaped = False
+         left_part = ""
++        # Fast path: ASCII text is already NFC, so `normalize("NFC",
++        # text[i:])[0] != c` is always False and the combining-character
++        # check below can be skipped entirely. (Non-ASCII text takes the
++        # original loop with the per-slice normalization check.)
++        ascii_only = text.isascii()
+         for i, c in enumerate(text):
+             # < plus U+0338 (Combining Long Solidus Overlay) normalizes to
+             # ≮ U+226E (Not Less-Than), and  it would be confusing to treat
+             # the < as the start of "<email>" syntax in that case. Likewise,
+             # if anything combines with an @ or ", we should probably not
+             # treat it as a special character.
+-            if unicodedata.normalize("NFC", text[i:])[0] != c:
++            if not ascii_only and unicodedata.normalize("NFC", text[i:])[0] != c:
+                 left_part += c
+ 
+             elif inside_quote:
+@@ -289,8 +308,7 @@
+             # (RFC 5322 3.2.3)
+             bad_chars = {
+                 safe_character_display(c)
+-                for c in local
+-                if not ATEXT_RE.match(c)
++                for c in set(_ATEXT_NEG_RE.findall(local))
+             }
+             if bad_chars:
+                 raise EmailSyntaxError("Internationalized characters before the @-sign are not supported: " + ", ".join(sorted(bad_chars)) + ".")
+@@ -313,8 +331,7 @@
+         # extends the range to UTF8 strings.)
+         bad_chars = {
+             safe_character_display(c)
+-            for c in local
+-            if not QTEXT_INTL.match(c)
++            for c in set(_QTEXT_INTL_NEG_RE.findall(local))
+         }
+         if bad_chars:
+             raise EmailSyntaxError("The email address contains invalid characters in quotes before the @-sign: " + ", ".join(sorted(bad_chars)) + ".")
+@@ -322,8 +339,7 @@
+         # See if any characters are outside of the ASCII range.
+         bad_chars = {
+             safe_character_display(c)
+-            for c in local
+-            if not (32 <= ord(c) <= 126)
++            for c in set(_NONPRINTABLE_ASCII_RE.findall(local))
+         }
+         if bad_chars:
+             requires_smtputf8 = True
+@@ -358,7 +374,7 @@
+         # escapes). Per RFC 5321 4.1.2, "all quoted forms MUST be treated as equivalent,
+         # and the sending system SHOULD transmit the form that uses the minimum quoting possible."
+         if valid == "quoted":
+-            local = '"' + re.sub(r'(["\\])', r'\\\1', local) + '"'
++            local = '"' + _REQUOTE_RE.sub(r'\\\1', local) + '"'
+ 
+         return {
+             "local_part": local,
+@@ -374,8 +390,7 @@
+     # (RFC 5322 3.2.3, plus RFC 6531 3.3)
+     bad_chars = {
+         safe_character_display(c)
+-        for c in local
+-        if not ATEXT_INTL_DOT_RE.match(c)
++        for c in set(_ATEXT_INTL_DOT_NEG_RE.findall(local))
+     }
+     if bad_chars:
+         raise EmailSyntaxError("The email address contains invalid characters before the @-sign: " + ", ".join(sorted(bad_chars)) + ".")
+@@ -392,6 +407,18 @@
+ def check_unsafe_chars(s: str, allow_space: bool = False) -> None:
+     # Check for unsafe characters or characters that would make the string
+     # invalid or non-sensible Unicode.
++    if s.isascii():
++        # Fast path: the only ASCII characters the loop below rejects are
++        # controls/DEL (category Cc, which falls through to the `else`) and
++        # the ASCII space (category Zs, unless spaces are allowed). Every
++        # other ASCII character is L/N/P/S. (Verified exhaustively: for all
++        # c in range(0x80), loop-rejects(c) == (c in controls/DEL/space).)
++        pat = _UNSAFE_ASCII_ALLOW_SPACE_RE if allow_space else _UNSAFE_ASCII_RE
++        bad_chars = set(pat.findall(s))
++        if bad_chars:
++            raise EmailSyntaxError("The email address contains unsafe characters: "
++                                   + ", ".join(safe_character_display(c) for c in sorted(bad_chars)) + ".")
++        return
+     bad_chars = set()
+     for i, c in enumerate(s):
+         category = unicodedata.category(c)
+@@ -502,8 +529,7 @@
+     # (RFC 952 plus RFC 6531 section 3.3 for internationalized addresses)
+     bad_chars = {
+         safe_character_display(c)
+-        for c in domain
+-        if not ATEXT_HOSTNAME_INTL.match(c)
++        for c in set(_ATEXT_HOSTNAME_INTL_NEG_RE.findall(domain))
+     }
+     if bad_chars:
+         raise EmailSyntaxError("The part after the @-sign contains invalid characters: " + ", ".join(sorted(bad_chars)) + ".")
+@@ -516,10 +542,18 @@
+ 
+     # Reject characters that would be rejected by UTS-46 normalization next but
+     # with an error message under our control.
+-    bad_chars = {
+-        safe_character_display(c) for c in domain
+-        if not uts46_valid_char(c)
+-    }
++    if domain.isascii():
++        # Fast path: for ASCII, uts46_valid_char rejects only the space
++        # (category Zs); controls/DEL pass here (rejected by the ATEXT
++        # check above). Same bad set as the per-character loop.
++        bad_chars = {
++            safe_character_display(c) for c in domain if c == " "
++        }
++    else:
++        bad_chars = {
++            safe_character_display(c) for c in domain
++            if not uts46_valid_char(c)
++        }
+     if bad_chars:
+         raise EmailSyntaxError("The part after the @-sign contains invalid characters: " + ", ".join(sorted(bad_chars)) + ".")
+ 
+@@ -541,8 +575,7 @@
+     # by uts46_remap (see tests for examples).
+     bad_chars = {
+         safe_character_display(c)
+-        for c in domain
+-        if not ATEXT_HOSTNAME_INTL.match(c)
++        for c in set(_ATEXT_HOSTNAME_INTL_NEG_RE.findall(domain))
+     }
+     if bad_chars:
+         raise EmailSyntaxError("The part after the @-sign contains invalid characters after Unicode normalization: " + ", ".join(sorted(bad_chars)) + ".")
+@@ -559,7 +592,7 @@
+     # Check for RFC 5890's invalid R-LDH labels, which are labels that start
+     # with two characters other than "xn" and two dashes.
+     for label in domain.split("."):
+-        if re.match(r"(?!xn)..--", label, re.I):
++        if _RLDH_LABEL_RE.match(label):
+             raise EmailSyntaxError("An email address cannot have two letters followed by two dashes immediately after the @-sign or after a period, except Punycode.")
+ 
+     if DOT_ATOM_TEXT_HOSTNAME.match(domain):
+@@ -635,8 +668,10 @@
+     # Some might fail DNS-based deliverability checks, but that
+     # can be turned off, so we should fail them all sooner.
+     # See the references in __init__.py.
+-    from . import SPECIAL_USE_DOMAIN_NAMES
+-    for d in SPECIAL_USE_DOMAIN_NAMES:
++    global _SPECIAL_USE_DOMAIN_NAMES
++    if _SPECIAL_USE_DOMAIN_NAMES is None:
++        from . import SPECIAL_USE_DOMAIN_NAMES as _SPECIAL_USE_DOMAIN_NAMES
++    for d in _SPECIAL_USE_DOMAIN_NAMES:
+         # See the note near the definition of SPECIAL_USE_DOMAIN_NAMES.
+         if d == "test" and test_environment:
+             continue
+@@ -652,6 +687,16 @@
+     # This gives us the canonical internationalized form of the domain,
+     # which we return to the caller as a part of the normalized email
+     # address.
++    #
++    # Fast path: for pure-ASCII domains without a Punycode label,
++    # idna.decode is just casefolding (== str.lower on ASCII) and the
++    # re-encode below trivially succeeds on lowercase ASCII whose syntax
++    # was already checked above, so skip both idna round trips.
++    if ascii_domain.isascii() and "xn--" not in ascii_domain.lower():
++        return {
++            "ascii_domain": ascii_domain,
++            "domain": ascii_domain.lower(),
++        }
+     try:
+         domain_i18n = idna.decode(ascii_domain.encode('ascii'))
+     except idna.IDNAError as e:
+@@ -668,8 +713,7 @@
+     # case for this.
+     bad_chars = {
+         safe_character_display(c)
+-        for c in domain_i18n
+-        if not ATEXT_HOSTNAME_INTL.match(c)
++        for c in set(_ATEXT_HOSTNAME_INTL_NEG_RE.findall(domain_i18n))
+     }
+     if bad_chars:
+         raise EmailSyntaxError("The part after the @-sign contains invalid characters: " + ", ".join(sorted(bad_chars)) + ".")
+diff -r a/email_validator/validate_email.py b/email_validator/validate_email.py
+--- a/email_validator/validate_email.py	2026-10-29 06:37:57.688345466 -0400
++++ b/email_validator/validate_email.py	2026-10-29 06:37:57.689718187 -0400
+@@ -12,6 +12,11 @@
+ else:
+     _Resolver = object
+ 
++# Lazily cached module defaults: `from . import ...` on every call shows
++# in profiles (import-system fromlist handling); a module-top import would
++# be circular (__init__ imports this module before defining the names).
++_DEFAULTS = None
++
+ 
+ def validate_email(
+     email: Union[str, bytes],
+@@ -36,8 +41,14 @@
+     """
+ 
+     # Fill in default values of arguments.
+-    from . import ALLOW_SMTPUTF8, ALLOW_EMPTY_LOCAL, ALLOW_QUOTED_LOCAL, ALLOW_DOMAIN_LITERAL, ALLOW_DISPLAY_NAME, \
+-        STRICT, GLOBALLY_DELIVERABLE, CHECK_DELIVERABILITY, TEST_ENVIRONMENT, DEFAULT_TIMEOUT
++    global _DEFAULTS
++    if _DEFAULTS is None:
++        from . import ALLOW_SMTPUTF8, ALLOW_EMPTY_LOCAL, ALLOW_QUOTED_LOCAL, ALLOW_DOMAIN_LITERAL, ALLOW_DISPLAY_NAME, \
++            STRICT, GLOBALLY_DELIVERABLE, CHECK_DELIVERABILITY, TEST_ENVIRONMENT, DEFAULT_TIMEOUT
++        _DEFAULTS = (ALLOW_SMTPUTF8, ALLOW_EMPTY_LOCAL, ALLOW_QUOTED_LOCAL, ALLOW_DOMAIN_LITERAL, ALLOW_DISPLAY_NAME,
++                     STRICT, GLOBALLY_DELIVERABLE, CHECK_DELIVERABILITY, TEST_ENVIRONMENT, DEFAULT_TIMEOUT)
++    (ALLOW_SMTPUTF8, ALLOW_EMPTY_LOCAL, ALLOW_QUOTED_LOCAL, ALLOW_DOMAIN_LITERAL, ALLOW_DISPLAY_NAME,
++     STRICT, GLOBALLY_DELIVERABLE, CHECK_DELIVERABILITY, TEST_ENVIRONMENT, DEFAULT_TIMEOUT) = _DEFAULTS
+     if allow_smtputf8 is None:
+         allow_smtputf8 = ALLOW_SMTPUTF8
+     if allow_empty_local is None:

@@ -632,6 +632,7 @@ incomplete (`PATTERN_REVIEW.md` checklist).
 |---|---|---|
 | Per-token/per-item FFI crossing | markdown-it 0.20x @280KB | P1 whole-unit crossing |
 | Template-render kernel, nodes are user Python per node | mako realizable ≤1.17x over tier-1 at zero toll, expected ≤1.0x w/ writer toll (ADR-064) | Walk away (no_gain); tier-1 only |
+| Validator port leaving shared Unicode/IDNA cost behind the seam | email-validator own-code ceiling 1.66x over tier-1 (60% of CPU in idna/stdlib); idn track 0.98x tier-1 (ADR-065) | Walk away (no_gain); tier-1 only — or port the dependency (different package) |
 | Reimplementing a shared C engine (`re`, codecs) | pygments lex 1.00x; charset latin bulk 0.57x | P11 probe; port around it or walk away |
 | Porting the slower algorithm faithfully | sympy PRS gcd 0.17x vs heuristic GCD | Match algorithm class first (P5 note) |
 | Kernel nobody's workload hits | pyparsing grammars 0.98x vs scan 201x | Profile real grammars; P7 hit-rate (babel reports 99.9%) |
