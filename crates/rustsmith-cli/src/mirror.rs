@@ -81,19 +81,15 @@ pub(crate) fn in_scope(rel: &str, prefixes: Option<&[String]>) -> bool {
     }
 }
 
-/// T001 vendored link targets (Elmer campaign FR-001): bundled third-party
-/// numerics the frozen recon does NOT mark `out_of_scope` (recon's vendored
+/// Link-target exclusion (T001 shape, now data-driven): bundled third-party
+/// numerics the frozen recon does not mark `out_of_scope` (recon's vendored
 /// segments are `contrib/` et al.; see `unit_vendored`), so the scheduler
-/// skips them here without touching the recon frozen shape. Frozen inventory
-/// counts: `mathlibs/` 1587 + `umfpack/` 193.
-/// These units link; they are never ported.
-pub(crate) const VENDORED_LINK_PREFIXES: &[&str] = &["mathlibs", "umfpack"];
-
-/// True when `id` lives under a vendored link-target prefix (repo-rel
-/// directory-prefix match, same boundary rule as [`in_scope`]).
-pub(crate) fn is_vendored_link_target(id: &str) -> bool {
+/// skips them here without touching the recon frozen shape. The prefix list
+/// rides the lane template (`vendored_link_prefixes`) — no package names
+/// here. These units link; they are never ported.
+pub(crate) fn is_vendored_link_target(id: &str, link_prefixes: &[String]) -> bool {
     let rel = crate::units::unit_rel(id);
-    VENDORED_LINK_PREFIXES
+    link_prefixes
         .iter()
         .any(|p| rel == *p || rel.starts_with(&format!("{p}/")))
 }
@@ -108,6 +104,7 @@ fn skip_reason(
     id: &str,
     out_of_scope: &HashSet<String>,
     prefixes: Option<&[String]>,
+    link_prefixes: &[String],
 ) -> Option<&'static str> {
     if out_of_scope.contains(id) {
         return Some("out_of_scope");
@@ -115,7 +112,7 @@ fn skip_reason(
     if !in_scope(crate::units::unit_rel(id), prefixes) {
         return Some("outside_scope");
     }
-    if is_vendored_link_target(id) {
+    if is_vendored_link_target(id, link_prefixes) {
         return Some("link_target");
     }
     None
@@ -138,38 +135,35 @@ fn compilable_claim(build_dir: Option<&Path>, tree: &Path, rel: &str) -> bool {
         Some(build) => CmakeBridge::has_built_object(build, tree, rel),
     }
 }
-/// Campaign-known upstream oracle failures (Elmer decision A, pinned by
-/// T002 `specs/elmer-campaign/baseline.md`): 3 `fem/tests` solver cases
-/// segfaulting in `DefaultDirichletBCs` on the pristine tree. Ports must
-/// introduce zero regressions beyond K; any other failure fails the slice.
-/// This list is data, not a tunable: changes re-pin the baseline.
-pub(crate) const KNOWN_UPSTREAM_FAILURES: &[&str] = &[
-    "ConstantBCTemperature",
-    "ProfileBCTemperature",
-    "ProfileBCTemperatureRobin",
-];
-
-/// Parity verdict for a CTest-spine grade: the Elmer campaign tolerates
-/// exactly its known upstream failures (subset rule per unit — scoped
-/// affected sets are subsets by construction); every other package keeps
-/// the strict zero-failure gate. Python-spine callers never reach here.
+/// Campaign-known upstream oracle failures (decision A, pinned by the lane
+/// baseline, e.g. T002 `specs/elmer-campaign/baseline.md`): tests failing on
+/// the pristine tree. Ports must introduce zero regressions beyond K; any
+/// other failure fails the slice. The list rides the lane template
+/// (`known_upstream_failures`) — data, not a tunable: changes re-pin the
+/// baseline. No package names here.
+/// Parity verdict for a CTest-spine grade: a lane with known upstream
+/// failures tolerates exactly those (subset rule per unit — scoped affected
+/// sets are subsets by construction); lanes with an empty list keep the
+/// strict zero-failure gate. Python-spine callers never reach here.
 fn campaign_parity(
     got: &rustsmith_core::GradedResult,
-    package: &str,
+    known_failures: &[String],
 ) -> rustsmith_gates::GateVerdict {
-    if package == "Elmer" {
-        rustsmith_gates::parity_with_known_failures(got, KNOWN_UPSTREAM_FAILURES)
-    } else {
+    if known_failures.is_empty() {
         rustsmith_gates::oracle_parity(got)
+    } else {
+        let known: Vec<&str> = known_failures.iter().map(|s| s.as_str()).collect();
+        rustsmith_gates::parity_with_known_failures(got, &known)
     }
 }
 
-/// Release-backstop exactness (T002 rule): the whole-suite grade passes at
-/// exactly 479/482 with failures == K. Subset tolerance carries units;
-/// only exact equality releases.
-fn backstop_exact(got: &rustsmith_core::GradedResult) -> bool {
+/// Release-backstop exactness: the whole-suite grade passes with failures
+/// exactly == K (e.g. 479/482 with K=3 upstream failures). Subset tolerance
+/// carries units; only exact equality releases. Called only for lanes with a
+/// non-empty known-failures list; strict-gate lanes skip the backstop.
+fn backstop_exact(got: &rustsmith_core::GradedResult, known: &[String]) -> bool {
     let mut failed = rustsmith_gates::failed_names(got);
-    let mut known: Vec<String> = KNOWN_UPSTREAM_FAILURES.iter().map(|s| s.to_string()).collect();
+    let mut known: Vec<String> = known.to_vec();
     failed.sort();
     known.sort();
     failed == known
@@ -1110,9 +1104,9 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     }
     // S1 scope-skip: frozen `out_of_scope` (vendored/coverage marks) plus the
     // `RUSTSMITH_SCOPE` prefix allowlist (empty/unset = whole tree), plus the
-    // T001 vendored link-target exclusion (`mathlibs/`, `umfpack/`; recon
-    // frozen shape untouched). Headers and helpers skip standalone here
-    // (link, don't port); header-follower attachment is a later track.
+    // template-driven vendored link-target exclusion (recon frozen shape
+    // untouched). Headers and helpers skip standalone here (link, don't
+    // port); header-follower attachment is a later track.
     let oos = out_of_scope_set(&dag_json);
     let scope = scope_prefixes();
     // Scheduler works over this DAG: leaf-first order, ready = deps passed.
@@ -1226,10 +1220,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     let _ = MAX_PARALLEL;
     for u in &unit_dag.units {
         let id = &u.id;
-        // S1 scope-skip (+ T001 link targets): out_of_scope / outside_scope /
-        // link_target units record `skipped` with a reason event and never
-        // grade or merge.
-        if let Some(reason) = skip_reason(id, &oos, scope.as_deref()) {
+        // S1 scope-skip (+ template link targets): out_of_scope /
+        // outside_scope / link_target units record `skipped` with a reason
+        // event and never grade or merge.
+        if let Some(reason) = skip_reason(id, &oos, scope.as_deref(), &tspec.vendored_link_prefixes) {
             store.set_unit_status(id, "skipped").map_err(|e| e.to_string())?;
             ev(store, run_id, "unit_skip", serde_json::json!({"unit": id, "reason": reason}));
             continue;
@@ -1429,10 +1423,10 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
                     run_ctest_oracle_scoped(wt_path, &build_dir, &manifest, &orig_rel)?;
                 let runner = CtestRunner;
                 let hashes = Oracle::current_hashes(&manifest, wt_path, &runner);
-                // Campaign parity: Elmer tolerates exactly its known
-                // upstream failures here (subset rule); other packages
-                // keep the strict gate.
-                let scoped_parity = campaign_parity(&scoped_got, &package);
+                // Lane parity: lanes with known upstream failures tolerate
+                // exactly those here (subset rule); others keep the strict
+                // gate. The list rides the lane template.
+                let scoped_parity = campaign_parity(&scoped_got, &tspec.known_upstream_failures);
                 if was_scoped && !scoped_parity.passed {
                     // Confirm: full suite decides (record both verdicts).
                     let full_got = run_ctest_oracle(wt_path, &build_dir, &manifest)?;
@@ -1443,8 +1437,8 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
                         &manifest.baseline,
                         &full_got,
                     );
-                    // Same campaign rule on the confirming full suite.
-                    let full_parity = campaign_parity(&full_got, &package);
+                    // Same lane rule on the confirming full suite.
+                    let full_parity = campaign_parity(&full_got, &tspec.known_upstream_failures);
                     let meta = serde_json::json!({
                         "scoped": true,
                         "affected": affected.len(),
@@ -1605,10 +1599,11 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
         let runner = CtestRunner;
         let hashes = Oracle::current_hashes(&manifest, &a.fork, &runner);
         let integrity = gates::oracle_integrity(&manifest, &hashes, &manifest.baseline, &got);
-        // Campaign parity (subset rule) plus the release-backstop
-        // exactness: the whole suite passes at exactly 479/482 with
-        // failures == K (T002). Anything else fails the slice.
-        let parity = campaign_parity(&got, &package);
+        // Lane parity (subset rule) plus the release-backstop exactness
+        // for tolerance lanes: the whole suite passes with failures
+        // exactly == K; anything else fails the slice. Strict-gate lanes
+        // (empty known list) skip the backstop.
+        let parity = campaign_parity(&got, &tspec.known_upstream_failures);
         (got, integrity, parity)
     };
     if !integrity.passed {
@@ -1620,7 +1615,7 @@ pub fn run_mirror(a: &MirrorArgs, store: &Store) -> Result<Report, String> {
     if !parity.passed {
         return Err("whole-repo grade failed".into());
     }
-    if package == "Elmer" && !backstop_exact(&got) {
+    if !tspec.known_upstream_failures.is_empty() && !backstop_exact(&got, &tspec.known_upstream_failures) {
         let reason = format!(
             "whole-repo backstop drift: failures != K ({})",
             serde_json::json!({"failed": rustsmith_gates::failed_names(&got)}),
@@ -2375,25 +2370,40 @@ mod tests {
         assert!(in_scope("fem/src/b.F90", None));
     }
 
+    /// Template-shaped fixtures: the production values live in
+    /// `mirror/Elmer/template.json` (asserted in
+    /// `units::elmer_template_loads_cmake_spine`); unit tests below use the
+    /// same shape without naming a package.
+    fn link_fixture() -> Vec<String> {
+        vec!["mathlibs".to_string(), "umfpack".to_string()]
+    }
+    fn known_k() -> Vec<String> {
+        vec![
+            "ConstantBCTemperature".to_string(),
+            "ProfileBCTemperature".to_string(),
+            "ProfileBCTemperatureRobin".to_string(),
+        ]
+    }
+
     #[test]
     fn s1_skip_reasons_with_precedence() {
         let oos: HashSet<String> = ["c:contrib/a.c".to_string()].into_iter().collect();
         let scope = scope_prefixes_from("src");
         let s = scope.as_deref();
         // Frozen mark wins when both apply.
-        assert_eq!(skip_reason("c:contrib/a.c", &oos, s), Some("out_of_scope"));
+        assert_eq!(skip_reason("c:contrib/a.c", &oos, s, &link_fixture()), Some("out_of_scope"));
         let oos2: HashSet<String> =
             ["fortran:src/vendored.F90".to_string()].into_iter().collect();
-        assert_eq!(skip_reason("fortran:src/vendored.F90", &oos2, s), Some("out_of_scope"));
+        assert_eq!(skip_reason("fortran:src/vendored.F90", &oos2, s, &link_fixture()), Some("out_of_scope"));
         // Outside scope, not frozen -> outside_scope.
         assert_eq!(
-            skip_reason("c:include/h.h", &HashSet::new(), s),
+            skip_reason("c:include/h.h", &HashSet::new(), s, &link_fixture()),
             Some("outside_scope")
         );
         // Inside scope, not frozen -> scheduled (None).
-        assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), s), None);
+        assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), s, &link_fixture()), None);
         // Whole tree, not frozen -> scheduled.
-        assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), None), None);
+        assert_eq!(skip_reason("fortran:src/a.F90", &HashSet::new(), None, &link_fixture()), None);
     }
 
     #[test]
@@ -2402,21 +2412,22 @@ mod tests {
         // scope filter, nothing frozen — both skip as link targets while a
         // neighbouring `fem/` unit still schedules.
         let empty = HashSet::new();
-        assert!(is_vendored_link_target("fortran:mathlibs/src/dlapack.F90"));
-        assert!(is_vendored_link_target("c:umfpack/src/umf_lu.c"));
-        assert!(!is_vendored_link_target("fortran:fem/src/x.F90"));
-        assert!(!is_vendored_link_target("c:matc/src/main.c"));
+        let link = link_fixture();
+        assert!(is_vendored_link_target("fortran:mathlibs/src/dlapack.F90", &link));
+        assert!(is_vendored_link_target("c:umfpack/src/umf_lu.c", &link));
+        assert!(!is_vendored_link_target("fortran:fem/src/x.F90", &link));
+        assert!(!is_vendored_link_target("c:matc/src/main.c", &link));
         // Directory boundary: `mathlibs_extra/` is not vendored.
-        assert!(!is_vendored_link_target("c:mathlibs_extra/src/a.c"));
+        assert!(!is_vendored_link_target("c:mathlibs_extra/src/a.c", &link));
         assert_eq!(
-            skip_reason("fortran:mathlibs/src/dlapack.F90", &empty, None),
+            skip_reason("fortran:mathlibs/src/dlapack.F90", &empty, None, &link),
             Some("link_target")
         );
         assert_eq!(
-            skip_reason("c:umfpack/src/umf_lu.c", &empty, None),
+            skip_reason("c:umfpack/src/umf_lu.c", &empty, None, &link),
             Some("link_target")
         );
-        assert_eq!(skip_reason("fortran:fem/src/x.F90", &empty, None), None);
+        assert_eq!(skip_reason("fortran:fem/src/x.F90", &empty, None, &link), None);
     }
 
     #[test]
@@ -2426,17 +2437,18 @@ mod tests {
         // keep reporting link-target units as `outside_scope`.
         let frozen: HashSet<String> =
             ["fortran:mathlibs/src/dlapack.F90".to_string()].into_iter().collect();
+        let link = link_fixture();
         assert_eq!(
-            skip_reason("fortran:mathlibs/src/dlapack.F90", &frozen, None),
+            skip_reason("fortran:mathlibs/src/dlapack.F90", &frozen, None, &link),
             Some("out_of_scope")
         );
         let matc = scope_prefixes_from("matc");
         assert_eq!(
-            skip_reason("fortran:mathlibs/src/dlapack.F90", &HashSet::new(), matc.as_deref()),
+            skip_reason("fortran:mathlibs/src/dlapack.F90", &HashSet::new(), matc.as_deref(), &link),
             Some("outside_scope")
         );
         assert_eq!(
-            skip_reason("c:umfpack/src/umf_lu.c", &HashSet::new(), matc.as_deref()),
+            skip_reason("c:umfpack/src/umf_lu.c", &HashSet::new(), matc.as_deref(), &link),
             Some("outside_scope")
         );
     }
@@ -2471,8 +2483,9 @@ mod tests {
         assert_eq!(ids.len(), 3025);
         let matc = scope_prefixes_from("matc");
         let (mut scheduled, mut oos, mut outside, mut link) = (0, 0, 0, 0);
+        let link_prefixes = link_fixture();
         for id in &ids {
-            match skip_reason(id, &frozen, matc.as_deref()) {
+            match skip_reason(id, &frozen, matc.as_deref(), &link_prefixes) {
                 None => scheduled += 1,
                 Some("out_of_scope") => oos += 1,
                 Some("outside_scope") => outside += 1,
@@ -2483,7 +2496,7 @@ mod tests {
         assert_eq!((scheduled, oos, outside, link), (26, 61, 2938, 0));
         let (mut scheduled, mut oos, mut link) = (0, 0, 0);
         for id in &ids {
-            match skip_reason(id, &frozen, None) {
+            match skip_reason(id, &frozen, None, &link_prefixes) {
                 None => scheduled += 1,
                 Some("out_of_scope") => oos += 1,
                 Some("link_target") => link += 1,
@@ -2497,9 +2510,10 @@ mod tests {
     fn campaign_parity_tolerates_only_known_upstream() {
         use rustsmith_core::{GradedResult, Outcome};
         use std::collections::BTreeMap;
+        let known = known_k();
         let mut outcomes = BTreeMap::new();
-        for k in KNOWN_UPSTREAM_FAILURES {
-            outcomes.insert(k.to_string(), Outcome::Fail);
+        for k in &known {
+            outcomes.insert(k.clone(), Outcome::Fail);
         }
         let got = GradedResult {
             exit_code: 8,
@@ -2511,27 +2525,28 @@ mod tests {
             stdout: String::new(),
             outcomes,
         };
-        // Elmer: exact K passes; backstop exactness holds.
-        assert!(campaign_parity(&got, "Elmer").passed);
-        assert!(backstop_exact(&got));
-        // Elmer subset (scoped run missing one K test) passes parity but
+        // Tolerance lane: exact K passes; backstop exactness holds.
+        assert!(campaign_parity(&got, &known).passed);
+        assert!(backstop_exact(&got, &known));
+        // Subset (scoped run missing one K test) passes parity but
         // fails backstop exactness (whole-suite rule is equality).
         let mut scoped = got.clone();
         scoped.passed = 100;
         scoped.failed = 2;
         scoped.outcomes.remove("ConstantBCTemperature");
-        assert!(campaign_parity(&scoped, "Elmer").passed);
-        assert!(!backstop_exact(&scoped));
+        assert!(campaign_parity(&scoped, &known).passed);
+        assert!(!backstop_exact(&scoped, &known));
         // Extra failure fails everywhere.
         let mut extra = got.clone();
         extra.failed = 4;
         extra.outcomes.insert("HeatSolve".to_string(), Outcome::Fail);
-        assert!(!campaign_parity(&extra, "Elmer").passed);
-        assert!(!backstop_exact(&extra));
-        // Other packages keep the strict gate even on K names.
-        assert!(!campaign_parity(&got, "Mini").passed);
+        assert!(!campaign_parity(&extra, &known).passed);
+        assert!(!backstop_exact(&extra, &known));
+        // Empty known list keeps the strict gate even on K names.
+        let strict: Vec<String> = Vec::new();
+        assert!(!campaign_parity(&got, &strict).passed);
         let clean = GradedResult { exit_code: 0, passed: 5, failed: 0, outcomes: BTreeMap::new(), ..got };
-        assert!(campaign_parity(&clean, "Mini").passed);
+        assert!(campaign_parity(&clean, &strict).passed);
     }
 
     #[test]

@@ -23,7 +23,7 @@ Frozen workload: 2000-timestamp batches, parse (ISO + explicit format)
 pipeline reproduces the rerank: **0.72 rewrite, pure 85%, pipeline**,
 top frame `_generate_pattern_re` (`data/headroom/arrow.json`).
 
-Tier-1 (pure Python, `data/rs-port-arrow/bench_tier1.py`):
+Tier-1 (pure Python, [`bench_tier1.py`](https://github.com/John-Cusack/arrow-rust/tree/main/bench) in arrow-rust — relocated out of `data/rs-port-arrow/`):
 
 - fmt-parse 2000: baseline 44.6 ms → shared parser 24.3 ms (1.84x) →
   shared + `cache_size=128` **7.4 ms (6.03x)**; class-level memo through
@@ -33,8 +33,7 @@ Tier-1 (pure Python, `data/rs-port-arrow/bench_tier1.py`):
   (locale + 6 choice compiles) ≈28%, match/extract/build ≈30%.
   Upstream's `lru_cache` opt-in (default `cache_size=0`) cannot fire on
   the `arrow.get` path because `factory.py` builds a fresh parser per
-  call — the cache dies with the instance. Upstream-ready patch note in
-  `data/rs-port-arrow/upstream-patch-note.md` (no PR opened).
+  call — the cache dies with the instance. Upstream-ready patch note ([`upstream-patch-note.md`](https://github.com/John-Cusack/arrow-rust/blob/main/tier1/upstream-patch-note.md), patch [`tier1-memo.patch`](https://github.com/John-Cusack/arrow-rust/blob/main/tier1/tier1-memo.patch); no PR opened).
 
 ## Decision: no_gain, no Rust port
 

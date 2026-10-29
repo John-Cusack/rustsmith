@@ -13,9 +13,9 @@ first.
 
 ## Measurements (Ryzen 9 5950X, CPython 3.12.3, frozen WORKLOAD.md v1)
 
-- Tier-1 (pure-Python codegen shapes, `bench_tier1.py`, min-of-7):
+- Tier-1 (pure-Python codegen shapes, [`bench_tier1.py`](https://github.com/John-Cusack/fastjsonschema-rust/tree/main/bench) in fastjsonschema-rust — relocated out of `data/rs-port-fastjsonschema/`, min-of-7):
   rep **1.63x**, valid 1.76x, x1 1.98x (combined arm E; B/C/D arms
-  record the split). Upstream-ready patch note, no PR opened.
+  record the split). Upstream-ready patch note ([`upstream-patch-note.md`](https://github.com/John-Cusack/fastjsonschema-rust/blob/main/tier1/upstream-patch-note.md), patch [`tier1.patch`](https://github.com/John-Cusack/fastjsonschema-rust/blob/main/tier1/tier1.patch); no PR opened).
 - Rewrite ceiling vs tier-1 baseline: floor (C-API traversal +
   identical-exception costs, conservative) 0.0571 s vs E rep
   0.2192 s → **3.84x**. Kill bar (<1.5x) cleared with margin → GO.

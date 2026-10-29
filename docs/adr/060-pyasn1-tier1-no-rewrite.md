@@ -30,7 +30,7 @@ Headroom re-probe on the frozen workload reproduces the rerank:
 **0.84 rewrite, pure 99%, pipeline**, same top frames
 (`data/headroom/pyasn1.json`).
 
-Tier-1 (pure Python, `data/rs-port-pyasn1/bench_tier1.py`, wall +
+Tier-1 (pure Python, [`bench_tier1.py`](https://github.com/John-Cusack/pyasn1-rust/tree/main/bench) in pyasn1-rust — relocated out of `data/rs-port-pyasn1/`, wall +
 child-`ru_maxrss` both arms, checksums agree within track):
 
 - rep: A 0.2694 s → B 0.2401 (1.12x) → C 0.2758 (0.98x) → D 0.2851
@@ -62,8 +62,7 @@ Kill math against the tier-1 baseline (E, 0.2307 s rep):
 
 `no_gain` recorded in lane store; `John-Cusack/pyasn1-rust`
 created per repo-early rule and seeded with license/notice/outcome
-only. Upstream patch note ready
-(`data/rs-port-pyasn1/upstream-patch-note.md`, no PR opened).
+([`upstream-patch-note.md`](https://github.com/John-Cusack/pyasn1-rust/blob/main/tier1/upstream-patch-note.md), patch [`tier1.patch`](https://github.com/John-Cusack/pyasn1-rust/blob/main/tier1/tier1.patch); no PR opened).
 
 ## Consequences
 
