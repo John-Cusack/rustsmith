@@ -1,4 +1,4 @@
-# ADR-069: idna tier-1 measured, rewrite SURVIVES (port scoped)
+# ADR-070: idna tier-1 measured, rewrite SURVIVES (port scoped)
 
 Date: 2026-10-29. Lane: rs-port-idna (brief: rerank-4 §3 Lane 1, 1339.5M
 dl/mo, headroom 0.79 rewrite-phenotype). Outcome: **port** — the first
@@ -26,9 +26,11 @@ overhead `x1-valid/idn/invalid`. Deterministic seed 20261029. Box: Ryzen 9
 
 ## Tier-1 (pure Python, upstream-plausible; suite-identical)
 
-Patch: lane `tier1.patch` (applies to installed 3.20;
-`bench_tier1.py` applies it to a temp copy itself). Upstream-ready note in
-`upstream-patch-note.md` (no upstream PR opened, lane policy).
+Patch: [`tier1/tier1.patch`](https://github.com/John-Cusack/idna-rust/tree/main/tier1)
+(applies to installed 3.20; `bench/bench_tier1.py` applies it to a temp
+copy itself). Upstream-ready note in
+[`tier1/upstream-patch-note.md`](https://github.com/John-Cusack/idna-rust/tree/main/tier1)
+(no upstream PR opened, lane policy).
 
 - **T-ascii** (P3+P7): lowercase-ASCII-valid label fast path
   (`_ascii_label_ok_re`: 1–63 chars, alnum ends, no `--` at 3–4 — which
@@ -40,8 +42,8 @@ Patch: lane `tier1.patch` (applies to installed 3.20;
 - **T-import** (P6): hoist `from .uts46data import ...` out of
   `uts46_remap` to module top (no cycle: `uts46data` imports only `array`).
 
-Measured (`bench_tier1.py`, min-of-7 × 3 sessions, per-cell best-of-21,
-worker self-RSS):
+Measured (`bench/bench_tier1.py` in idna-rust, min-of-7 × 3 sessions,
+per-cell best-of-21, worker self-RSS):
 
 | Track | Stock | Tier-1 | Speedup |
 |---|---|---|---|

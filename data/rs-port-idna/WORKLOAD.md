@@ -25,8 +25,14 @@ arm: `cProfile` over one `run()`, frames bucketed into `idna`-own
 Python — portable by reimplementation in-core), C (`bisect`,
 `unicodedata`, `re`, codecs).
 
-## Kill criteria (lane spec §3 Lane 1)
+## Harness
 
+Bench/attribution scripts live in the port repo
+([bench/](https://github.com/John-Cusack/idna-rust/tree/main/bench));
+per-cell best-of-21 across 3 min-of-7 sessions is recorded in
+`bench_port_results.csv`.
+
+## Kill criteria (lane spec §3 Lane 1)
 - Tier-1 gain recorded separately; ceiling recomputed vs tier-1 baseline.
 - Kill at ceiling <2x over tier-1 on `mixed-8000`, or label-cache +
   ASCII-fast-path removes the majority (remainder is C-`bisect` + table
