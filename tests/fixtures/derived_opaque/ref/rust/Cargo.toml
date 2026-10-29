@@ -1,0 +1,24 @@
+[package]
+name = "ovalport"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+name = "ovalport"
+crate-type = ["staticlib"]
+
+[[bin]]
+name = "pos"
+path = "src/bin/pos.rs"
+
+[[bin]]
+name = "negdesc"
+path = "src/bin/negdesc.rs"
+
+[[bin]]
+name = "negres"
+path = "src/bin/negres.rs"
+
+[[bin]]
+name = "negptr"
+path = "src/bin/negptr.rs"
