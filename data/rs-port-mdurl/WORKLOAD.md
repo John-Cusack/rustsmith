@@ -21,3 +21,7 @@ Tracks:
 - representative: the frozen corpus above (mixed classes).
 - No showcase/overhead split: per-URL cost is uniform (~5us);
   single crossing per URL already satisfies P1 by construction.
+
+Bench + tier-1 code (moved out of this repo per captain rule, no project
+code in rustsmith): https://github.com/John-Cusack/mdurl-rust/tree/main/bench
+and https://github.com/John-Cusack/mdurl-rust/tree/main/tier1

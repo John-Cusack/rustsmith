@@ -101,3 +101,7 @@ unchanged (3.12x representative displaces nothing).
 3. P8 "does NOT help": add arm-C 0.82x receipt.
 4. New Single pattern (character-class transcription) with mdurl receipt.
 5. No Top-10 movement.
+
+Bench + tier-1 code (moved out of this repo per captain rule, no project
+code in rustsmith): https://github.com/John-Cusack/mdurl-rust/tree/main/bench
+and https://github.com/John-Cusack/mdurl-rust/tree/main/tier1

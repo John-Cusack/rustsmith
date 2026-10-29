@@ -1,5 +1,23 @@
-{"equiv_corpus":{"note":"upstream fixtures + 2000-URL workload, both slashes_denote_host settings; 20k adversarial fuzz separately 0-mismatch","pairs":4176,"passed":true},
-"passed":true,
-"port_suite":{"note":"189 upstream tests adapted to mdurl_rust + workload-corpus gate (frozen checksum 85300)","tests":190},
-"rust_gates":{"clippy":"clean (--workspace --all-targets)","core_tests":3,"note":"cargo test --workspace green"},
-"upstream_unit_suite":{"note":"full original suite green on stock 0.1.2 (baseline) and on A+D tier-1 overlay","passed":true,"tests":189}}
+{
+ "equiv_corpus": {
+  "note": "upstream fixtures + 2000-URL workload, both slashes_denote_host settings; 20k adversarial fuzz separately 0-mismatch",
+  "pairs": 4176,
+  "passed": true
+ },
+ "passed": true,
+ "port_suite": {
+  "note": "189 upstream tests adapted to mdurl_rust + workload-corpus gate (frozen checksum 85300)",
+  "tests": 190
+ },
+ "rust_gates": {
+  "clippy": "clean (--workspace --all-targets)",
+  "core_tests": 3,
+  "note": "cargo test --workspace green"
+ },
+ "upstream_unit_suite": {
+  "note": "full original suite green on stock 0.1.2 (baseline) and on A+D tier-1 overlay",
+  "passed": true,
+  "tests": 189
+ },
+ "code_home": "bench + tier-1 code moved out of rustsmith per captain rule (no project code in rustsmith): https://github.com/John-Cusack/mdurl-rust/tree/main/bench and https://github.com/John-Cusack/mdurl-rust/tree/main/tier1"
+}

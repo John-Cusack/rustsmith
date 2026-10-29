@@ -30,10 +30,10 @@ Ryzen 9 5950X / CPython 3.12.3 (`data/rs-port-mdurl/WORKLOAD.md`).
 | B precompiled `AUTH_HOST_PATTERN` | 1.00x | `re` cache already absorbs it |
 | C `min(...)`-generator find fusion | **0.82x** | loser: generator frames cost more than the explicit loop |
 | D `format` `+=` chain -> `"".join` | ~0.97x | noise (format is 3% of profile) |
-| A+D combined (`data/rs-port-mdurl/tier1.patch`) | **1.03x** | real but trivial; not offered |
+| A+D combined ([tier1.patch](https://github.com/John-Cusack/mdurl-rust/blob/main/tier1/tier1.patch)) | **1.03x** | real but trivial; not offered |
 
 Upstream suite 189/189 on baseline and A+D; checksum 85300 identical.
-`data/rs-port-mdurl/upstream-patch-note.md` records the arms as
+[upstream-patch-note.md](https://github.com/John-Cusack/mdurl-rust/blob/main/tier1/upstream-patch-note.md) records the arms as
 measured losers + micro-win (networkx class: nothing to offer).
 The lane spec's named tier-1 thesis (hoist per-parse regex) did not
 reproduce — priced cheap, as designed.
