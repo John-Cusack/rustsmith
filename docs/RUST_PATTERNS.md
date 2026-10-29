@@ -138,7 +138,12 @@ format. tabulate: one kernel call per `tabulate()` → 10.12–11.87x.
 **Does NOT help / inverted when violated.** markdown-it bulk:
 **0.20x** on render-280KB (587→2972 ms) while the same port is 2.36x
 on 16.7KB — per-token crossings scale with token count, kernel win
-does not. pyyaml's accepted compromise (one FFI call per token/event,
+does not. mako (ADR-064): whole-template crossing is *impossible* —
+template nodes are user Python evaluated per node, so the seam keeps
+100% of per-node work while turning each buffer write (one C
+`list.append`, ~50 ns) into a PyO3 call; realizable ceiling 1.17x
+over tier-1 at zero toll, expected ≤1.0x with toll — no_gain.
+pyyaml's accepted compromise (one FFI call per token/event,
 ADR-029) still wins 3.04x because the per-token Rust work (scanner
 state machine) is large; the toll is bounded and *disclosed*, not
 absent. Rule: if per-item work < ~1 µs, P1 is mandatory; if per-item
@@ -626,6 +631,7 @@ incomplete (`PATTERN_REVIEW.md` checklist).
 | Anti-pattern | Receipt | Do instead |
 |---|---|---|
 | Per-token/per-item FFI crossing | markdown-it 0.20x @280KB | P1 whole-unit crossing |
+| Template-render kernel, nodes are user Python per node | mako realizable ≤1.17x over tier-1 at zero toll, expected ≤1.0x w/ writer toll (ADR-064) | Walk away (no_gain); tier-1 only |
 | Reimplementing a shared C engine (`re`, codecs) | pygments lex 1.00x; charset latin bulk 0.57x | P11 probe; port around it or walk away |
 | Porting the slower algorithm faithfully | sympy PRS gcd 0.17x vs heuristic GCD | Match algorithm class first (P5 note) |
 | Kernel nobody's workload hits | pyparsing grammars 0.98x vs scan 201x | Profile real grammars; P7 hit-rate (babel reports 99.9%) |
