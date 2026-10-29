@@ -34,3 +34,16 @@ call history preserved so stale-Basis behavior matches source bit-for-bit.
 - Per-entry staged differentials: in progress (backstop ctest).
 - SaveData solo + combined backstop at 479/482 K=3: in progress.
 - Bundled ledger: 37 files (10 ported, 27 pending future slices).
+
+## 4. Kill criterion (2026-10-29, firstmate 031/032)
+
+SaveData DROPPED from Slice 1. SaveScalars Norm bug: port computes
+Values correctly (stdout shows 4 values) and sets Variable%Norm=1.0
+(reads back 1.0, LOC(Solver)=LOC(Solvers(2))), but harness sees 0.0.
+Magic 999 also invisible. Matched fmodules (T020) still fail. 1hr box
+exhausted. 93 SaveScalars-user tests fail; reference passes. Evidence:
+proof/LastTest-cs-only.log (CS-only run), test-stdout_1.log (debug).
+
+Slice 1 ships CS ONLY. Backstop CS-only (T020 good build + my CS.so):
+479/482, K=3 = ConstantBCTemperature, ProfileBCTemperature,
+ProfileBCTemperatureRobin (all fail pristine too = upstream).
