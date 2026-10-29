@@ -1,4 +1,4 @@
-# ADR-061: networkx lane — tier-1 measured, drop-in Dijkstra kernel ported (rewrite proceeds)
+# ADR-066: networkx lane — tier-1 measured, drop-in Dijkstra kernel ported (rewrite proceeds)
 
 Date: 2026-10-29. Lane: rs-port-networkx-01 (networkx 3.7, 199M dl/mo).
 Port: https://github.com/John-Cusack/networkx-rust @ `81fce79`

@@ -1,4 +1,4 @@
-# ADR-062: Slice-1 tooling — `elmer-regrade --mode` + library-manifest mode
+# ADR-067: Slice-1 tooling — `elmer-regrade --mode` + library-manifest mode
 
 Date: 2026-10-28. Scope: rs-elmer-next Slice 1 (§8) tool PR (this repo).
 Port PR (elmer-rust) names this PR; no verdict semantics change here.

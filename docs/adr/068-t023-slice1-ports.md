@@ -1,7 +1,7 @@
-# ADR-063: Slice-1 ports — ConsistentSplitting + SaveData whole-library cdylibs
+# ADR-068: Slice-1 ports — ConsistentSplitting + SaveData whole-library cdylibs
 
 Date: 2026-10-29. Scope: rs-elmer-next Slice 1 (§8) port PR (elmer-rust).
-Tool PR: rustsmith#139 (ADR-062). No gate semantics change.
+Tool PR: rustsmith#139 (ADR-067). No gate semantics change.
 
 ## 1. What was ported
 

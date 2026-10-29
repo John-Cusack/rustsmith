@@ -3,7 +3,7 @@
 Date: 2026-10-29. Port: https://github.com/John-Cusack/networkx-rust @
 `6f0e4e0`. Evidence: `data/rs-port-networkx/` (WORKLOAD.md, tier-1
 benches, prototype ceiling, bench_evidence.json, equiv jsonl 28/28,
-verification.json), ADR-061, port README bench table.
+verification.json), ADR-066, port README bench table.
 
 ## Review checklist
 
@@ -81,7 +81,7 @@ verification.json), ADR-061, port README bench table.
 A. Per-port index row:
 
 ```
-| networkx | P1, P2, P7 | 3.60x rep (multi 2.77x) | T1/T3 per-call export 0.4–0.9x losers; A* stays Python (callback seam) | networkx-rust `6f0e4e0` README; `data/rs-port-networkx/bench_evidence.json`, ADR-061 |
+| networkx | P1, P2, P7 | 3.60x rep (multi 2.77x) | T1/T3 per-call export 0.4–0.9x losers; A* stays Python (callback seam) | networkx-rust `6f0e4e0` README; `data/rs-port-networkx/bench_evidence.json`, ADR-066 |
 ```
 
 B. Appendix A paragraph:
