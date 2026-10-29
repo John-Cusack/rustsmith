@@ -111,6 +111,10 @@ Reproduce their environment from their own docs in a fresh venv, rebase
 onto current upstream main, and measure there. Both arms (main and the
 branch) run in fresh processes, arms interleaved, min of several runs.
 Use VmHWM for memory; `ru_maxrss` reads constant on some of our machines.
+Time nothing while reviewers are running: they run code too, and one
+fastjsonschema run made during a panel read 549 ms for master against
+347 ms on a quiet box. Every number in the text comes from a run whose
+script and output are in the evidence directory.
 
 The evidence directory holds raw output, both arms, for:
 
@@ -368,6 +372,10 @@ stating the saving (about 20 µs per address) instead of today's cost, and
 link the pydantic source line. Any of those edits means another packet
 and another review.
 
+The cut-down branch was pushed on 2026-10-29, so this draft is
+superseded: the reply that replaces it, and the review rounds behind it,
+are in [the three open PRs through the panel](#retrospective-the-three-open-prs-through-the-panel).
+
 ## Follow-up
 
 - Re-check every open PR on a cadence: state, comments, reviews, checks.
@@ -480,11 +488,213 @@ What it should have been: change 1 alone, led by the pydantic why.
 The test and differential sentence would need a fresh run on that diff;
 we have not run it, so it is not written here.
 
+That body is wrong in one place, and our own review above missed it: the
+round trip does not lowercase anything, because `idna.uts46_remap()` has
+already case-folded the domain. The panel caught it when the cut-down
+branch went through (next section).
+
 ### The other open PRs
 
-Not changed by this work. For comparison, the mechanical check on each:
+The mechanical check on each before this work (the next section has
+what the panel found):
 
 | PR | Visible words | Diff | Why in the first two sentences | Import time measured | Check |
 |---|---|---|---|---|---|
 | arrow#1398 | 456 | +106 -5 | partly (every `arrow.get` rebuilds a parser; no caller named) | no (adds `import threading`) | FAIL: length, dashes |
 | fastjsonschema#233 | 342 | +42 -15 | no | not applicable (no new imports) | FAIL: length, dashes, title |
+
+## Retrospective: the three open PRs through the panel
+
+On 2026-10-29 we ran email-validator#182 (cut down), arrow#1398 and
+fastjsonschema#233 through steps 1 to 7. Same box as above: shared Ryzen 9
+5950X, CPython 3.12.3. Each round below is a fresh packet and three fresh
+reviewers.
+
+### email-validator#182: cut down and pushed
+
+The branch now holds change 1 only (+7 in `syntax.py`, +1 changelog line)
+on top of current main (4f32939), force-pushed to the PR branch, with a new
+title and body.
+
+Round 1 (packet 743521c86e91): maintainer FAIL, AI tells PASS, facts FAIL.
+Both FAILs caught the same false claim, one we had also written into the
+retrospective above: the IDNA round trip does not "only lowercase" the
+domain. `idna.uts46_remap()` at the top of the function has already
+case-folded it, so the round trip returns it unchanged. That made the
+`.isascii()` and `.lower()` calls in change 1 dead code: the maintainer
+reviewer wanted `if "xn--" not in ascii_domain:` and nothing else. Facts
+also found the pydantic link one line off (the evidence copy carries a
+header line), "60,044 generated addresses" counting cases rather than
+addresses, and no CPU in the benchmark evidence.
+
+Round 2 (packet 3db899700976): all three PASS. Remaining minors: no test
+pins the case-sensitive `xn--` check (the fuzz corpus covers `XN--`), and
+the old "For ASCII-only domains, the conversion out of IDNA just gives the
+same thing back" comment below the new return is now slightly stale.
+
+| | main | branch |
+|---|---|---|
+| Lines | | +8 (2 files) |
+| PR body script, µs per address (5 rounds) | 53.5 to 54.6 | 29.8 to 30.8 |
+| mixed-2000 / ascii-5000 / idn-1000 | 54.7 / 64.4 / 92.9 µs | 32.8 / 28.9 / 92.0 µs |
+| `import email_validator`, median of 41 | 27.4 ms | 27.6 ms |
+| VmHWM after import | 12,360 KiB | 12,368 KiB |
+| Test suite, 3.12.3 | 319 passed, 1 failed | same (`test_domain_literal`, fails on main too) |
+| Test suite, 3.10 and 3.14 | 320 passed | 320 passed |
+| Differential, 60,044 cases (51,928 addresses) | | identical |
+| 11 documented settings changed after the first call | all take effect | all take effect |
+
+The settings check on the first PR head (4e2ddc7) showed the bug was wider
+than "First use" says: every documented setting changed after the first
+call was ignored, including `SPECIAL_USE_DOMAIN_NAMES.remove("test")`,
+the README's own recipe for test domains.
+
+The reply to "But why?" took three rounds (packets 0f5efe178f30,
+d1f55145b3cb, b909be143128). Round 1 failed facts: "about 54 µs to 30 µs
+per address" read as a per-address cost for the fast-path class, and the
+packet lacked the branch's settings, test and differential output. Round 2
+failed facts on one word: "Mostly pydantic" claims pydantic is the main
+caller, which nothing shows. Round 3 passed all three:
+
+> pydantic's `EmailStr` calls `validate_email()` with
+> `check_deliverability=False` on every value, so bulk imports run it once
+> per record.
+>
+> The first version had a bug. It cached module settings on the first
+> call, so later changes like `email_validator.CHECK_DELIVERABILITY =
+> False` were ignored. I've cut it to one early return that skips the IDNA
+> round trip for domains without Punycode labels; the description has the
+> numbers.
+
+It replaces the "First use" draft, which promised a change that has now
+been pushed. Not posted.
+
+### arrow#1398: close recommended
+
+Measured on master 2224255 against the PR head and three arms built from
+it: the factory change alone (A), the class-level cache alone (B), and S,
+which wraps `DateTimeParser(locale, cache_size=64)` in
+`functools.lru_cache(maxsize=64)` in `factory.py` and reuses the
+existing `cache_size` option (+8 -4, one file).
+
+| arrow.get, µs per call | master | PR | A | B | S |
+|---|---|---|---|---|---|
+| `arrow.get(s, "YYYY-MM-DD HH:mm:ss")` | 22.24 | 5.63 | 14.33 | 16.26 | 5.29 |
+| `arrow.get(s)` ISO | 31.72 | 11.40 | 23.40 | 23.86 | 11.14 |
+
+S gets all of the PR's gain without the module cache, the lock or the
+`threading` import. `import arrow` time and memory are flat on every arm
+(`threading` is already loaded before `arrow.parser`), the test suite and
+pre-commit pass, and a 24,553-case differential through `arrow.get` is
+identical on all of them. Arrow documents no module-level settings, and
+duplicate locale names raise, so a cached parser cannot go stale through
+the locale registry.
+
+The why is the problem. The only real caller we found is ics 0.7.3 (about
+330k downloads a month), which calls `arrow.get(string, fmt)` for every
+date field. Parsing a generated 500-event calendar with ics takes 847 to 878 ms
+(five rounds), and the PR saves 1.7% to 4.9% of it per round, because ics spends
+most of its time in its own grammar parser. That is far below the 1.2x
+bar, and the project's last merge was in April.
+
+Panel on the PR as posted (packet 39c2645c7c0e): maintainer SHRINK (to
+S, with one test), AI tells FAIL (eleven blocking: 456 words, headings,
+table, bold counts, eight dashes, "say the word and I'll attach it",
+"their own gates", our track names, a parser.py comment that the same
+diff makes false), facts FAIL. Facts found a real defect: the class-level
+cache is keyed by class name and a snapshot of the input map taken in
+`__init__`, so a parser whose `_input_re_map` changes later, or a
+same-named subclass with its own `_ESCAPE_RE`, gets another parser's
+pattern. Once such a parser has parsed `YYYY`, a plain
+`arrow.get("2013", "YYYY")` raises `ParserMatchError` on the PR branch
+until the entry is evicted; master and S parse it. Facts also found that
+most of the body's numbers (3.86x, 2.86x, the 1.81x "pipeline", 19.0 MB,
+the "20-case corpus") match no evidence we hold.
+
+S falls under the gain bar on the ics workload, so by step 7 it is HOLD,
+and the open PR has the defect above. The recommendation is to close it.
+The closing comment used all three rounds without a unanimous PASS.
+Round 1 failed facts on "real callers" (one caller is not callers),
+round 2 on "fails for the rest of the process" (the cache is a 128-entry
+FIFO). Round 3 (packet 6f85231f3779) passed the maintainer and AI-tells
+reviewers and failed facts once more: the failure depends on order.
+Whichever parser fills the `YYYY` entry first breaks the other, so the
+sentence holds only when the customized parser goes first. Under step 7
+the comment is held for the person signing off, with this last draft and
+the facts reviewer's fix (state the order):
+
+> Closing this. The shared pattern cache is keyed on a snapshot of the
+> input map taken in `__init__`. If a parser's `_input_re_map` is changed
+> after that and it then parses `YYYY`, a following
+> `arrow.get("2013", "YYYY")` fails. The gain for a real caller is also
+> small: in ics 0.7.3, parsing a generated 500-event calendar was less
+> than 5% faster.
+
+Not posted; closing needs the same sign-off as opening.
+
+### fastjsonschema#233: close recommended
+
+fastjsonschema is about speed (the README publishes `make performance`
+numbers), so its own `performance.py` schema is the workload a maintainer
+will look at. Per hunk, against master 738da70, five interleaved rounds
+with no reviewers running:
+
+| | `performance.py` valid | `performance.py` invalid | order docs, half invalid | order docs, valid |
+|---|---|---|---|---|
+| PR (+42 -15) | 1.07x | 1.06x | 1.49x | 1.71x |
+| `required` list comprehension only (1 line) | 1.06x | 1.03x | 1.18x | 1.32x |
+| `_keys` elision only (about 35 lines) | 0.99x | 0.99x | 1.14x | 1.17x |
+| enum tuple membership only | 0.99x | 0.99x | 1.01x | 1.03x |
+
+The order documents are our own synthetic schema with no
+`additionalProperties`, the case the `_keys` change targets. The test
+suite (4539 passed, identical on both arms), pylint and a 15,448-case
+differential (the whole JSON-Schema-Test-Suite for drafts 4, 6 and 7 plus
+mutated order documents) agree with master. The diff touches no imports
+or module-level state.
+
+Panel on the PR as posted (packet cb8b7cf37557): maintainer SHRINK (to
+the one-line `required` change; drop the enum hunk, which has no gain of
+its own, and the `_keys` change, whose `propertyNames: false` branch is
+dead code), AI tells FAIL (fourteen blocking, from the title tagline to
+"say the word and I'll attach them"), facts FAIL. The body says the
+change is "draft04 only" and offers to do draft06 and draft07, but both
+subclass draft04, so the PR already changes all three. "No behavior
+change" is false: `{"properties": []}` used to raise `AttributeError` at
+compile and now compiles, and an all-string `enum` now accepts a
+non-string object whose `__eq__` matches one of the strings. The body's
+table (1.48x, 1.73x, 1.92x, 23 MB) matches no evidence we hold.
+
+The one-line version is correct (both probes behave as on master) but
+gives about 3% to 6% on `performance.py`, under the gain bar, so it is
+HOLD. The recommendation is to close the PR. Closing comment, all three
+PASS on packet 42cf54f74716:
+
+> Closing this. The title and changelog say no behavior change, which
+> isn't true: `{"properties": []}` now compiles instead of raising
+> `AttributeError`, and an all-string `enum` now accepts a non-string
+> object whose `__eq__` matches one of the strings. On the repo's
+> `performance.py` schema it is also only about 6% faster.
+
+Not posted.
+
+### What the process learned
+
+- The facts reviewer is the one that finds bugs. On all three PRs it ran
+  code against the claims, and each time it found something the author
+  and the earlier review had missed: the "only lowercases" claim, the
+  arrow cache returning another parser's pattern, the two fastjsonschema
+  behavior changes.
+- Check what the posted numbers rest on. Neither the arrow nor the
+  fastjsonschema body's table could be reproduced from anything we kept.
+  Put the script that produced each number in the evidence, and quote
+  only what it printed.
+- Benchmarks and reviewers compete for the CPU. A fastjsonschema run made
+  while six reviewers were working read 549 ms for master against 347 ms
+  on a quiet box. Measure before launching the panel, or after it ends.
+- The settings check belongs on the old code too. Run on the first #182
+  head, it showed every documented setting ignored after the first call,
+  not just `CHECK_DELIVERABILITY`.
+- The project's own benchmark is the honest workload when the project is
+  about speed. Our order-document corpus showed 1.5x to 1.7x for #233;
+  `performance.py` shows 1.06x.
